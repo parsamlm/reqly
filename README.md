@@ -8,7 +8,7 @@
 Reqly is an open-source network traffic inspector. It shows what your apps send and receive, clearly laid out, in a native app. It starts on the Mac and then comes to Windows. Companion apps for iPhone, iPad and Android will send a phone's traffic to it.
 
 > [!NOTE]
-> Reqly is in early development. Phase 1 is under way; see the [roadmap](ROADMAP.md).
+> Reqly 1.0 for Mac is out, and Phase 1 is done. Windows comes next; see the [roadmap](ROADMAP.md).
 
 ## Features
 

@@ -4,7 +4,7 @@ Reqly comes in four phases, one platform at a time. Each phase ships when it's r
 
 | Phase | Platform | Status |
 |---|---|---|
-| [1](#phase-1--reqly-for-mac) | Mac | In progress |
+| [1](#phase-1--reqly-for-mac) | Mac | Done |
 | [2](#phase-2--reqly-for-windows) | Windows | Planned |
 | [3](#phase-3--reqly-for-iphone-and-ipad) | iPhone and iPad | Planned |
 | [4](#phase-4--reqly-for-android) | Android | Planned |
@@ -25,7 +25,7 @@ A native app for macOS 26 and later, with what people expect from a traffic insp
 - [x] Upstream proxies, reverse proxies and client certificates.
 - [x] Scripts in JavaScript.
 - [x] A welcome guide, a menu-bar item, and support for dark mode, the keyboard and VoiceOver.
-- [ ] Signed releases, automatic updates and a Homebrew cask.
+- [x] Signed releases, automatic updates and a Homebrew cask.
 
 ## Phase 2 — Reqly for Windows
 
