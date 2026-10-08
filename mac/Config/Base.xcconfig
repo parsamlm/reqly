@@ -1,0 +1,34 @@
+// Settings that every Reqly target shares.
+//
+// To sign with your own Apple developer team, copy Local.example.xcconfig to Local.xcconfig,
+// which Git ignores, and fill in your team there.
+
+REQLY_BUNDLE_ID_PREFIX = net.reqly
+
+// The app's identifier. Its helper's is the same plus ".Helper". Debug builds have their own, so
+// they keep a helper of their own: macOS starts a helper only if it's signed the same way as the
+// copy of Reqly that first set it up, so a debug build can't use a released Reqly's helper.
+REQLY_APP_IDENTIFIER = $(REQLY_BUNDLE_ID_PREFIX).Reqly
+REQLY_APP_IDENTIFIER[config=Debug] = $(REQLY_BUNDLE_ID_PREFIX).Reqly.debug
+
+// Local builds show this version. Release builds take theirs from the git tag (see .github/workflows/release.yml).
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1
+
+MACOSX_DEPLOYMENT_TARGET = 26.0
+SWIFT_VERSION = 6.0
+
+// Empty unless a build passes it. A perf build is a Release build with the debug-only launch
+// arguments, such as -perfLog, and a bundle identifier of its own, so it shares nothing with the
+// Reqly you use:
+//   xcodebuild -configuration Release REQLY_EXTRA_SWIFT_CONDITIONS=DEBUG REQLY_APP_IDENTIFIER=net.reqly.Reqly.perf
+// Packages don't read it, so their own debug checks stay off.
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) $(REQLY_EXTRA_SWIFT_CONDITIONS)
+
+// Without a team, builds are signed to run on this Mac only.
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+ENABLE_HARDENED_RUNTIME = YES
+
+#include? "Local.xcconfig"

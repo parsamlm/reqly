@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.xcresult
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Signing settings that stay on your Mac
+mac/Config/Local.xcconfig
+
+# The website (website/): its packages and build output
+website/node_modules/
+website/dist/
+website/.astro/

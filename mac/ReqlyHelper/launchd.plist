@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	The launchd job for ReqlyHelper. The build writes it into the app, with the app's identifier
+	in place of each placeholder, as Contents/Library/LaunchDaemons/ followed by the helper's
+	identifier and ".plist". The app registers it from there with SMAppService. The label and the
+	Mach service name are the helper's identifier: the app's identifier plus ".Helper". Debug
+	builds have an identifier of their own (see Config/Base.xcconfig).
+
+	RunAtLoad lets the helper restore the proxy at startup if a capture was left on.
+	KeepAlive restarts it only if it crashes; it exits by itself when idle.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$(REQLY_APP_IDENTIFIER).Helper</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/ReqlyHelper</string>
+	<key>MachServices</key>
+	<dict>
+		<key>$(REQLY_APP_IDENTIFIER).Helper</key>
+		<true/>
+	</dict>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>$(REQLY_APP_IDENTIFIER)</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+</dict>
+</plist>

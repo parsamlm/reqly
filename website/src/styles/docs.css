@@ -1,0 +1,48 @@
+/* The docs in Reqly's colors and type. Starlight's dark colors sit on :root and its light ones
+   on [data-theme='light']; these follow the same pattern. */
+:root {
+	--sl-font: var(--reqly-font);
+	--sl-font-mono: var(--reqly-mono);
+
+	--sl-color-white: var(--reqly-snow);
+	--sl-color-gray-1: #dde3e1;
+	--sl-color-gray-2: #b9c2bf;
+	--sl-color-gray-3: #85908d;
+	--sl-color-gray-4: #59625f;
+	--sl-color-gray-5: #363d3b;
+	--sl-color-gray-6: #1d2321;
+	--sl-color-black: var(--reqly-night);
+
+	--sl-color-accent-low: #0b2f29;
+	--sl-color-accent: #19b89c;
+	--sl-color-accent-high: var(--reqly-teal-dark);
+}
+
+:root[data-theme='light'] {
+	--sl-color-white: var(--reqly-ink);
+	--sl-color-gray-1: #1d2321;
+	--sl-color-gray-2: #363d3b;
+	--sl-color-gray-3: var(--reqly-graphite);
+	--sl-color-gray-4: #85908d;
+	--sl-color-gray-5: #c3cbc8;
+	--sl-color-gray-6: var(--reqly-mist);
+	--sl-color-gray-7: var(--reqly-paper);
+	--sl-color-black: #ffffff;
+
+	--sl-color-accent-low: #d4f1eb;
+	--sl-color-accent: var(--reqly-deep-teal);
+	--sl-color-accent-high: #05463b;
+}
+
+/* The logo at the same height as on the home page. */
+header .site-title img {
+	height: 1.75rem;
+}
+
+/* Notes in Reqly's teal rather than Starlight's blue, in both themes. */
+:root,
+:root[data-theme='light'] {
+	--sl-color-blue-low: var(--sl-color-accent-low);
+	--sl-color-blue: var(--sl-color-accent);
+	--sl-color-blue-high: var(--sl-color-accent-high);
+}

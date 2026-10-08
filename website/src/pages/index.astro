@@ -1,0 +1,190 @@
+---
+import Site from '../layouts/Site.astro';
+import icon from '../assets/icon.png?url';
+import { links } from '../links';
+
+const features = [
+	{
+		title: 'Capture with one switch.',
+		text: "Start capturing, and Reqly becomes your Mac's proxy. Stop, quit or even crash, and your network settings come back.",
+	},
+	{
+		title: 'Decrypt only what you choose.',
+		text: 'Pick the hosts to decrypt. Everything else passes through untouched.',
+	},
+	{
+		title: 'Read every request.',
+		text: 'See which app sent what, with headers, cookies, bodies and timing. JSON, XML, images and more are formatted for you.',
+	},
+	{
+		title: 'Find it fast.',
+		text: 'Search URLs, headers and bodies. Filter by app, device, host or status, and pin what matters.',
+	},
+	{
+		title: 'Change traffic as it passes.',
+		text: 'Pause a request at a breakpoint and edit it. Answer it with a local file, send it to another server, rewrite it, block it, or slow the network down to 3G.',
+	},
+	{
+		title: 'Script it.',
+		text: "Write JavaScript that rewrites requests and responses, or answers them itself. Scripts can't reach your files or the network.",
+	},
+	{
+		title: 'Phones, Simulators and emulators.',
+		text: 'Connect a phone on the same Wi-Fi with a QR code. iOS Simulators and Android emulators are set up for you.',
+	},
+	{
+		title: 'Modern protocols.',
+		text: 'HTTP/2, WebSocket, and gRPC and Protobuf decoded into readable fields.',
+	},
+	{
+		title: 'Save and share.',
+		text: 'Save sessions and export HAR files with secrets hidden, open them again, and copy any request as cURL.',
+	},
+	{
+		title: 'Made for the Mac.',
+		text: 'Native controls, light and dark mode, keyboard shortcuts and VoiceOver throughout.',
+	},
+];
+
+const next = [
+	{ title: 'Windows', text: 'Everything from the Mac app.' },
+	{
+		title: 'iPhone and iPad',
+		text: "A companion app that sends a device's traffic to Reqly in a few taps.",
+	},
+	{
+		title: 'Android',
+		text: 'The same companion app, which also shows which app made each connection.',
+	},
+];
+---
+
+<Site
+	title="Reqly: see what your apps send and receive"
+	description="Reqly is a free, open-source traffic inspector for the Mac. Every request your apps make, clearly laid out, in a native app."
+>
+	<section class="hero">
+		<div class="container">
+			<img class="hero-icon" src={icon} alt="" width="112" height="112" />
+			<h1>See what your apps send and receive.</h1>
+			<p class="lead">
+				Reqly is a free, open-source traffic inspector for the Mac. Every request your apps make,
+				clearly laid out, in a native app.
+			</p>
+			<div class="buttons">
+				<a class="button primary" href={links.download}>Download for Mac</a>
+				<a class="button secondary" href={links.github}>View on GitHub</a>
+			</div>
+			<p class="fine-print">Free and open source · macOS 26 or later · Signed and notarized</p>
+			<div class="reel">
+				<video
+					controls
+					preload="none"
+					playsinline
+					poster="/video/showreel-poster.webp"
+					width="1280"
+					height="720"
+					aria-label="Reqly in one minute: a narrated tour of the app"
+				>
+					<source src="/video/showreel.mp4" type="video/mp4" />
+					<track kind="captions" src="/video/showreel.en.vtt" srclang="en" label="English" />
+				</video>
+				<button class="reel-play" type="button" hidden>
+					<span class="reel-play-label">
+						<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+							<path d="M4.5 2.6v10.8a.6.6 0 0 0 .9.5l8.7-5.4a.6.6 0 0 0 0-1L5.4 2.1a.6.6 0 0 0-.9.5Z" fill="currentColor" />
+						</svg>
+						Watch Reqly in one minute
+					</span>
+				</button>
+			</div>
+		</div>
+	</section>
+
+	<section aria-labelledby="features">
+		<div class="container">
+			<h2 id="features" class="visually-hidden">Features</h2>
+			<div class="features">
+				{
+					features.map((feature) => (
+						<article class="feature">
+							<h3>{feature.title}</h3>
+							<p>{feature.text}</p>
+						</article>
+					))
+				}
+			</div>
+		</div>
+	</section>
+
+	<section aria-labelledby="privacy">
+		<div class="container">
+			<div class="panel">
+				<h2 id="privacy" class="section-title">Your traffic stays on your Mac.</h2>
+				<p class="section-text">
+					No account, no analytics, and Reqly never sends your traffic anywhere. On its own, it
+					only checks GitHub once a day for a newer version, and you can turn that off.
+				</p>
+			</div>
+		</div>
+	</section>
+
+	<section aria-labelledby="open-source">
+		<div class="container">
+			<h2 id="open-source" class="section-title">Free and open source.</h2>
+			<p class="section-text">
+				Reqly is MIT-licensed and built in the open. Read the code, report a problem, or send a
+				pull request.
+			</p>
+			<div class="buttons">
+				<a class="button secondary" href={links.github}>View on GitHub</a>
+			</div>
+		</div>
+	</section>
+
+	<section aria-labelledby="coming-next">
+		<div class="container">
+			<h2 id="coming-next" class="section-title">Coming next</h2>
+			<div class="next">
+				{
+					next.map((item) => (
+						<article class="feature">
+							<h3>{item.title}</h3>
+							<p>{item.text}</p>
+						</article>
+					))
+				}
+			</div>
+			<p class="center"><a href={links.roadmap}>See the roadmap</a></p>
+		</div>
+	</section>
+
+	<section class="get center" aria-labelledby="get-reqly">
+		<div class="container">
+			<h2 id="get-reqly" class="section-title">Get Reqly</h2>
+			<div class="buttons">
+				<a class="button primary" href={links.download}>Download for Mac</a>
+			</div>
+			<p class="or">or, with Homebrew:</p>
+			<code class="command">{links.homebrew}</code>
+			<p class="fine-print">macOS 26 or later. Reqly keeps itself up to date.</p>
+		</div>
+	</section>
+</Site>
+
+<script>
+	// Until it's played, the showreel shows one clear button over its still instead of the
+	// player's controls. Without scripts, the player's own controls play it.
+	const video = document.querySelector<HTMLVideoElement>('.reel video');
+	const play = document.querySelector<HTMLButtonElement>('.reel-play');
+	if (video && play) {
+		video.controls = false;
+		play.hidden = false;
+		play.addEventListener('click', () => {
+			play.hidden = true;
+			video.controls = true;
+			video.focus();
+			void video.play();
+		});
+	}
+</script>

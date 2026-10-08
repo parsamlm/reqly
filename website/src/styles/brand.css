@@ -1,0 +1,17 @@
+/* Reqly's colors and type, as in design/GUIDELINES.md. Only tokens here; each page's own styles
+   use them, so this file is safe to load everywhere, the docs included. */
+:root {
+	--reqly-ink: #131816;
+	--reqly-snow: #f2f5f4;
+	--reqly-graphite: #5f6966;
+	--reqly-mist: #e9edec;
+	--reqly-paper: #f6f7f6;
+	--reqly-night: #121615;
+	--reqly-teal: #0b9a83;
+	--reqly-teal-dark: #3fddc0;
+	--reqly-deep-teal: #087a67;
+	--reqly-icon-top: #30d3b5;
+	--reqly-icon-bottom: #0a9882;
+	--reqly-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	--reqly-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

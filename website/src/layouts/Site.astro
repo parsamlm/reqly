@@ -1,0 +1,70 @@
+---
+// The frame of the home and privacy pages: header, footer and page metadata.
+import '../styles/brand.css';
+import '../styles/site.css';
+import lockupLight from '../assets/lockup-on-light.svg?url';
+import lockupDark from '../assets/lockup-on-dark.svg?url';
+import { links } from '../links';
+
+interface Props {
+	title: string;
+	description: string;
+}
+
+const { title, description } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>{title}</title>
+		<meta name="description" content={description} />
+		<link rel="canonical" href={canonical} />
+		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<meta name="color-scheme" content="light dark" />
+		<meta name="theme-color" content="#f6f7f6" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#121615" media="(prefers-color-scheme: dark)" />
+		<meta property="og:type" content="website" />
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		<meta property="og:url" content={canonical} />
+	</head>
+	<body>
+		<a class="skip" href="#main">Skip to content</a>
+		<header class="site-header">
+			<div class="container header-row">
+				<a class="brand" href="/">
+					<picture>
+						<source srcset={lockupDark} media="(prefers-color-scheme: dark)" />
+						<img src={lockupLight} alt="Reqly" width="97" height="28" />
+					</picture>
+				</a>
+				<nav aria-label="Main">
+					<a href={links.docs}>Docs</a>
+					<a href={links.github}>GitHub</a>
+					<a class="button small primary" href={links.download}>Download</a>
+				</nav>
+			</div>
+		</header>
+		<main id="main">
+			<slot />
+		</main>
+		<footer class="site-footer">
+			<div class="container footer-row">
+				<nav class="footer-links" aria-label="More">
+					<a href={links.docs}>Docs</a>
+					<a href={links.privacy}>Privacy</a>
+					<a href={links.roadmap}>Roadmap</a>
+					<a href={links.github}>GitHub</a>
+					<a href={links.releases}>Releases</a>
+					<a href={links.trademarks}>Trademarks</a>
+				</nav>
+				<p>© 2026 The Reqly Authors</p>
+			</div>
+		</footer>
+	</body>
+</html>

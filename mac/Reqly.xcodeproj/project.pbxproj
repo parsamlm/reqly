@@ -1,0 +1,555 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		D00000000000000000000015 /* Capture in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000013 /* Capture */; };
+		D00000000000000000000016 /* ReqlyModel in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000014 /* ReqlyModel */; };
+		D0000000000000000000002A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000021 /* main.swift */; };
+		D0000000000000000000002C /* HelperCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000002B /* HelperCore */; };
+		D0000000000000000000002E /* SystemProxy in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000002D /* SystemProxy */; };
+		D00000000000000000000031 /* ReqlyHelper in Embed Helper */ = {isa = PBXBuildFile; fileRef = D00000000000000000000020 /* ReqlyHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		D00000000000000000000036 /* CertificateAuthority in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000035 /* CertificateAuthority */; };
+		D00000000000000000000038 /* BodyKit in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000037 /* BodyKit */; };
+		D00000000000000000000052 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000051 /* Sparkle */; };
+		D0000000000000000000003A /* TrafficStore in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000039 /* TrafficStore */; };
+		D0000000000000000000003C /* SourceResolver in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000003B /* SourceResolver */; };
+		D0000000000000000000003E /* HAR in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000003D /* HAR */; };
+		D00000000000000000000040 /* ProxyEngine in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000003F /* ProxyEngine */; };
+		D00000000000000000000042 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000041 /* LICENSE */; };
+		D00000000000000000000044 /* DeviceTools in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000043 /* DeviceTools */; };
+		D00000000000000000000046 /* Keychain in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000045 /* Keychain */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D00000000000000000000033 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D00000000000000000000024;
+			remoteInfo = ReqlyHelper;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D0000000000000000000002F /* Embed Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				D00000000000000000000031 /* ReqlyHelper in Embed Helper */,
+			);
+			name = "Embed Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		D00000000000000000000004 /* Reqly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Reqly.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D00000000000000000000007 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		D00000000000000000000017 /* Local.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.example.xcconfig; sourceTree = "<group>"; };
+		D00000000000000000000020 /* ReqlyHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = ReqlyHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		D00000000000000000000021 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		D00000000000000000000022 /* launchd.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = launchd.plist; sourceTree = "<group>"; };
+		D00000000000000000000041 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = ../LICENSE; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		D00000000000000000000005 /* Reqly */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Reqly;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D0000000000000000000000A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D00000000000000000000015 /* Capture in Frameworks */,
+				D00000000000000000000016 /* ReqlyModel in Frameworks */,
+				D0000000000000000000002E /* SystemProxy in Frameworks */,
+				D00000000000000000000036 /* CertificateAuthority in Frameworks */,
+				D00000000000000000000038 /* BodyKit in Frameworks */,
+				D0000000000000000000003A /* TrafficStore in Frameworks */,
+				D0000000000000000000003C /* SourceResolver in Frameworks */,
+				D0000000000000000000003E /* HAR in Frameworks */,
+				D00000000000000000000040 /* ProxyEngine in Frameworks */,
+				D00000000000000000000044 /* DeviceTools in Frameworks */,
+				D00000000000000000000046 /* Keychain in Frameworks */,
+				D00000000000000000000052 /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000026 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D0000000000000000000002C /* HelperCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D00000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000005 /* Reqly */,
+				D00000000000000000000023 /* ReqlyHelper */,
+				D00000000000000000000006 /* Config */,
+				D00000000000000000000041 /* LICENSE */,
+				D00000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D00000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000004 /* Reqly.app */,
+				D00000000000000000000020 /* ReqlyHelper */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000006 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000007 /* Base.xcconfig */,
+				D00000000000000000000017 /* Local.example.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000023 /* ReqlyHelper */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000021 /* main.swift */,
+				D00000000000000000000022 /* launchd.plist */,
+			);
+			path = ReqlyHelper;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D00000000000000000000008 /* Reqly */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D0000000000000000000000F /* Build configuration list for PBXNativeTarget "Reqly" */;
+			buildPhases = (
+				D00000000000000000000009 /* Sources */,
+				D0000000000000000000000A /* Frameworks */,
+				D0000000000000000000000B /* Resources */,
+				D0000000000000000000002F /* Embed Helper */,
+				D00000000000000000000030 /* Embed Launch Daemon */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D00000000000000000000034 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D00000000000000000000005 /* Reqly */,
+			);
+			name = Reqly;
+			packageProductDependencies = (
+				D00000000000000000000013 /* Capture */,
+				D00000000000000000000014 /* ReqlyModel */,
+				D0000000000000000000002D /* SystemProxy */,
+				D00000000000000000000035 /* CertificateAuthority */,
+				D00000000000000000000037 /* BodyKit */,
+				D00000000000000000000039 /* TrafficStore */,
+				D0000000000000000000003B /* SourceResolver */,
+				D0000000000000000000003D /* HAR */,
+				D0000000000000000000003F /* ProxyEngine */,
+				D00000000000000000000043 /* DeviceTools */,
+				D00000000000000000000045 /* Keychain */,
+				D00000000000000000000051 /* Sparkle */,
+			);
+			productName = Reqly;
+			productReference = D00000000000000000000004 /* Reqly.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D00000000000000000000024 /* ReqlyHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D00000000000000000000027 /* Build configuration list for PBXNativeTarget "ReqlyHelper" */;
+			buildPhases = (
+				D00000000000000000000025 /* Sources */,
+				D00000000000000000000026 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ReqlyHelper;
+			packageProductDependencies = (
+				D0000000000000000000002B /* HelperCore */,
+			);
+			productName = ReqlyHelper;
+			productReference = D00000000000000000000020 /* ReqlyHelper */;
+			productType = "com.apple.product-type.tool";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					D00000000000000000000008 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					D00000000000000000000024 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = D0000000000000000000000C /* Build configuration list for PBXProject "Reqly" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = D00000000000000000000002;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */,
+				D00000000000000000000053 /* XCLocalSwiftPackageReference "ReqlyMacKit" */,
+				D00000000000000000000050 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D00000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D00000000000000000000008 /* Reqly */,
+				D00000000000000000000024 /* ReqlyHelper */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D0000000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D00000000000000000000042 /* LICENSE in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		D00000000000000000000030 /* Embed Launch Daemon */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/ReqlyHelper/launchd.plist",
+			);
+			name = "Embed Launch Daemon";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/$(REQLY_APP_IDENTIFIER).Helper.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The helper's launchd job, under this build's identifier. Debug builds have their own.\nset -e\nmkdir -p \"$(dirname \"$SCRIPT_OUTPUT_FILE_0\")\"\nsed \"s/[$](REQLY_APP_IDENTIFIER)/$REQLY_APP_IDENTIFIER/g\" \"$SCRIPT_INPUT_FILE_0\" > \"$SCRIPT_OUTPUT_FILE_0\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D00000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000025 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D0000000000000000000002A /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D00000000000000000000034 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D00000000000000000000024 /* ReqlyHelper */;
+			targetProxy = D00000000000000000000033 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		D0000000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D00000000000000000000007 /* Base.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		D0000000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D00000000000000000000007 /* Base.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		D00000000000000000000010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = Reqly;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Reqly-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Reqly;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 The Reqly Authors";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Reqly relays your apps' requests, including requests to servers on your local network.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(REQLY_APP_IDENTIFIER)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		D00000000000000000000011 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = Reqly;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Reqly-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Reqly;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 The Reqly Authors";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Reqly relays your apps' requests, including requests to servers on your local network.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(REQLY_APP_IDENTIFIER)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		D00000000000000000000028 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(REQLY_APP_IDENTIFIER).Helper";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		D00000000000000000000029 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(REQLY_APP_IDENTIFIER).Helper";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D0000000000000000000000C /* Build configuration list for PBXProject "Reqly" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D0000000000000000000000D /* Debug */,
+				D0000000000000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D0000000000000000000000F /* Build configuration list for PBXNativeTarget "Reqly" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00000000000000000000010 /* Debug */,
+				D00000000000000000000011 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D00000000000000000000027 /* Build configuration list for PBXNativeTarget "ReqlyHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00000000000000000000028 /* Debug */,
+				D00000000000000000000029 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../core;
+		};
+		D00000000000000000000053 /* XCLocalSwiftPackageReference "ReqlyMacKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ReqlyMacKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D00000000000000000000050 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D00000000000000000000051 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000050 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		D00000000000000000000013 /* Capture */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
+			productName = Capture;
+		};
+		D00000000000000000000014 /* ReqlyModel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
+			productName = ReqlyModel;
+		};
+		D0000000000000000000002B /* HelperCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000053 /* XCLocalSwiftPackageReference "ReqlyMacKit" */;
+			productName = HelperCore;
+		};
+		D0000000000000000000002D /* SystemProxy */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000053 /* XCLocalSwiftPackageReference "ReqlyMacKit" */;
+			productName = SystemProxy;
+		};
+		D00000000000000000000035 /* CertificateAuthority */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
+			productName = CertificateAuthority;
+		};
+		D00000000000000000000037 /* BodyKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
+			productName = BodyKit;
+		};
+		D00000000000000000000039 /* TrafficStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
+			productName = TrafficStore;
+		};
+		D0000000000000000000003B /* SourceResolver */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000053 /* XCLocalSwiftPackageReference "ReqlyMacKit" */;
+			productName = SourceResolver;
+		};
+		D0000000000000000000003D /* HAR */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
+			productName = HAR;
+		};
+		D0000000000000000000003F /* ProxyEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
+			productName = ProxyEngine;
+		};
+		D00000000000000000000043 /* DeviceTools */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000053 /* XCLocalSwiftPackageReference "ReqlyMacKit" */;
+			productName = DeviceTools;
+		};
+		D00000000000000000000045 /* Keychain */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000053 /* XCLocalSwiftPackageReference "ReqlyMacKit" */;
+			productName = Keychain;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = D00000000000000000000001 /* Project object */;
+}

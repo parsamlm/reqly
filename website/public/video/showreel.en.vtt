@@ -1,0 +1,46 @@
+WEBVTT
+
+00:00:01.300 --> 00:00:05.115
+Every app on your Mac is talking to the internet. All the time.
+
+00:00:05.600 --> 00:00:07.955
+And most of it, you never get to see.
+
+00:00:08.700 --> 00:00:13.890
+Reqly lets you look inside. Every request, every response, as it happens.
+
+00:00:16.600 --> 00:00:19.535
+See which app sent each request, and where it went.
+
+00:00:20.200 --> 00:00:24.095
+Read the headers, the cookies, and the full body, neatly formatted.
+
+00:00:24.800 --> 00:00:26.985
+And see exactly where the time went.
+
+00:00:28.600 --> 00:00:31.215
+Pause a request, change it, then let it go.
+
+00:00:32.300 --> 00:00:34.310
+Try your app on a slow connection.
+
+00:00:35.250 --> 00:00:38.300
+Rewrite traffic with a few lines of JavaScript.
+
+00:00:38.350 --> 00:00:40.715
+Connect your iPhone, or a simulator.
+
+00:00:41.100 --> 00:00:44.535
+HTTP/2, WebSockets, and gRPC.
+
+00:00:44.750 --> 00:00:47.290
+Save a session, and share it with your team.
+
+00:00:48.600 --> 00:00:51.925
+Reqly is free, open source, and made for the Mac.
+
+00:00:52.700 --> 00:00:54.710
+And your traffic stays on your Mac.
+
+00:00:56.500 --> 00:00:58.420
+See what your apps send and receive.

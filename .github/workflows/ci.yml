@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Use the newest Xcode on the runner
+        run: sudo xcode-select --switch "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+
+      - name: Check formatting
+        run: >
+          xcrun swift-format lint --strict --recursive --configuration .swift-format
+          mac/Reqly mac/ReqlyHelper mac/ReqlyMacKit/Sources mac/ReqlyMacKit/Tests mac/ReqlyMacKit/Package.swift
+          core/Sources core/Tests core/Package.swift
+
+      # When a test fails, what it found also shows on the run's summary page.
+      - name: Test the core
+        run: |
+          set -o pipefail
+          swift test --package-path core 2>&1 | tee "$RUNNER_TEMP/core.log" || {
+            grep "recorded an issue" "$RUNNER_TEMP/core.log" | sed 's/^/::error::/'
+            exit 1
+          }
+
+      - name: Test the Mac modules
+        run: |
+          set -o pipefail
+          swift test --package-path mac/ReqlyMacKit 2>&1 | tee "$RUNNER_TEMP/mac.log" || {
+            grep "recorded an issue" "$RUNNER_TEMP/mac.log" | sed 's/^/::error::/'
+            exit 1
+          }
+
+      - name: Build the app
+        run: >
+          xcodebuild build -project mac/Reqly.xcodeproj -scheme Reqly -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+
+  # The core: the engine, certificates, rules, scripts, storage and file formats, which the
+  # Windows app will share. The Mac-only modules are in mac/ReqlyMacKit, so they stay out.
+  core-on-linux:
+    runs-on: ubuntu-24.04
+    container: swift:6.2-noble
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install SQLite and zlib
+        run: apt-get update && apt-get install -y libsqlite3-dev zlib1g-dev
+
+      - name: Build the core
+        run: swift build --package-path core
+
+      - name: Test the core
+        run: swift test --package-path core

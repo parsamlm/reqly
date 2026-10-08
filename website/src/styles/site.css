@@ -1,0 +1,492 @@
+/* The home and privacy pages. The docs have their own styles, from Starlight. */
+:root {
+	color-scheme: light dark;
+	--bg: var(--reqly-paper);
+	--surface: #ffffff;
+	--surface-2: var(--reqly-mist);
+	--text: var(--reqly-ink);
+	--text-2: var(--reqly-graphite);
+	--accent: var(--reqly-teal);
+	--link: var(--reqly-deep-teal);
+	--border: #dde3e1;
+	--button-bg: var(--reqly-deep-teal);
+	--button-bg-hover: #066a59;
+	--button-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: var(--reqly-night);
+		--surface: #1a1f1e;
+		--surface-2: #202725;
+		--text: var(--reqly-snow);
+		--text-2: #a7b1ae;
+		--accent: var(--reqly-teal-dark);
+		--link: var(--reqly-teal-dark);
+		--border: #2b3230;
+		--button-bg: var(--reqly-teal-dark);
+		--button-bg-hover: #6ee6d0;
+		--button-text: var(--reqly-ink);
+	}
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--reqly-font);
+	font-size: 17px;
+	line-height: 1.55;
+	-webkit-font-smoothing: antialiased;
+}
+
+a {
+	color: var(--link);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+code {
+	font-family: var(--reqly-mono);
+	font-size: 0.9em;
+}
+
+h1,
+h2,
+h3 {
+	line-height: 1.15;
+	letter-spacing: -0.015em;
+	margin: 0;
+}
+
+.container {
+	max-width: 1080px;
+	margin: 0 auto;
+	padding: 0 24px;
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+.skip {
+	position: absolute;
+	left: 16px;
+	top: -48px;
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: var(--surface);
+	color: var(--text);
+	z-index: 10;
+}
+
+.skip:focus {
+	top: 12px;
+}
+
+/* Header */
+
+.site-header {
+	border-bottom: 1px solid var(--border);
+}
+
+.header-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	height: 64px;
+}
+
+.brand img {
+	display: block;
+	height: 28px;
+	width: auto;
+}
+
+.site-header nav {
+	display: flex;
+	align-items: center;
+	gap: 24px;
+	font-size: 15px;
+}
+
+.site-header nav a:not(.button) {
+	color: var(--text);
+}
+
+/* Buttons */
+
+.button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 44px;
+	padding: 0 22px;
+	border-radius: 999px;
+	font-size: 16px;
+	font-weight: 600;
+	text-decoration: none;
+	transition: background-color 150ms ease-out;
+}
+
+.button:hover {
+	text-decoration: none;
+}
+
+.button.primary {
+	background: var(--button-bg);
+	color: var(--button-text);
+}
+
+.button.primary:hover {
+	background: var(--button-bg-hover);
+}
+
+.button.secondary {
+	border: 1px solid var(--border);
+	background: var(--surface);
+	color: var(--text);
+}
+
+.button.secondary:hover {
+	background: var(--surface-2);
+}
+
+.button.small {
+	min-height: 34px;
+	padding: 0 16px;
+	font-size: 14px;
+}
+
+.buttons {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 12px;
+}
+
+/* Sections */
+
+section {
+	padding: 72px 0;
+}
+
+.section-title {
+	font-size: clamp(28px, 4vw, 40px);
+	text-align: center;
+	margin-bottom: 16px;
+}
+
+.section-text {
+	max-width: 640px;
+	margin: 0 auto;
+	text-align: center;
+	color: var(--text-2);
+	font-size: 19px;
+}
+
+.section-text + .buttons {
+	margin-top: 28px;
+}
+
+/* Hero */
+
+.hero {
+	padding: 72px 0 40px;
+	text-align: center;
+}
+
+.hero-icon {
+	display: block;
+	width: 112px;
+	height: 112px;
+	margin: 0 auto 24px;
+	filter: drop-shadow(0 8px 24px rgb(10 152 130 / 25%));
+}
+
+.hero h1 {
+	font-size: clamp(38px, 6.4vw, 64px);
+	font-weight: 700;
+	letter-spacing: -0.025em;
+	max-width: 820px;
+	margin: 0 auto 20px;
+}
+
+.hero .lead {
+	max-width: 620px;
+	margin: 0 auto 32px;
+	color: var(--text-2);
+	font-size: clamp(18px, 2.2vw, 21px);
+}
+
+.fine-print {
+	margin: 18px 0 0;
+	color: var(--text-2);
+	font-size: 14px;
+}
+
+/* The showreel. It reaches a little past the text, so the app's own text in it stays readable.
+   Nothing of it downloads until it's played: until then the page shows a still from it. */
+
+.reel {
+	position: relative;
+	left: 50%;
+	width: min(1240px, calc(100vw - 32px));
+	margin-top: 40px;
+	transform: translateX(-50%);
+}
+
+.reel video {
+	display: block;
+	width: 100%;
+	height: auto;
+	aspect-ratio: 16 / 9;
+	border-radius: 16px;
+	background: var(--reqly-night);
+	/* The hairline keeps its edge in dark mode, where the still's dark matches the page. */
+	box-shadow:
+		0 0 0 1px var(--border),
+		0 24px 64px rgb(4 40 34 / 22%);
+}
+
+/* The whole still plays the video. Its label sits below the lens in the middle of the still. */
+.reel-play {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	padding: 0 0 9%;
+	border: 0;
+	border-radius: 16px;
+	background: none;
+	cursor: pointer;
+}
+
+.reel-play[hidden] {
+	display: none;
+}
+
+.reel-play-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	padding: 12px 22px;
+	border: 1px solid rgb(255 255 255 / 28%);
+	border-radius: 999px;
+	background: rgb(255 255 255 / 14%);
+	backdrop-filter: blur(12px);
+	color: #ffffff;
+	font: inherit;
+	font-size: 16px;
+	font-weight: 600;
+	transition: background-color 0.15s;
+}
+
+.reel-play:hover .reel-play-label {
+	background: rgb(255 255 255 / 24%);
+}
+
+.reel-play:focus-visible {
+	outline: none;
+}
+
+.reel-play:focus-visible .reel-play-label {
+	outline: 2px solid var(--accent);
+	outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+	.reel-play {
+		padding-bottom: 4%;
+	}
+
+	.reel-play-label {
+		padding: 8px 15px;
+		font-size: 14px;
+	}
+}
+
+/* Features */
+
+.features {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+}
+
+.feature {
+	padding: 26px 28px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: var(--surface);
+}
+
+.feature h3 {
+	font-size: 19px;
+	margin-bottom: 8px;
+}
+
+.feature h3::before {
+	content: '';
+	display: block;
+	width: 28px;
+	height: 4px;
+	margin-bottom: 16px;
+	border-radius: 2px;
+	background: var(--accent);
+}
+
+.feature p {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* Privacy and open source */
+
+.panel {
+	padding: 56px 32px;
+	border-radius: 24px;
+	background: var(--surface-2);
+}
+
+/* Coming next */
+
+.next {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 16px;
+	margin: 32px 0 28px;
+}
+
+.next .feature h3::before {
+	background: var(--text-2);
+}
+
+.center {
+	text-align: center;
+}
+
+/* Get Reqly */
+
+.get .command {
+	display: inline-block;
+	margin-top: 20px;
+	padding: 12px 18px;
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	background: var(--surface);
+	font-family: var(--reqly-mono);
+	font-size: 15px;
+	user-select: all;
+}
+
+.get .or {
+	margin: 20px 0 0;
+	color: var(--text-2);
+	font-size: 15px;
+}
+
+/* Text pages, such as Privacy */
+
+.prose {
+	max-width: 700px;
+	margin: 0 auto;
+	padding: 64px 24px 24px;
+}
+
+.prose h1 {
+	font-size: clamp(34px, 5vw, 48px);
+	margin-bottom: 20px;
+}
+
+.prose h2 {
+	font-size: 24px;
+	margin: 40px 0 12px;
+}
+
+.prose p,
+.prose li {
+	color: var(--text);
+}
+
+.prose .lead {
+	font-size: 20px;
+	color: var(--text-2);
+}
+
+.prose ul {
+	padding-left: 22px;
+}
+
+.prose li + li {
+	margin-top: 8px;
+}
+
+/* Footer */
+
+.site-footer {
+	margin-top: 40px;
+	padding: 32px 0 48px;
+	border-top: 1px solid var(--border);
+	color: var(--text-2);
+	font-size: 14px;
+}
+
+.footer-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.footer-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 20px;
+}
+
+.footer-links a {
+	color: var(--text-2);
+}
+
+@media (max-width: 760px) {
+	section {
+		padding: 56px 0;
+	}
+
+	.features,
+	.next {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.site-header nav {
+		gap: 16px;
+	}
+
+	.panel {
+		padding: 40px 20px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.button {
+		transition: none;
+	}
+}

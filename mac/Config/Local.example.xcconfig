@@ -1,0 +1,5 @@
+// Copy this file to Local.xcconfig to sign Reqly with your own Apple developer team.
+// Git ignores Local.xcconfig, so your team stays on your Mac.
+
+DEVELOPMENT_TEAM = ABCDE12345
+CODE_SIGN_IDENTITY = Apple Development

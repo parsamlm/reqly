@@ -1,0 +1,139 @@
+name: Release
+
+# When a version tag such as v1.0 is pushed, this builds Reqly, signs it with a Developer ID,
+# has Apple notarize it, and puts it on GitHub Releases as a draft to check before publishing.
+# It needs a Developer ID certificate and an App Store Connect API key from the paid Apple
+# Developer Program, saved as the repository's secrets. With Sparkle's key too, the release
+# carries the appcast that copies of Reqly install it from.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Use the newest Xcode on the runner
+        run: sudo xcode-select --switch "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+
+      - name: Put the Developer ID certificate in a keychain of its own
+        env:
+          CERTIFICATE: ${{ secrets.DEVELOPER_ID_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+      - name: Build and sign
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          # Packages go where the Sparkle step finds its tools. The public key turns Sparkle on.
+          xcodebuild archive -project mac/Reqly.xcodeproj -scheme Reqly -configuration Release \
+            -archivePath "$RUNNER_TEMP/Reqly.xcarchive" -clonedSourcePackagesDirPath "$RUNNER_TEMP/packages" \
+            MARKETING_VERSION="${TAG#v}" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            SPARKLE_PUBLIC_KEY="$SPARKLE_PUBLIC_KEY" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --keychain $KEYCHAIN"
+          plutil -create xml1 "$RUNNER_TEMP/ExportOptions.plist"
+          plutil -insert method -string developer-id "$RUNNER_TEMP/ExportOptions.plist"
+          plutil -insert destination -string export "$RUNNER_TEMP/ExportOptions.plist"
+          plutil -insert signingStyle -string manual "$RUNNER_TEMP/ExportOptions.plist"
+          plutil -insert signingCertificate -string "Developer ID Application" "$RUNNER_TEMP/ExportOptions.plist"
+          plutil -insert teamID -string "$TEAM_ID" "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Reqly.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export"
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/export/Reqly.app"
+
+      - name: Notarize
+        env:
+          API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          echo "$API_KEY" > "$RUNNER_TEMP/key.p8"
+          ditto -c -k --keepParent "$RUNNER_TEMP/export/Reqly.app" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/key.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" --wait \
+            --output-format json | tee "$RUNNER_TEMP/notarization.json"
+          # When Apple turns the app down, its report says which file and why.
+          if [ "$(plutil -extract status raw "$RUNNER_TEMP/notarization.json")" != "Accepted" ]; then
+            xcrun notarytool log "$(plutil -extract id raw "$RUNNER_TEMP/notarization.json")" \
+              --key "$RUNNER_TEMP/key.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID"
+            rm "$RUNNER_TEMP/key.p8"
+            exit 1
+          fi
+          rm "$RUNNER_TEMP/key.p8"
+          xcrun stapler staple "$RUNNER_TEMP/export/Reqly.app"
+          spctl --assess --type execute --verbose=2 "$RUNNER_TEMP/export/Reqly.app"
+
+      # reqly.net's download button links to releases/latest/download/Reqly.zip, so each release
+      # also carries the zip under that name, which stays the same from one version to the next.
+      - name: Zip it, with its checksum
+        run: |
+          NAME="Reqly-${TAG#v}.zip"
+          ditto -c -k --keepParent "$RUNNER_TEMP/export/Reqly.app" "$NAME"
+          shasum -a 256 "$NAME" | tee "$NAME.sha256"
+          cp "$NAME" Reqly.zip
+
+      # Copies of Reqly look for releases/latest/download/appcast.xml, so publishing the release
+      # is what offers it to them.
+      - name: Sign the update for Sparkle, and write the appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "::warning::No SPARKLE_PRIVATE_KEY secret, so this release has no appcast and won't install in place."
+            exit 0
+          fi
+          NAME="Reqly-${TAG#v}.zip"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle.key"
+          SIGNATURE=$("$RUNNER_TEMP/packages/artifacts/sparkle/Sparkle/bin/sign_update" --ed-key-file "$RUNNER_TEMP/sparkle.key" "$NAME")
+          rm "$RUNNER_TEMP/sparkle.key"
+          cat > appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Reqly</title>
+              <item>
+                <title>Reqly ${TAG#v}</title>
+                <sparkle:version>$GITHUB_RUN_NUMBER</sparkle:version>
+                <sparkle:shortVersionString>${TAG#v}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+                <sparkle:fullReleaseNotesLink>https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG</sparkle:fullReleaseNotesLink>
+                <pubDate>$(date -u "+%a, %d %b %Y %H:%M:%S +0000")</pubDate>
+                <enclosure url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$NAME" type="application/octet-stream" $SIGNATURE/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+          cat appcast.xml
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$TAG" Reqly-*.zip Reqly-*.zip.sha256 Reqly.zip $(ls appcast.xml 2>/dev/null)
+          --draft --title "Reqly ${TAG#v}" --generate-notes
+
+      - name: Delete the keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true

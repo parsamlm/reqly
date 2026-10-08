@@ -1,0 +1,44 @@
+---
+import Site from '../layouts/Site.astro';
+import { links } from '../links';
+---
+
+<Site
+	title="Privacy · Reqly"
+	description="Reqly keeps your traffic on your Mac. It has no account, no analytics and no tracking."
+>
+	<article class="prose">
+		<h1>Privacy</h1>
+		<p class="lead">
+			Reqly keeps your traffic on your Mac. It has no account, no analytics and no tracking.
+		</p>
+
+		<h2>What the app sends</h2>
+		<ul>
+			<li>
+				<strong>A check for updates,</strong> to GitHub, once a day. Like any web request, it shows
+				GitHub your IP address. You can turn it off in Settings.
+			</li>
+			<li><strong>Requests you send yourself,</strong> to the servers you choose.</li>
+			<li>
+				<strong>Nothing after a crash,</strong> unless you choose to. Reqly offers to open a GitHub
+				issue with the crash report, which you read and edit before you submit it.
+			</li>
+		</ul>
+
+		<h2>What stays on your Mac</h2>
+		<p>
+			The traffic you capture, your rules, scripts and settings. Captured traffic is deleted when
+			you quit, unless you save it as a session.
+		</p>
+
+		<h2>This website</h2>
+		<p>
+			No cookies and no analytics. The site is hosted on GitHub Pages, which logs visitors' IP
+			addresses for security, as GitHub's privacy statement describes.
+		</p>
+
+		<h2>Questions</h2>
+		<p>Ask on GitHub: <a href={links.issues}>open an issue</a>.</p>
+	</article>
+</Site>
