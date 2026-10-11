@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+if [ -x /opt/reqly/bin/reqly-guard ]; then
+    /opt/reqly/bin/reqly-guard --restore 2>/dev/null || true
+fi
+if command -v gsettings >/dev/null 2>&1; then
+    gsettings set org.gnome.system.proxy mode 'none' 2>/dev/null || true
+fi
+exit 0

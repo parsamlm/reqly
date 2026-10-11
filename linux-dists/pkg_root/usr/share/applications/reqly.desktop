@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Reqly
+Comment=Network traffic inspector and HTTP/HTTPS proxy
+Exec=reqly --gui
+Icon=reqly
+Terminal=false
+Type=Application
+Categories=Development;Network;WebDevelopment;Debugger;
+Keywords=network;proxy;http;https;inspect;debug;packet;traffic;
+StartupNotify=true
+StartupWMClass=Reqly

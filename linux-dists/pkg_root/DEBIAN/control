@@ -1,0 +1,12 @@
+Package: reqly
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Installed-Size: 140172
+Maintainer: Reqly Contributors <support@reqly.net>
+Depends: libc6 (>= 2.34)
+Description: Network traffic inspector for apps and devices (Standalone Heavyweight Bundle)
+ Reqly is an open-source native network traffic inspector.
+ This package is the complete standalone heavyweight distribution
+ bundling all core runtime libraries, Swift modules, and desktop assets.

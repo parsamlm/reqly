@@ -1,0 +1,4 @@
+/home/hounaar/Desktop/codes/Parsamlm-reqly/linux-dists/build/CMakeFiles/reqly.dir
+/home/hounaar/Desktop/codes/Parsamlm-reqly/linux-dists/build/CMakeFiles/reqly-guard.dir
+/home/hounaar/Desktop/codes/Parsamlm-reqly/linux-dists/build/CMakeFiles/edit_cache.dir
+/home/hounaar/Desktop/codes/Parsamlm-reqly/linux-dists/build/CMakeFiles/rebuild_cache.dir

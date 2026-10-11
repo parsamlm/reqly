@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "/opt/reqly/bin/reqly.bin" ]; then
+    BIN_PATH="/opt/reqly/bin/reqly.bin"
+    LIB_PATH="/opt/reqly/lib:/opt/reqly/lib/swift"
+elif [ -f "$SCRIPT_DIR/../../opt/reqly/bin/reqly.bin" ]; then
+    BIN_PATH="$SCRIPT_DIR/../../opt/reqly/bin/reqly.bin"
+    LIB_PATH="$SCRIPT_DIR/../../opt/reqly/lib:$SCRIPT_DIR/../../opt/reqly/lib/swift"
+else
+    BIN_PATH="reqly.bin"
+    LIB_PATH="/opt/reqly/lib"
+fi
+export LD_LIBRARY_PATH="${LIB_PATH}:${LD_LIBRARY_PATH:-}"
+exec "$BIN_PATH" "$@"
