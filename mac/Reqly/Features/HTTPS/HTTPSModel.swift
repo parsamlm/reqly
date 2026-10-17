@@ -79,49 +79,33 @@ final class HTTPSModel {
             isShowingSetup = true
             return
         }
-        guard !hosts.decrypts(host), let pattern = HostPattern(rawValue: host) else { return }
-        if let index = hosts.entries.firstIndex(where: { $0.pattern == pattern }) {
-            hosts.entries[index].isOn = true
-        } else {
-            hosts.entries.append(DecryptedHosts.Entry(pattern))
-        }
+        hosts.decrypt(host)
         saveHosts()
     }
 
     /// Stops decrypting a host: switches its entry off, or adds one switched off, so a wildcard
     /// or Decrypt all hosts leaves it alone. It stays on the list, to switch on again.
     func stopDecrypting(_ host: String) {
-        guard hosts.decrypts(host), let pattern = HostPattern(rawValue: host) else { return }
-        if let index = hosts.entries.firstIndex(where: { $0.pattern == pattern }) {
-            hosts.entries[index].isOn = false
-        } else {
-            hosts.entries.append(DecryptedHosts.Entry(pattern, isOn: false))
-        }
+        hosts.stopDecrypting(host)
         saveHosts()
     }
 
     /// Adds a host to the list, switched on, or says why it can't.
     func addHost(_ text: String) -> String? {
-        let text = text.trimmingCharacters(in: .whitespaces)
-        guard let pattern = HostPattern(rawValue: text) else {
-            return "“\(text)” isn't a host. Enter a name like api.example.com, or *.example.com for its subdomains."
+        if let problem = hosts.add(text) {
+            return problem.message
         }
-        guard !hosts.entries.contains(where: { $0.pattern == pattern }) else {
-            return "\(pattern) is on the list already."
-        }
-        hosts.entries.append(DecryptedHosts.Entry(pattern))
         saveHosts()
         return nil
     }
 
     func removeHosts(_ patterns: Set<HostPattern>) {
-        hosts.entries.removeAll { patterns.contains($0.pattern) }
+        hosts.remove(patterns)
         saveHosts()
     }
 
     func setDecrypts(_ isOn: Bool, _ pattern: HostPattern) {
-        guard let index = hosts.entries.firstIndex(where: { $0.pattern == pattern }) else { return }
-        hosts.entries[index].isOn = isOn
+        hosts.setDecrypts(isOn, pattern)
         saveHosts()
     }
 

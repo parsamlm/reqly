@@ -93,7 +93,7 @@ final class DecryptedTunnelHandler: ChannelInboundHandler, RemovableChannelHandl
         }
         let reason = tlsReason(in: text).map { " (\($0))" } ?? ""
         return .secureConnectionFailed(
-            "The app's secure handshake with Reqly failed\(reason). Its Mac or device may not trust Reqly's current certificate, or the app may accept only its own."
+            "The app's secure handshake with Reqly failed\(reason). Its \(ThisComputer.name) or device may not trust Reqly's current certificate, or the app may accept only its own."
         )
     }
 

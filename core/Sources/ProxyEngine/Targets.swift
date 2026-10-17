@@ -2,6 +2,11 @@ import Foundation
 import NIOHTTP1
 import ReqlyModel
 
+#if canImport(WinSDK)
+    // inet_pton and the address types, which Foundation brings along everywhere else.
+    import WinSDK
+#endif
+
 /// A host and port to connect to.
 struct Authority: Hashable, Sendable {
     var host: String

@@ -1,0 +1,249 @@
+SwiftNIO on Windows: Reqly's fixes to its WSAPoll event loop and to reading, by the Reqly
+authors, under SwiftNIO's license (Apache License 2.0).
+
+1. A socket that a channel deregistered stayed in WSAPoll's set until the next poll returned, and
+   Windows gives a closed socket's handle to the next socket opened. A new connection could then
+   be reported on the old entry, or its own entry lost: the event loop hung at full CPU, or died
+   with WSAENOTSOCK. Deregistered entries now leave the set at once, and are removed before the
+   next poll. Upstream aims at the same with apple/swift-nio#3706.
+2. WSAPoll reports POLLHUP when the peer only stops sending, while it may still read, and NIO
+   took it for a reset, so half-closed connections broke. POLLHUP alone is now the end of input,
+   as EPOLLRDHUP is on Linux, and a socket that hung up is left out of polling while its channel
+   asks for nothing WSAPoll can tell it, since WSAPoll reports POLLHUP on every poll after.
+   Upstream: apple/swift-nio#3715.
+3. Windows.recv, in Windows.swift, failed with WSAEWOULDBLOCK when a nonblocking socket had
+   nothing to read, which is EAGAIN on POSIX, and the channel closed. It now reports that it would
+   block. 0001 makes the same change to the wrappers in BSDSocketAPIWindows.swift, as do
+   apple/swift-nio#3705, #3708 and #3716; none of them changes this one.
+
+diff --git a/Sources/NIOPosix/SelectorGeneric.swift b/Sources/NIOPosix/SelectorGeneric.swift
+index 33ebae14..984d012b 100644
+--- a/Sources/NIOPosix/SelectorGeneric.swift
++++ b/Sources/NIOPosix/SelectorGeneric.swift
+@@ -226,11 +226,18 @@ internal class Selector<R: Registration> {
+     /// surviving entry that shifts position.
+     @usableFromInline
+     var pollFDIndexes = [NIOBSDSocket.Handle: Int]()
+-    /// Tracks indexes of file descriptors pending removal from `pollFDs`. We defer removal until after
+-    /// processing all events in `whenReady0` to avoid invalidating indexes during iteration. Stored as
+-    /// indexes rather than a parallel boolean array for O(1) lookup during cleanup.
++    /// Tracks indexes of file descriptors pending removal from `pollFDs`. We defer removal until the
++    /// next `whenReady0` to avoid invalidating indexes during iteration. Stored as indexes rather than
++    /// a parallel boolean array for O(1) lookup during cleanup. Their entries are already left out of
++    /// polling: `deregister0` sets their `fd` to `INVALID_SOCKET`.
+     @usableFromInline
+     var deregisteredFDs = Set<Int>()
++    /// Sockets whose peer has finished sending: WSAPoll reported `POLLHUP` for them. WSAPoll reports
++    /// `POLLHUP` on every call from then on and has no way to mask it, so while such a socket's
++    /// registration wants none of `.read`, `.readEOF` and `.write`, its entry is parked: its `fd` is
++    /// `INVALID_SOCKET` until `reregister0` asks for one of them again.
++    @usableFromInline
++    var hungUpFDs = Set<NIOBSDSocket.Handle>()
+     /// The read end of the wakeup socket pair. This is monitored in WSAPoll to allow waking up the event loop.
+     @usableFromInline
+     var wakeupReadSocket: NIOBSDSocket.Handle = NIOBSDSocket.invalidHandle
+diff --git a/Sources/NIOPosix/SelectorWSAPoll.swift b/Sources/NIOPosix/SelectorWSAPoll.swift
+index e1d38074..8237172b 100644
+--- a/Sources/NIOPosix/SelectorWSAPoll.swift
++++ b/Sources/NIOPosix/SelectorWSAPoll.swift
+@@ -67,7 +67,16 @@ extension SelectorEventSet {
+             self.formUnion(.error)
+         }
+         if mapped & WinSDK.POLLHUP != 0 {
+-            self.formUnion(.reset)
++            // WSAPoll reports POLLHUP as soon as the peer's FIN arrives: when the peer closed the
++            // connection, and as well when it only shut down its sending side, while data it sent
++            // before may still be waiting to be read. Only an aborted connection (RST) or a failed
++            // connect come with POLLERR too. So POLLHUP alone is an end of input, as EPOLLRDHUP
++            // and EV_EOF are elsewhere, and the channel may still write; with POLLERR it's a reset.
++            if mapped & WinSDK.POLLERR != 0 {
++                self.formUnion(.reset)
++            } else {
++                self.formUnion(.readEOF)
++            }
+         }
+         if mapped & WinSDK.POLLNVAL != 0 {
+             preconditionFailure("Invalid fd supplied.")
+@@ -296,6 +305,9 @@ extension Selector: _SelectorBackendProtocol {
+                 Int32(clamping: timeAmount.nanoseconds / 1_000_000)
+             }
+ 
++        // Drop the entries of the sockets deregistered since the last call before polling.
++        self.removeDeregisteredPollFDs()
++
+         precondition(
+             !self.pollFDs.isEmpty,
+             "pollFDs should never be empty here, since we need an eventFD for waking up on demand"
+@@ -316,6 +328,13 @@ extension Selector: _SelectorBackendProtocol {
+                 self.pollFDs[i].revents = 0
+                 let fd = pollFD.fd
+ 
++                // Deregistered or parked: left out of polling (WSAPoll reports POLLNVAL for
++                // INVALID_SOCKET). Its revents, if any, were about a socket that may since have
++                // been closed and its handle value given to a new one.
++                if fd == UInt64(INVALID_SOCKET) {
++                    continue
++                }
++
+                 // Check if this is the wakeup socket
+                 if NIOBSDSocket.Handle(fd) == self.wakeupReadSocket {
+                     // Drain the wakeup socket by reading the data that was sent
+@@ -332,43 +351,24 @@ extension Selector: _SelectorBackendProtocol {
+                 }
+ 
+                 var selectorEvent = SelectorEventSet(revents: pollFD.revents)
++                let handle = NIOBSDSocket.Handle(fd)
++                if selectorEvent.contains(.readEOF) {
++                    self.hungUpFDs.insert(handle)
++                }
+                 // in any case we only want what the user is currently registered for & what we got
+                 selectorEvent = selectorEvent.intersection(registration.interested)
+ 
+-                guard selectorEvent != ._none else {
+-                    continue
++                if selectorEvent != ._none {
++                    try body((SelectorEvent(io: selectorEvent, registration: registration)))
+                 }
+ 
+-                try body((SelectorEvent(io: selectorEvent, registration: registration)))
+-            }
+-
+-            // Clean up any deregistered fds in a single linear in-place compaction
+-            // pass: walk `pollFDs` once with a read/write cursor, dropping entries
+-            // whose index is in `deregisteredFDs` and updating `pollFDIndexes`
+-            // for any surviving entry that shifted left. This is O(n) and avoids
+-            // both the previous `sorted(by: >)` (O(k log k)) and per-call
+-            // `pollFDs.remove(at:)` (O(n) each, O(k·n) total).
+-            //
+-            // The wakeup socket is always at `pollFDs[0]` and is never registered
+-            // in `pollFDIndexes`, so we treat index 0 as a fixed survivor.
+-            if !self.deregisteredFDs.isEmpty {
+-                var write = 0
+-                for read in 0..<self.pollFDs.count {
+-                    if self.deregisteredFDs.contains(read) {
+-                        let fd = self.pollFDs[read].fd
+-                        self.registrations.removeValue(forKey: Int(fd))
+-                        continue
+-                    }
+-                    if write != read {
+-                        self.pollFDs[write] = self.pollFDs[read]
+-                        if write != 0 {
+-                            self.pollFDIndexes[NIOBSDSocket.Handle(self.pollFDs[write].fd)] = write
+-                        }
+-                    }
+-                    write += 1
++                // A hung-up socket that is still registered here, and whose channel now wants
++                // nothing WSAPoll can tell it, would make every WSAPoll return at once.
++                if self.pollFDs[i].fd == fd, self.hungUpFDs.contains(handle),
++                    let current = self.registrations[Int(fd)]
++                {
++                    self.updateParking(index: i, handle: handle, interested: current.interested)
+                 }
+-                self.pollFDs.removeLast(self.pollFDs.count - write)
+-                self.deregisteredFDs.removeAll(keepingCapacity: true)
+             }
+         } else if result == 0 {
+             // nothing has happened
+@@ -377,12 +377,49 @@ extension Selector: _SelectorBackendProtocol {
+         }
+     }
+ 
++    /// Removes the entries of deregistered sockets from `pollFDs` in a single linear in-place
++    /// compaction pass, and moves the indexes in `pollFDIndexes` of the entries that shift left.
++    ///
++    /// It runs before polling, so WSAPoll never sees the handle of a socket that was closed after
++    /// it was deregistered. It doesn't touch `registrations`: `deregister` removed the socket's
++    /// registration already, and the handle value may now belong to a new socket registered since.
++    ///
++    /// The wakeup socket is always at `pollFDs[0]` and is never deregistered, so it stays there.
++    @usableFromInline
++    func removeDeregisteredPollFDs() {
++        guard !self.deregisteredFDs.isEmpty else {
++            return
++        }
++        var newIndexes = [Int](repeating: -1, count: self.pollFDs.count)
++        var write = 0
++        for read in 0..<self.pollFDs.count where !self.deregisteredFDs.contains(read) {
++            self.pollFDs[write] = self.pollFDs[read]
++            newIndexes[read] = write
++            write += 1
++        }
++        self.pollFDs.removeLast(self.pollFDs.count - write)
++        self.deregisteredFDs.removeAll(keepingCapacity: true)
++        // Parked entries hold INVALID_SOCKET, not their handle, so move the indexes by position.
++        self.pollFDIndexes = self.pollFDIndexes.mapValues { newIndexes[$0] }
++    }
++
++    /// Parks the entry of a hung-up socket while its channel wants none of `.read`, `.readEOF`
++    /// and `.write`, and unparks it as soon as it wants one of them again.
++    @usableFromInline
++    func updateParking(index: Int, handle: NIOBSDSocket.Handle, interested: SelectorEventSet) {
++        let parked =
++            self.hungUpFDs.contains(handle)
++            && interested.isDisjoint(with: [.read, .readEOF, .write, .writeEOF])
++        self.pollFDs[index].fd = parked ? UInt64(INVALID_SOCKET) : UInt64(handle)
++    }
++
+     func register0(
+         selectableFD: NIOBSDSocket.Handle,
+         fileDescriptor: NIOBSDSocket.Handle,
+         interested: SelectorEventSet,
+         registrationID: SelectorRegistrationID
+     ) throws {
++        self.hungUpFDs.remove(fileDescriptor)
+         let poll = pollfd(fd: UInt64(fileDescriptor), events: interested.wsaPollEvent, revents: 0)
+         self.pollFDIndexes[fileDescriptor] = self.pollFDs.count
+         self.pollFDs.append(poll)
+@@ -397,6 +434,7 @@ extension Selector: _SelectorBackendProtocol {
+     ) throws {
+         if let index = self.pollFDIndexes[fileDescriptor] {
+             self.pollFDs[index].events = newInterested.wsaPollEvent
++            self.updateParking(index: index, handle: fileDescriptor, interested: newInterested)
+         }
+     }
+ 
+@@ -407,8 +445,16 @@ extension Selector: _SelectorBackendProtocol {
+         registrationID: SelectorRegistrationID
+     ) throws {
+         if let index = self.pollFDIndexes.removeValue(forKey: fileDescriptor) {
++            // Leave the entry out of polling right away, not only once it is removed: the socket is
++            // closed next, and Windows gives its handle value to the next socket opened, which may
++            // be registered here before then. WSAPoll would then report that socket's events on
++            // this entry too.
++            self.pollFDs[index].fd = UInt64(INVALID_SOCKET)
++            self.pollFDs[index].events = 0
++            self.pollFDs[index].revents = 0
+             self.deregisteredFDs.insert(index)
+         }
++        self.hungUpFDs.remove(fileDescriptor)
+     }
+ 
+     func wakeup0() throws {
+@@ -445,6 +491,7 @@ extension Selector: _SelectorBackendProtocol {
+             self.pollFDs.removeAll()
+             self.pollFDIndexes.removeAll()
+             self.deregisteredFDs.removeAll()
++            self.hungUpFDs.removeAll()
+         }
+     }
+ }
+diff --git a/Sources/NIOPosix/Windows.swift b/Sources/NIOPosix/Windows.swift
+index 44f07e6b..2f381561 100644
+--- a/Sources/NIOPosix/Windows.swift
++++ b/Sources/NIOPosix/Windows.swift
+@@ -57,7 +57,14 @@ extension NIOCore.Windows {
+     ) throws -> IOResult<Int> {
+         let result = WinSDK.recv(socket, pointer.assumingMemoryBound(to: CChar.self), size, flags)
+         if result == WinSDK.SOCKET_ERROR {
+-            throw IOError(winsock: WSAGetLastError(), reason: "accept")
++            let error = WSAGetLastError()
++            // Nothing to read on a nonblocking socket, as EAGAIN is on POSIX: not an error. A
++            // stream channel reads again at once when a read fills its buffer, so this happens
++            // whenever the data that had arrived filled the buffer exactly.
++            if error == WSAEWOULDBLOCK {
++                return .wouldBlock(0)
++            }
++            throw IOError(winsock: error, reason: "recv")
+         }
+         return .processed(Int(result))
+     }

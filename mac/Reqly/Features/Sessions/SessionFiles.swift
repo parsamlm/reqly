@@ -100,6 +100,38 @@ struct OpenedFileWindow: View {
     }
 }
 
+/// Opens the files Finder hands Reqly, each in a window of its own, then closes before it's drawn.
+///
+/// Opening files is an event SwiftUI shows a window for, and this is the only window that takes
+/// it. Otherwise the main window would come with every file, even when Reqly opened only to show
+/// one. The files themselves go to the app delegate, which gets all of them; SwiftUI would hand a
+/// window only the first.
+struct FileOpener: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            // The files come just before this window or just after it.
+            .onChange(of: model.filesToOpen, initial: true) {
+                guard !model.filesToOpen.isEmpty else { return }
+                for url in model.filesToOpen {
+                    openWindow(id: "file", value: url)
+                }
+                model.filesToOpen.removeAll()
+                dismiss()
+            }
+            .task {
+                // Should none come, it doesn't stay either.
+                if (try? await Task.sleep(for: .seconds(2))) != nil {
+                    dismiss()
+                }
+            }
+    }
+}
+
 /// Saving a window's traffic as a session file.
 enum SessionSaving {
     /// Asks where to save, then saves. Secrets stay in the file unless you choose to hide them.

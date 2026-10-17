@@ -1,0 +1,77 @@
+<UserControl
+    x:Class="Reqly.Traffic.FilterBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <UserControl.Resources>
+    <Style x:Key="ChipStyle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
+      <Setter Property="CornerRadius" Value="13" />
+      <Setter Property="Padding" Value="11,3,11,4" />
+      <Setter Property="MinHeight" Value="26" />
+    </Style>
+  </UserControl.Resources>
+  <!-- The bar above the request list: chips for the kinds of status, a token for each filter
+       that's set, and the Filters button, as on the Mac. -->
+  <Grid Padding="12,6" ColumnSpacing="6">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="Auto" />
+      <ColumnDefinition Width="Auto" />
+      <ColumnDefinition Width="*" />
+      <ColumnDefinition Width="Auto" />
+    </Grid.ColumnDefinitions>
+    <StackPanel x:Name="Chips" Orientation="Horizontal" Spacing="6" />
+    <Rectangle Grid.Column="1" Width="1" Height="16" Margin="4,0" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+    <StackPanel x:Name="Tokens" Grid.Column="2" Orientation="Horizontal" Spacing="6" />
+    <DropDownButton x:Name="FiltersButton" Grid.Column="3" ToolTipService.ToolTip="Filter by app, host, method or content type">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <FontIcon Glyph="&#xE71C;" FontSize="14" />
+        <TextBlock Text="Filters" />
+      </StackPanel>
+      <DropDownButton.Flyout>
+        <Flyout x:Name="FiltersFlyout" Placement="BottomEdgeAlignedRight" Opening="OnFiltersOpening">
+          <StackPanel Width="320" Spacing="12">
+            <TextBlock Text="Filters" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+            <Grid ColumnSpacing="12" RowSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+              </Grid.RowDefinitions>
+              <TextBlock Text="App" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <ComboBox x:Name="AppChoice" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnChoiceChanged"
+                        AutomationProperties.Name="App" />
+              <TextBlock x:Name="DeviceLabel" Grid.Row="1" Text="Device" VerticalAlignment="Center"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <ComboBox x:Name="DeviceChoice" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                        SelectionChanged="OnChoiceChanged" AutomationProperties.Name="Device" />
+              <TextBlock Grid.Row="2" Text="Host" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <ComboBox x:Name="HostChoice" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch"
+                        SelectionChanged="OnChoiceChanged" AutomationProperties.Name="Host" />
+              <TextBlock Grid.Row="3" Text="Method" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <ComboBox x:Name="MethodChoice" Grid.Row="3" Grid.Column="1" HorizontalAlignment="Stretch"
+                        SelectionChanged="OnChoiceChanged" AutomationProperties.Name="Method" />
+              <TextBlock Grid.Row="4" Text="Content type" Margin="0,6,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <Grid x:Name="ContentChoices" Grid.Row="4" Grid.Column="1" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+              </Grid>
+            </Grid>
+            <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Grid>
+              <HyperlinkButton x:Name="ClearAllButton" Content="Clear all" Padding="0" Click="OnClearAllClicked" />
+              <TextBlock x:Name="ShownText" HorizontalAlignment="Right" VerticalAlignment="Center"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Grid>
+          </StackPanel>
+        </Flyout>
+      </DropDownButton.Flyout>
+    </DropDownButton>
+  </Grid>
+</UserControl>

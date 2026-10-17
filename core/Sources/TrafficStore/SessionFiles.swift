@@ -2,6 +2,10 @@ import Foundation
 import GRDB
 import ReqlyModel
 
+#if canImport(WinSDK)
+    import WinSDK
+#endif
+
 public enum SessionFileError: Error, Equatable {
     /// The file isn't a session Reqly saved.
     case notASession
@@ -43,7 +47,7 @@ extension TrafficStore {
         }
         try copy.close()
         if fileManager.fileExists(atPath: url.path(percentEncoded: false)) {
-            _ = try fileManager.replaceItemAt(url, withItemAt: copyURL)
+            try Self.replace(url, with: copyURL)
         } else {
             try fileManager.moveItem(at: copyURL, to: url)
         }
@@ -143,6 +147,26 @@ extension TrafficStore {
                 arguments: [try hidden("requestHeaders"), try hidden("responseHeaders"), row["id"]]
             )
         }
+    }
+
+    /// Puts `replacement` in `url`'s place in one step, so the old file stays until the new one
+    /// is complete.
+    private static func replace(_ url: URL, with replacement: URL) throws {
+        #if os(Windows)
+            // Foundation doesn't implement replaceItemAt on Windows yet.
+            try FileReplacement.retrying {
+                let replaced = replacement.nativePath.withCString(encodedAs: UTF16.self) { from in
+                    url.nativePath.withCString(encodedAs: UTF16.self) { to in
+                        MoveFileExW(from, to, DWORD(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                    }
+                }
+                guard replaced else {
+                    throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
+                }
+            }
+        #else
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: replacement)
+        #endif
     }
 
     /// Indexes every exchange again, for a session that came without its index.

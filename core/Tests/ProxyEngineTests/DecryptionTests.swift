@@ -290,6 +290,13 @@ struct DecryptingHarness {
             ready.fail(error)
             throw error
         }
+        // A tunnel that never answers fails the test instead of holding up the whole run: `get()`
+        // doesn't return when the test's time limit cancels the test.
+        let timeout = loop.scheduleTask(in: .seconds(30)) {
+            ready.fail(TestError.timedOut)
+            channel.close(promise: nil)
+        }
+        ready.futureResult.whenComplete { _ in timeout.cancel() }
         return (channel, try await ready.futureResult.get())
     }
 }
@@ -485,6 +492,9 @@ final class SecureOriginServer: Sendable {
                 accepted.value.add(1, ordering: .relaxed)
                 return channel.eventLoop.makeCompletedFuture {
                     let pipeline = channel.pipeline.syncOperations
+                    if clientRoot != nil {
+                        try pipeline.addHandler(LingeringClose())
+                    }
                     try pipeline.addHandler(NIOSSLServerHandler(context: tls))
                     guard http2 else {
                         try pipeline.configureHTTPServerPipeline()
@@ -520,5 +530,49 @@ final class SecureOriginServer: Sendable {
 
     func stop() async {
         try? await channel.close()
+    }
+}
+
+/// Closes the way careful servers do: a full close becomes a half close, which sends FIN after
+/// what was written, and the server reads and drops what the app still sends until the app
+/// closes, or 2 seconds pass.
+///
+/// A server that turns a client certificate down sends an alert and closes. On TLS 1.3 Reqly's
+/// side of the handshake is done by then, and its request is on the way, so the server would
+/// close with the request unread, which sends RST instead of FIN. The Mac and Linux keep the
+/// alert that arrived before the RST for Reqly to read; Windows drops it.
+final class LingeringClose: ChannelDuplexHandler {
+    typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer
+    typealias OutboundIn = ByteBuffer
+    typealias OutboundOut = ByteBuffer
+
+    private var lingering = false
+    private var closePromise: EventLoopPromise<Void>?
+
+    func close(context: ChannelHandlerContext, mode: CloseMode, promise: EventLoopPromise<Void>?) {
+        guard mode == .all, !lingering, context.channel.isActive else {
+            context.close(mode: mode, promise: promise)
+            return
+        }
+        lingering = true
+        closePromise = promise
+        context.close(mode: .output, promise: nil)
+        context.read()
+        let loopContext = NIOLoopBound(context, eventLoop: context.eventLoop)
+        context.eventLoop.scheduleTask(in: .seconds(2)) {
+            loopContext.value.close(mode: .all, promise: nil)
+        }
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        guard !lingering else { return }
+        context.fireChannelRead(data)
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        closePromise?.succeed()
+        closePromise = nil
+        context.fireChannelInactive()
     }
 }

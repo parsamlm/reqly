@@ -1,5 +1,6 @@
 import AppKit
 import BodyKit
+import Presentation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -84,15 +85,7 @@ struct ProtobufSettings: View {
 
     /// What the files hold, such as "14 message types and 2 services".
     private var summary: String {
-        let messages = protobuf.schema.messageNames.count
-        let services = protobuf.schema.services.count
-        guard messages > 0 else { return protobuf.sources.isEmpty ? "" : "These files have no message types yet." }
-        let types = messages == 1 ? "1 message type" : "\(messages.formatted()) message types"
-        switch services {
-        case 0: return "\(types)."
-        case 1: return "\(types) and 1 service."
-        default: return "\(types) and \(services.formatted()) services."
-        }
+        ProtobufFiles.summary(protobuf.schema, hasSources: !protobuf.sources.isEmpty)
     }
 
     private func remove(_ id: ProtobufModel.Source.ID) {

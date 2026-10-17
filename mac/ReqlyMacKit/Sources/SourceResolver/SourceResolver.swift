@@ -1,5 +1,6 @@
 #if os(macOS)
     import Darwin
+    import DeviceBridge
     import Foundation
     import ReqlyModel
 
@@ -63,10 +64,11 @@
                     return ancestors
                 },
                 emulators: {
-                    ProcessTable.processes(running: Devices.isAndroidEmulator).compactMap(ProcessTable.arguments(of:))
+                    ProcessTable.processes(running: EmulatorProcesses.isEmulator)
+                        .compactMap(ProcessTable.arguments(of:))
                 })
             // The emulators netsimd works for come and go, so its device is found afresh each time.
-            if !Devices.isEmulatorWiFi(path) {
+            if !EmulatorProcesses.isEmulatorWiFi(path) {
                 devices[pid] = (path, device)
             }
             return device
@@ -194,7 +196,8 @@
         }
     }
 
-    /// Tells the processes of simulators and Android emulators apart from the Mac's own.
+    /// Tells the processes of simulators and Android emulators apart from the Mac's own. The
+    /// emulators' are told apart as on Windows, by DeviceBridge.
     enum Devices {
         /// - Parameters:
         ///   - arguments: The process's arguments. They're read only for an emulator.
@@ -206,15 +209,8 @@
             of path: String, arguments: () -> [String]?, ancestorArguments: () -> [[String]],
             emulators: () -> [[String]]
         ) -> Device? {
-            if isAndroidEmulator(path) {
-                return emulator(named: arguments().flatMap(emulatorName(in:)))
-            }
-            if isEmulatorWiFi(path) {
-                // One netsimd serves every emulator that's running: the first one starts it, and
-                // the others share it. So its traffic is credited to an emulator by name only while
-                // just one is running.
-                let names = Set(emulators().compactMap(emulatorName(in:)))
-                return emulator(named: names.count == 1 ? names.first : nil)
+            if let emulator = EmulatorProcesses.device(ofProgram: path, arguments: arguments, emulators: emulators) {
+                return emulator
             }
             guard path.contains("/CoreSimulator/") else { return nil }
             // An app's folder names its simulator. The simulator's own programs, such as its
@@ -223,37 +219,6 @@
                 simulatorUDID(in: path) ?? ancestorArguments().lazy.flatMap { $0 }.compactMap(simulatorUDID(in:)).first
             guard let udid else { return nil }
             return Device(id: udid, kind: .simulator, name: simulatorName(udid: udid) ?? "Simulator")
-        }
-
-        /// The emulator's program, such as `…/emulator/qemu/darwin-aarch64/qemu-system-aarch64`.
-        static func isAndroidEmulator(_ path: String) -> Bool {
-            URL(filePath: path).lastPathComponent.hasPrefix("qemu-system-") || path.contains("/emulator/qemu/")
-        }
-
-        /// The emulators' netsimd, such as `…/sdk/emulator/netsimd`. It carries their Wi-Fi, which
-        /// is the network Android uses first.
-        static func isEmulatorWiFi(_ path: String) -> Bool {
-            URL(filePath: path).lastPathComponent == "netsimd"
-        }
-
-        /// An emulator running the virtual device `name`, or any emulator when that's not known.
-        static func emulator(named name: String?) -> Device {
-            Device(
-                id: "emulator:\(name ?? "Android Emulator")", kind: .emulator,
-                name: name.map(readableName) ?? "Android Emulator")
-        }
-
-        /// The virtual device the emulator runs, from `-avd Pixel_10` or `@Pixel_10`.
-        static func emulatorName(in arguments: [String]) -> String? {
-            if let index = arguments.firstIndex(of: "-avd"), arguments.indices.contains(index + 1) {
-                return arguments[index + 1]
-            }
-            return arguments.first { $0.hasPrefix("@") && $0.count > 1 }.map { String($0.dropFirst()) }
-        }
-
-        /// Such as "Pixel 10 Pro XL" for `Pixel_10_Pro_XL`.
-        static func readableName(_ name: String) -> String {
-            name.replacingOccurrences(of: "_", with: " ")
         }
 
         /// The UDID in a path such as `…/CoreSimulator/Devices/<UDID>/data/Containers/…`.

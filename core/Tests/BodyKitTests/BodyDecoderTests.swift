@@ -1,7 +1,12 @@
 import BodyKit
-import CZlib
 import Foundation
 import Testing
+
+#if os(Windows)
+    import CZlibBundled
+#else
+    import CZlib
+#endif
 
 @Suite struct BodyDecoderTests {
     let hello = Data("hello".utf8)
@@ -21,13 +26,32 @@ import Testing
         #expect(BodyDecoder.decode(raw, contentEncoding: "deflate") == hello)
     }
 
-    @Test(
-        .enabled(
-            if: BodyDecoder.canDecode("br"),
-            "Brotli comes from Apple's Compression framework, so only the Mac unpacks it for now."))
-    func unpacksBrotli() {
+    /// 110,000 bytes of text, packed by Brotli 1.2.0's `brotli -q 11`: more than the decoder hands
+    /// back at a time.
+    static let longBrotli = "gXptDfziz44nfUAJBBhYa0GrdX+4uDBKIFVpgPiqj9dTLQ94j1tBAA=="
+    static let longText = String(repeating: "Reqly unpacks Brotli. ", count: 5000)
+
+    @Test func unpacksBrotli() throws {
         let brotli = Data([0x0b, 0x02, 0x80, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x03])
+        #expect(BodyDecoder.canDecode("br"))
         #expect(BodyDecoder.decode(brotli, contentEncoding: "br") == hello)
+        let long = try #require(Data(base64Encoded: Self.longBrotli))
+        #expect(BodyDecoder.decode(long, contentEncoding: "br") == Data(Self.longText.utf8))
+    }
+
+    @Test func refusesBrotliThatIsDamagedOrCutShort() throws {
+        let long = try #require(Data(base64Encoded: Self.longBrotli))
+        #expect(BodyDecoder.decode(long.prefix(10), contentEncoding: "br") == nil)
+        #expect(BodyDecoder.decode(Data(repeating: 0xff, count: 6), contentEncoding: "br") == nil)
+    }
+
+    @Test func stopsBrotliAtTheSizeLimit() throws {
+        // 70 MB of zeros, packed into 67 bytes by `brotli -q 11 -w 24`.
+        let zeros = try #require(
+            Data(
+                base64Encoded:
+                    "z///f/gnAOKxQCD3/p/////wTwDEYQGA7v0/////4Z8AiMMiAN37f/7//8M/ARCHBQC69//5//+FfwIgDgsAdO+/AA=="))
+        #expect(BodyDecoder.decode(zeros, contentEncoding: "br") == nil)
     }
 
     @Test func leavesPlainBodiesAlone() {

@@ -17,6 +17,8 @@ The files in this folder are not covered by the MIT License. The Reqly name and 
 | `wordmark/reqly-wordmark-on-light.svg`, `wordmark/reqly-wordmark-on-dark.svg` | The "Reqly" wordmark, for light and dark backgrounds. |
 | `lockup/reqly-lockup-on-light.svg`, `lockup/reqly-lockup-on-dark.svg` | The icon and wordmark together, for light and dark backgrounds. |
 | `menubar/MenuBarIcon.imageset/` | Menu-bar template image (18 pt). Drop it into `Assets.xcassets`. |
+| [`windows/Reqly/Assets/Reqly.ico`](../../windows/Reqly/Assets/Reqly.ico), [`Reqly.png`](../../windows/Reqly/Assets/Reqly.png) | Reqly for Windows' app icon, at 16 to 256 px, and the 256 px picture its windows show, such as Welcome. [`tools/windows_icon.py`](../../tools/windows_icon.py) makes both from `Reqly.icon`, so run it again whenever the icon changes. |
+| [`windows/Reqly/Assets/NotificationIcon-on-light.ico`](../../windows/Reqly/Assets/NotificationIcon-on-light.ico), [`NotificationIcon-on-dark.ico`](../../windows/Reqly/Assets/NotificationIcon-on-dark.ico) | The menu-bar glyph for Windows' notification area, in black for light taskbars and white for dark ones, at 16 to 48 px. `tools/windows_icon.py` draws them from `menubar.svg` too, and the 16, 20 and 24 px ones on whole pixels, so they stay sharp at 100%, 125% and 150% scaling. |
 
 ## Wordmark
 

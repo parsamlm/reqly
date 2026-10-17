@@ -1,0 +1,30 @@
+<Window
+    x:Class="Reqly.Devices.DevicesWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Reqly Devices">
+  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <!-- Phones and tablets on the network, and Android emulators, as on the Mac. -->
+    <NavigationView x:Name="Navigation" PaneDisplayMode="Left" OpenPaneLength="220" IsBackButtonVisible="Collapsed"
+                    IsSettingsVisible="False" IsPaneToggleButtonVisible="False" SelectionChanged="OnSectionChanged">
+      <NavigationView.MenuItems>
+        <NavigationViewItem x:Name="PhonesItem" Content="Phones and tablets" Tag="phones">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE8EA;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem x:Name="EmulatorsItem" Content="Android emulators" Tag="emulators">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE7F4;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+      </NavigationView.MenuItems>
+      <ScrollViewer>
+        <StackPanel Padding="36,8,36,36" MaxWidth="1000">
+          <TextBlock x:Name="PageTitle" Style="{ThemeResource TitleTextBlockStyle}" Margin="0,0,0,20" />
+          <ContentControl x:Name="Page" HorizontalContentAlignment="Stretch" IsTabStop="False" />
+        </StackPanel>
+      </ScrollViewer>
+    </NavigationView>
+  </Grid>
+</Window>

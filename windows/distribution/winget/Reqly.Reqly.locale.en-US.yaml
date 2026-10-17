@@ -1,0 +1,22 @@
+# What winget says about Reqly.
+PackageIdentifier: Reqly.Reqly
+PackageVersion: {version}
+PackageLocale: en-US
+Publisher: The Reqly Authors
+PublisherUrl: https://reqly.net
+PackageName: Reqly
+PackageUrl: https://reqly.net
+License: MIT
+LicenseUrl: https://github.com/parsamlm/reqly/blob/main/LICENSE
+Copyright: Copyright (c) 2026 The Reqly Authors
+# As the Homebrew cask and reqly.net describe it.
+ShortDescription: Inspect and debug the network traffic of your apps and devices
+Description: Reqly is a free, open-source traffic inspector. Every request your apps make, clearly laid out, in a native app.
+Tags:
+  - http
+  - https
+  - proxy
+  - debugging
+  - network
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

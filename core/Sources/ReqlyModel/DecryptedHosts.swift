@@ -45,6 +45,61 @@ public struct DecryptedHosts: Hashable, Sendable, Codable {
     public var onCount: Int {
         entries.count { $0.isOn }
     }
+
+    // MARK: - Changing the list
+
+    /// Decrypts a host from now on: switches its entry on, or adds one.
+    public mutating func decrypt(_ host: String) {
+        guard !decrypts(host), let pattern = HostPattern(rawValue: host) else { return }
+        if let index = entries.firstIndex(where: { $0.pattern == pattern }) {
+            entries[index].isOn = true
+        } else {
+            entries.append(Entry(pattern))
+        }
+    }
+
+    /// Stops decrypting a host: switches its entry off, or adds one switched off, so a wildcard
+    /// or `includesEveryHost` leaves it alone. It stays on the list, to switch on again.
+    public mutating func stopDecrypting(_ host: String) {
+        guard decrypts(host), let pattern = HostPattern(rawValue: host) else { return }
+        if let index = entries.firstIndex(where: { $0.pattern == pattern }) {
+            entries[index].isOn = false
+        } else {
+            entries.append(Entry(pattern, isOn: false))
+        }
+    }
+
+    /// Adds a host to the list, switched on, or says why it can't.
+    public mutating func add(_ text: String) -> AddProblem? {
+        let text = text.trimmingCharacters(in: .whitespaces)
+        guard let pattern = HostPattern(rawValue: text) else { return .notAHost(text) }
+        guard !entries.contains(where: { $0.pattern == pattern }) else { return .onTheList(pattern) }
+        entries.append(Entry(pattern))
+        return nil
+    }
+
+    public mutating func remove(_ patterns: Set<HostPattern>) {
+        entries.removeAll { patterns.contains($0.pattern) }
+    }
+
+    public mutating func setDecrypts(_ isOn: Bool, _ pattern: HostPattern) {
+        guard let index = entries.firstIndex(where: { $0.pattern == pattern }) else { return }
+        entries[index].isOn = isOn
+    }
+
+    /// Why a host can't join the list.
+    public enum AddProblem: Error, Hashable, Sendable {
+        case notAHost(String)
+        case onTheList(HostPattern)
+
+        public var message: String {
+            switch self {
+            case .notAHost(let text):
+                "“\(text)” isn't a host. Enter a name like api.example.com, or *.example.com for its subdomains."
+            case .onTheList(let pattern): "\(pattern) is on the list already."
+            }
+        }
+    }
 }
 
 extension HostPattern {

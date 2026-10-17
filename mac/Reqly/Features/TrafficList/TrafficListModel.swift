@@ -2,6 +2,7 @@ import AppKit
 import Capture
 import Foundation
 import Observation
+import Presentation
 import ReqlyModel
 import TrafficStore
 
@@ -84,7 +85,7 @@ final class TrafficListModel {
         didSet {
             guard searchText != oldValue else { return }
             narrow { $0.setQuery(query) }
-            searchStore(after: .milliseconds(150), restarting: true)
+            searchStore(after: TrafficList.storeSearchDelay, restarting: true)
         }
     }
 
@@ -269,13 +270,8 @@ final class TrafficListModel {
 
     /// Names a device in the list right away, then in the saved traffic.
     func renameDevice(_ id: String, to name: String) {
-        let renamed = list.all.filter { $0.device?.id == id }.map { summary in
-            var summary = summary
-            summary.device?.name = name
-            return summary
-        }
-        if !renamed.isEmpty {
-            changeTraffic { $0.update(renamed) }
+        if list.all.contains(where: { $0.device?.id == id }) {
+            changeTraffic { $0.renameDevice(id, to: name) }
         }
         callSession { await $0.renameDevice(id, to: name) }
     }
@@ -294,12 +290,11 @@ final class TrafficListModel {
 
     /// Changes the list right away, then saves the change.
     private func annotate(_ id: ExchangeID, _ change: (inout Annotation) -> Void) {
-        guard var summary = list.summary(id) else { return }
-        var annotation = summary.annotation
+        guard let old = list.summary(id)?.annotation else { return }
+        var annotation = old
         change(&annotation)
-        guard annotation != summary.annotation else { return }
-        summary.annotation = annotation
-        changeTraffic { $0.update([summary]) }
+        guard annotation != old else { return }
+        changeTraffic { $0.setAnnotation(annotation, of: id) }
         callSession { await $0.annotate(id, with: annotation) }
     }
 
@@ -342,6 +337,10 @@ final class TrafficListModel {
             if let selection, list.summary(selection) == nil {
                 self.selection = nil
             }
+            // What was held went on with the clear, rows and all, so its editor goes too.
+            if paused.keys.contains(where: { list.summary($0) == nil }) {
+                paused = paused.filter { list.summary($0.key) != nil }
+            }
         case .updated(let summaries, let removed):
             // Touching `paused` would update every view that reads it, such as the Rules menu,
             // so it's only changed when an exchange there finished or went.
@@ -362,7 +361,7 @@ final class TrafficListModel {
             }
             if !summaries.isEmpty {
                 // New traffic may match the search in its headers or body.
-                searchStore(after: .milliseconds(250), restarting: false)
+                searchStore(after: TrafficList.newTrafficSearchDelay, restarting: false)
             }
             #if DEBUG
                 applyLaunchAnnotations()
@@ -577,6 +576,10 @@ final class TrafficListModel {
             return filter
         }
     #endif
+}
+
+extension DeviceEntry {
+    var name: String { device?.name ?? "This Mac" }
 }
 
 /// One of the sidebar's counts. Each row watches only its own, so new traffic redraws just the

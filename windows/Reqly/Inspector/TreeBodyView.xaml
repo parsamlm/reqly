@@ -1,0 +1,52 @@
+<UserControl
+    x:Class="Reqly.Inspector.TreeBodyView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Reqly.Inspector">
+  <!-- A body's keys and values, or protobuf fields, as the Mac's tree view shows them. -->
+  <StackPanel Spacing="8">
+    <TextBox x:Name="Filter" PlaceholderText="Filter keys and values" TextChanged="OnFilterChanged"
+             AutomationProperties.Name="Filter keys and values" />
+    <Border CornerRadius="10" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+      <TreeView x:Name="Tree" SelectionMode="Single" CanDragItems="False" CanReorderItems="False"
+                Expanding="OnExpanding" ItemInvoked="OnItemInvoked" AutomationProperties.Name="Tree">
+        <TreeView.ItemTemplate>
+          <DataTemplate x:DataType="local:TreeItem">
+            <TreeViewItem ItemsSource="{x:Bind Children}" HasUnrealizedChildren="{x:Bind HasUnrealizedChildren, Mode=OneWay}"
+                          IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" MinHeight="26" Padding="0"
+                          AutomationProperties.Name="{x:Bind Label}">
+              <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="150" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="84" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind Label}" FontWeight="Medium" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{x:Bind Summary}" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                           Foreground="{x:Bind ValueBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="{x:Bind Type}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Type}" />
+              </Grid>
+            </TreeViewItem>
+          </DataTemplate>
+        </TreeView.ItemTemplate>
+      </TreeView>
+    </Border>
+    <!-- Where the selected row is, and its value, to copy. -->
+    <Border x:Name="PathBar" Visibility="Collapsed" Padding="10,6" CornerRadius="8"
+            Background="{ThemeResource ControlFillColorSecondaryBrush}">
+      <Grid ColumnSpacing="8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock x:Name="PathText" FontFamily="Cascadia Mono, Consolas" FontSize="12" VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
+        <HyperlinkButton Grid.Column="1" Content="Copy path" Padding="2,0" Click="OnCopyPathClicked" />
+        <HyperlinkButton Grid.Column="2" Content="Copy value" Padding="2,0" Click="OnCopyValueClicked" />
+      </Grid>
+    </Border>
+  </StackPanel>
+</UserControl>

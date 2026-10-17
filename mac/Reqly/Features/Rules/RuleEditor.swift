@@ -1,5 +1,6 @@
 import AppKit
 import BodyKit
+import Presentation
 import ReqlyModel
 import SwiftUI
 import UniformTypeIdentifiers
@@ -179,12 +180,7 @@ struct RuleEditor: View {
 
     /// The requests captured so far that the rule would act on.
     private var matchCount: Int {
-        let match = draft.match
-        // An encrypted connection has no path or method to match, only its host.
-        let matchesTunnels = draft.kind == .block && match.path == "*" && match.method == nil
-        return traffic.all.count { summary in
-            (summary.kind == .http || matchesTunnels) && match.matches(summary)
-        }
+        draft.matchCount(in: traffic.all)
     }
 
     private var hasResponse: Bool {

@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
-"""Collect the licenses of the open-source code inside Reqly.app.
+"""Collect the licenses of the open-source code inside Reqly.app and Reqly for Windows.
 
-Help ▸ Reqly Help ▸ Open Source Licenses shows them. The texts come from the packages SwiftPM
-has checked out for ReqlyKit, from the ones Xcode has checked out for the app alone, such as
-Sparkle, and from the copy of QuickJS-ng in core/Sources/CQuickJS. So build Reqly in Xcode once,
-and resolve ReqlyKit's packages:
+On the Mac, Help ▸ Reqly Help ▸ Open Source Licenses shows them, and on Windows, Help › About
+Reqly › Open-source licenses. The texts come from the packages SwiftPM has checked out for
+ReqlyKit, from the ones Xcode has checked out for the Mac app alone, such as Sparkle, from the
+copy of QuickJS-ng in core/Sources/CQuickJS, and for Windows, from the C code it alone carries:
+zlib, Brotli's decoder, SQLite and BoringSSL's assembly for Windows, and from copies of the
+licenses of the NuGet packages and runtimes that come with it. So build Reqly in Xcode once, and
+resolve ReqlyKit's packages:
 
     swift package resolve --package-path core
     python3 tools/acknowledgements.py
 
-Writes mac/Reqly/Resources/Acknowledgements.json. Run it again after adding, removing or updating a
+Writes mac/Reqly/Resources/Acknowledgements.json and windows/Reqly/Assets/Acknowledgements.json;
+`--app mac` or `--app windows` writes one. Run it again after adding, removing or updating a
 dependency. It stops when it meets a package, a license or a ReqlyKit target with C code that it
 doesn't know, so that a person checks what the new code asks for. `--check` only says whether the
-file is up to date.
+files are up to date.
+
+The Windows app's NuGet packages come from windows/Reqly/packages.lock.json. Microsoft's own, the
+Windows App SDK with WinUI, carry Microsoft's license terms rather than an open-source license, so
+the list leaves them out, and Reqly asks you to agree to those terms the first time it opens. Its
+installer also puts Swift's runtime and .NET beside Reqly.exe: RUNTIMES says which versions, and
+windows/scripts/package.ps1 checks that the installer carries those.
 
 Some license texts aren't in the checkouts, so copies from their projects are kept in
-tools/licenses. When one is missing, for example after a package moves to a newer copy of
+tools/licenses. The licenses of the Rust libraries in Velopack's programs come from
+tools/velopack_crates.py, which writes them there for the Velopack version Reqly uses. When one is missing, for example after a package moves to a newer copy of
 BoringSSL, the script says where to get it.
 """
 import argparse
@@ -29,6 +40,16 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT = os.path.join(ROOT, "mac", "Reqly", "Resources", "Acknowledgements.json")
+WINDOWS_OUTPUT = os.path.join(ROOT, "windows", "Reqly", "Assets", "Acknowledgements.json")
+# The Windows app's core resolves the same packages as ReqlyKit, at the same versions.
+WINDOWS_RESOLVED = os.path.join(ROOT, "windows", "ReqlyCore", "Package.resolved")
+NUGET_LOCK = os.path.join(ROOT, "windows", "Reqly", "packages.lock.json")
+ZLIB = os.path.join(ROOT, "core", "Sources", "CZlibBundled")
+BROTLI = os.path.join(ROOT, "core", "Sources", "CBrotliBundled")
+SQLITE = os.path.join(ROOT, "windows", "third-party", "sqlite")
+BORINGSSL_ASM = os.path.join(ROOT, "windows", "third-party", "boringssl-asm")
+# The packages Reqly for Windows builds with changes, one folder of patches each.
+PATCHES = os.path.join(ROOT, "windows", "patches")
 RESOLVED = os.path.join(ROOT, "core", "Package.resolved")
 APP_RESOLVED = os.path.join(
     ROOT, "mac", "Reqly.xcodeproj", "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved"
@@ -39,6 +60,9 @@ QUICKJS = os.path.join(ROOT, "core", "Sources", "CQuickJS")
 C_TARGETS = {
     "CQuickJS": "QuickJS-ng, which quickjs() covers",
     "CZlib": "only a module map for the zlib the system provides",
+    # Built only on Windows and Linux, so Reqly.app doesn't carry them.
+    "CZlibBundled": "zlib's source, for Windows, which has no zlib of its own",
+    "CBrotliBundled": "Brotli's decoder, for Windows and Linux; the Mac uses its Compression framework",
 }
 # License texts the checkouts don't carry. A copy saved here is added to its package.
 EXTRA_TEXTS = os.path.join(ROOT, "tools", "licenses")
@@ -48,6 +72,8 @@ needed_texts = set()
 APACHE = "Apache License 2.0"
 APACHE_RLE = "Apache License 2.0 with Runtime Library Exception"
 MIT = "MIT License"
+BSD = "BSD 3-Clause License"
+UNICODE_V3 = "Unicode License V3"
 
 # Code that a package copied from another project, under that project's license. The notice is
 # the whole file, or the lines from the one matching `start` to the next one matching `end`.
@@ -118,6 +144,134 @@ PACKAGES = {
     "sparkle": {"license": MIT, "files": ["LICENSE"]},
 }
 
+# The NuGet packages the Windows app builds with whose files go beside Reqly under an open-source
+# license. Their license texts aren't in the repository's checkouts, so copies are kept in
+# tools/licenses, named after the package and its version.
+NUGET_LISTED = {
+    # WinUI brings WebView2: Microsoft.Web.WebView2.Core.dll, its projection and WebView2Loader.dll.
+    "Microsoft.Web.WebView2": {
+        "name": "WebView2",
+        "url": "https://aka.ms/webview",
+        "license": BSD,
+        "files": ["LICENSE.txt", "NOTICE.txt"],
+    },
+    # Velopack.dll, and the programs vpk puts beside Reqly to install it and its updates: Update.exe,
+    # Setup.exe and the Reqly.exe that starts it, written in Rust, with the Rust libraries in them.
+    "Velopack": {
+        "name": "Velopack",
+        "url": "https://velopack.io",
+        "license": MIT,
+        "files": ["LICENSE"],
+        # The package carries no copy of its license, but the project's repository does.
+        "source": "https://github.com/velopack/velopack/blob/{version}/LICENSE",
+        "extra": [
+            {
+                "title": "The Rust libraries in its programs",
+                "file": "velopack-{version}-rust.txt",
+                "why": "Velopack's programs are built with Rust libraries, whose licenses that file has.",
+                "source": "tools/velopack_crates.py --write, which writes it",
+            }
+        ],
+    },
+}
+# The ones left out, and why.
+NUGET_LEFT_OUT = {
+    "Microsoft.WindowsAppSDK.Base": "used only to build",
+    "Microsoft.WindowsAppSDK.Foundation": "Microsoft's license terms for the Windows App SDK",
+    "Microsoft.WindowsAppSDK.InteractiveExperiences": "Microsoft's license terms for the Windows App SDK",
+    "Microsoft.WindowsAppSDK.WinUI": "Microsoft's license terms for the Windows App SDK",
+    "Microsoft.Windows.SDK.BuildTools": "used only to build",
+    "Microsoft.Windows.SDK.BuildTools.MSIX": "used only to build",
+}
+
+# The runtimes that Reqly for Windows' installer puts beside Reqly.exe, at the versions that
+# windows/scripts/package.ps1 checks it carries. Swift's Foundation carries ICU in _FoundationICU.dll,
+# and libxml2 in FoundationXML.dll: at the Swift release's tag, swift-foundation-icu's
+# icuSources/include/_foundation_unicode/uvernum.h and swift's utils/build.ps1 say which versions.
+DOTNET = "10.0.12"
+SWIFT = "6.4.0"
+ICU = "76.1"
+LIBXML2 = "2.11.5"
+# Each runtime's license and notices, saved in tools/licenses, and where they come from.
+RUNTIMES = [
+    {
+        "name": ".NET",
+        "version": DOTNET,
+        "url": "https://dot.net",
+        "license": MIT,
+        "texts": [
+            {
+                "title": title,
+                "file": f"microsoft.netcore.app.runtime.win-x64-{DOTNET}-{title}",
+                "source": f"%USERPROFILE%\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\{DOTNET}\\{title}"
+                " on a PC that packaged Reqly",
+            }
+            for title in ("LICENSE.TXT", "THIRD-PARTY-NOTICES.TXT")
+        ],
+    },
+    {
+        "name": "Swift",
+        "version": SWIFT,
+        "url": "https://www.swift.org",
+        "license": APACHE_RLE,
+        "about": (
+            "Swift's runtime",
+            "Reqly for Windows carries Swift's runtime, from the Swift project: the standard library, from"
+            " swift and swift-experimental-string-processing, Dispatch, from swift-corelibs-libdispatch, and"
+            " Foundation, from swift-corelibs-foundation, swift-foundation and swift-foundation-icu. Each is"
+            " under the license in LICENSE.txt. Foundation also carries ICU and libxml2, which this list has"
+            " on their own.",
+        ),
+        "texts": [
+            {
+                "title": "LICENSE.txt",
+                "file": f"swift-{SWIFT}-LICENSE.txt",
+                "source": f"https://github.com/swiftlang/swift/blob/swift-{SWIFT}-RELEASE/LICENSE.txt",
+            },
+            {
+                "title": "swift-foundation's NOTICE.txt",
+                "file": f"swift-foundation-{SWIFT}-NOTICE.txt",
+                "source": f"https://github.com/swiftlang/swift-foundation/blob/swift-{SWIFT}-RELEASE/NOTICE.txt",
+            },
+        ],
+    },
+    {
+        "name": "ICU",
+        "version": ICU,
+        "url": "https://icu.unicode.org",
+        "license": UNICODE_V3,
+        "texts": [
+            {
+                "title": "LICENSE",
+                "file": f"icu-{ICU}-LICENSE.txt",
+                "source": f"https://github.com/unicode-org/icu/blob/release-{ICU.replace('.', '-')}/LICENSE",
+            }
+        ],
+    },
+    {
+        "name": "libxml2",
+        "version": LIBXML2,
+        "url": "https://gitlab.gnome.org/GNOME/libxml2",
+        "license": MIT,
+        # Copyright names hash.c and list.c, which have notices of their own. Its trio files aren't built.
+        "texts": [
+            {
+                "title": "Copyright",
+                "file": f"libxml2-{LIBXML2}-Copyright.txt",
+                "source": f"https://gitlab.gnome.org/GNOME/libxml2/-/blob/v{LIBXML2}/Copyright",
+            }
+        ]
+        + [
+            {
+                "title": name,
+                "file": f"libxml2-{LIBXML2}-{name}.txt",
+                "source": f"the comment at the top of https://gitlab.gnome.org/GNOME/libxml2/-/blob/v{LIBXML2}/{name}",
+            }
+            for name in ("hash.c", "list.c")
+        ],
+    },
+]
+
 # The licenses BoringSSL's files carry: how each one's notice starts and ends.
 BORINGSSL_LICENSES = {
     "isc": (r"Permission to use, copy, modify, and/or distribute", r"PERFORMANCE OF THIS SOFTWARE\."),
@@ -177,10 +331,22 @@ def copied(folder, part):
 
 
 def check_license(name, license, text):
+    # Some copies space their words differently.
+    flat = " ".join(text.split())
     apache = "Apache License" in text and "Version 2.0, January 2004" in text
     exception = "Runtime Library Exception" in text
-    mit = "Permission is hereby granted, free of charge" in text
-    expected = {APACHE: apache and not exception, APACHE_RLE: apache and exception, MIT: mit}
+    mit = "Permission is hereby granted, free of charge" in flat
+    bsd = "Redistribution and use in source and binary forms, with or without modification" in flat and (
+        "endorse or promote products derived from this software" in flat
+    )
+    unicode = "UNICODE LICENSE V3" in text
+    expected = {
+        APACHE: apache and not exception,
+        APACHE_RLE: apache and exception,
+        MIT: mit,
+        BSD: bsd,
+        UNICODE_V3: unicode,
+    }
     if not expected[license]:
         raise Problem(f"{name}'s license is no longer the {license}. Check it, then update PACKAGES.")
 
@@ -363,6 +529,235 @@ def quickjs():
     }
 
 
+def zlib():
+    """zlib, which the core carries in CZlibBundled for Windows, the one system without its own."""
+    match = re.search(r'#define ZLIB_VERSION "([^"]+)"', read(os.path.join(ZLIB, "include", "zlib.h")))
+    if not match:
+        raise Problem("CZlibBundled/include/zlib.h doesn't say which version it is")
+    license = tidy(read(os.path.join(ZLIB, "LICENSE")))
+    if "Permission is granted to anyone to use this software for any purpose" not in license:
+        raise Problem("zlib's license is no longer the zlib License. Check it, then update zlib().")
+    return {
+        "name": "zlib",
+        "version": match.group(1),
+        "url": "https://zlib.net",
+        "license": "zlib License",
+        "notices": [{"title": "LICENSE", "text": license}],
+    }
+
+
+def brotli():
+    """Brotli's decoder, which the core carries in CBrotliBundled for Windows and Linux."""
+    header = read(os.path.join(BROTLI, "common", "version.h"))
+    parts = [re.search(rf"#define BROTLI_VERSION_{part} (\d+)", header) for part in ("MAJOR", "MINOR", "PATCH")]
+    if not all(parts):
+        raise Problem("CBrotliBundled/common/version.h doesn't say which version it is")
+    license = tidy(read(os.path.join(BROTLI, "LICENSE")))
+    check_license("Brotli", MIT, license)
+    return {
+        "name": "Brotli",
+        "version": ".".join(part.group(1) for part in parts),
+        "url": "https://github.com/google/brotli",
+        "license": MIT,
+        "notices": [{"title": "LICENSE", "text": license}],
+    }
+
+
+def sqlite():
+    """SQLite, which Reqly for Windows carries, since Windows has none to build against."""
+    header = read(os.path.join(SQLITE, "sqlite3.h"))
+    match = re.search(r'#define SQLITE_VERSION\s+"([^"]+)"', header)
+    if not match:
+        raise Problem("windows/third-party/sqlite/sqlite3.h doesn't say which version it is")
+    # In place of a license, SQLite's files carry a blessing, in comments that start with **.
+    lines = [re.sub(r"^\*\*\s?", "", line).rstrip() for line in header.split("\n")]
+    first = next((i for i, line in enumerate(lines) if line.startswith("The author disclaims copyright")), None)
+    last = next((i for i, line in enumerate(lines) if "never taking more than you give." in line), None)
+    if first is None or last is None or last < first:
+        raise Problem("windows/third-party/sqlite/sqlite3.h no longer puts SQLite in the public domain. Check it.")
+    return {
+        "name": "SQLite",
+        "version": match.group(1),
+        "url": "https://sqlite.org",
+        "license": "Public domain",
+        "notices": [{"title": "sqlite3.h", "text": tidy("\n".join(lines[first : last + 1]))}],
+    }
+
+
+def windows_boringssl(nio_ssl):
+    """Says that on Windows, BoringSSL's assembly comes from windows/third-party, at NIOSSL's revision."""
+    revision = read(os.path.join(BORINGSSL_ASM, "REVISION")).strip()
+    notice = next(notice for notice in nio_ssl["notices"] if notice["title"] == "BoringSSL")
+    if f"at revision {revision}." not in notice["text"]:
+        raise Problem(
+            f"windows/third-party/boringssl-asm is BoringSSL at {revision}, but NIOSSL's copy isn't. Update"
+            " the assembly to NIOSSL's revision, as its README says."
+        )
+    notice["text"] += (
+        "\n\nOn Windows, Reqly also builds BoringSSL's x86-64 assembly for Windows, from the same revision,"
+        " which it keeps in windows/third-party/boringssl-asm."
+    )
+
+
+def windows_patches(packages):
+    """Says which packages Reqly for Windows builds with changes, as their license asks: windows/patches has them."""
+    resolved = pins(RESOLVED)
+    for name in sorted(os.listdir(PATCHES)):
+        if not os.path.isdir(os.path.join(PATCHES, name)):
+            continue
+        package = next((package for package in packages if package["name"] == name), None)
+        if package is None:
+            raise Problem(f"windows/patches/{name} changes a package that Reqly for Windows doesn't have.")
+        # The patches are for one version: the one ReqlyKit pins, so that Windows builds it too.
+        version, revision, _ = read(os.path.join(PATCHES, name, "VERSION")).split()
+        if resolved[name]["state"]["revision"] != revision:
+            raise Problem(
+                f"windows/patches/{name} is for {name} {version}, but ReqlyKit pins"
+                f" {resolved[name]['state'].get('version')}. Update the patches, as windows/patches/README.md says."
+            )
+        package["notices"].append(
+            {
+                "title": "Changes for Windows",
+                "text": f"On Windows, Reqly builds {name} with changes for Windows that its releases don't have"
+                " yet: fixes from open pull requests, and Reqly's own. They're in Reqly's repository, in"
+                f" windows/patches/{name}, each saying where it comes from.",
+            }
+        )
+
+
+def nuget_packages(warnings):
+    """The Windows app's NuGet packages whose files go beside Reqly under an open-source license."""
+    with open(NUGET_LOCK, encoding="utf-8") as f:
+        lock = json.load(f)
+    versions = {}
+    for packages in lock["dependencies"].values():
+        for identity, info in packages.items():
+            if info.get("type") != "Project":
+                versions[identity] = info["resolved"]
+    listed = []
+    for identity, version in sorted(versions.items()):
+        if identity in NUGET_LEFT_OUT:
+            continue
+        if identity not in NUGET_LISTED:
+            raise Problem(
+                f"windows/Reqly/packages.lock.json has {identity}, which this script doesn't know. Check its"
+                " license and which of its files go beside Reqly, then add it to NUGET_LISTED or NUGET_LEFT_OUT."
+            )
+        spec = NUGET_LISTED[identity]
+        notices = []
+        for filename in spec["files"]:
+            text = extra_text(
+                identity,
+                {
+                    "title": filename,
+                    "why": f"The repository has no copy of {filename} from the {identity} {version} package.",
+                    "file": f"{identity.lower()}-{version}-{filename}",
+                    "source": spec["source"].format(version=version)
+                    if "source" in spec
+                    else f"%USERPROFILE%\\.nuget\\packages\\{identity.lower()}\\{version}\\{filename} on a PC that"
+                    f" built Reqly, or the package at https://www.nuget.org/packages/{identity}/{version}",
+                },
+                warnings,
+            )
+            if text:
+                notices.append(text)
+        for extra in spec.get("extra", []):
+            text = extra_text(identity, {**extra, "file": extra["file"].format(version=version)}, warnings)
+            if text:
+                notices.append(text)
+        if notices and notices[0]["title"] == spec["files"][0]:
+            check_license(spec["name"], spec["license"], notices[0]["text"])
+        listed.append(
+            {"name": spec["name"], "version": version, "url": spec["url"], "license": spec["license"], "notices": notices}
+        )
+    return listed
+
+
+def runtimes(warnings):
+    """The runtimes that Reqly for Windows' installer puts beside it: .NET, and Swift's, with ICU and libxml2."""
+    listed = []
+    for spec in RUNTIMES:
+        notices = [{"title": spec["about"][0], "text": spec["about"][1]}] if "about" in spec else []
+        texts = [
+            extra_text(
+                spec["name"],
+                {
+                    "title": text["title"],
+                    "why": f"The repository has no copy of {text['title']} from {spec['name']} {spec['version']}.",
+                    "file": text["file"],
+                    "source": text["source"],
+                },
+                warnings,
+            )
+            for text in spec["texts"]
+        ]
+        # The first text is the license.
+        if texts[0]:
+            check_license(spec["name"], spec["license"], texts[0]["text"])
+        notices += [text for text in texts if text]
+        listed.append(
+            {
+                "name": spec["name"],
+                "version": spec["version"],
+                "url": spec["url"],
+                "license": spec["license"],
+                "notices": notices,
+            }
+        )
+    return listed
+
+
+def mac_list(arguments, warnings):
+    """The open-source code inside Reqly.app."""
+    resolved = pins(RESOLVED)
+    # The app resolves ReqlyKit's packages, at the same versions, and the ones it alone uses.
+    app_resolved = pins(APP_RESOLVED)
+    if any(app_resolved.get(key, {}).get("state") != pin["state"] for key, pin in resolved.items()):
+        raise Problem("ReqlyKit and the Xcode project resolve different packages. Resolve both again.")
+    packages = [
+        package(identity, pin, arguments.checkouts if identity in resolved else arguments.app_checkouts, warnings)
+        for identity, pin in app_resolved.items()
+    ]
+    packages.append(quickjs())
+    return packages
+
+
+def windows_list(arguments, warnings):
+    """The open-source code inside Reqly for Windows: ReqlyKit's, the C code Windows alone needs, its NuGet
+    packages', and the runtimes it carries."""
+    resolved = pins(RESOLVED)
+    windows_resolved = pins(WINDOWS_RESOLVED)
+    if {key: pin["state"] for key, pin in windows_resolved.items()} != {key: pin["state"] for key, pin in resolved.items()}:
+        raise Problem("ReqlyKit and windows/ReqlyCore resolve different packages. Resolve both again.")
+    packages = [package(identity, pin, arguments.checkouts, warnings) for identity, pin in windows_resolved.items()]
+    windows_boringssl(next(package for package in packages if package["name"] == "swift-nio-ssl"))
+    windows_patches(packages)
+    packages += [quickjs(), zlib(), brotli(), sqlite()]
+    packages += nuget_packages(warnings)
+    packages += runtimes(warnings)
+    return packages
+
+
+def write(path, packages, checking):
+    """Writes the list, or with `checking`, says whether the file already has it. True if it's up to date."""
+    packages.sort(key=lambda package: package["name"].lower())
+    output = json.dumps({"packages": packages}, indent=2, ensure_ascii=False) + "\n"
+    relative = os.path.relpath(path, ROOT)
+    current = read(path) if os.path.exists(path) else None
+    if checking:
+        if current != output:
+            print(f"error: {relative} is out of date. Run tools/acknowledgements.py.", file=sys.stderr)
+            return False
+        print(f"{relative} is up to date.")
+    elif current != output:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(output)
+        print(f"Wrote {relative}, with {len(packages)} packages.")
+    else:
+        print(f"{relative} was already up to date.")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument(
@@ -376,45 +771,32 @@ def main():
         help="where Xcode checked out the packages only the app uses, such as Sparkle"
         " (default: the newest Reqly folder in Xcode's DerivedData)",
     )
-    parser.add_argument("--check", action="store_true", help="only check that the file is up to date")
+    parser.add_argument(
+        "--app", choices=["mac", "windows", "both"], default="both", help="which app's list to write (default: both)"
+    )
+    parser.add_argument("--check", action="store_true", help="only check that the files are up to date")
     arguments = parser.parse_args()
 
     warnings = []
+    lists = []
     try:
-        resolved = pins(RESOLVED)
-        # The app resolves ReqlyKit's packages, at the same versions, and the ones it alone uses.
-        app_resolved = pins(APP_RESOLVED)
-        if any(app_resolved.get(key, {}).get("state") != pin["state"] for key, pin in resolved.items()):
-            raise Problem("ReqlyKit and the Xcode project resolve different packages. Resolve both again.")
         check_c_targets()
-        packages = [
-            package(identity, pin, arguments.checkouts if identity in resolved else arguments.app_checkouts, warnings)
-            for identity, pin in app_resolved.items()
-        ]
-        packages.append(quickjs())
+        if arguments.app in ("mac", "both"):
+            lists.append((OUTPUT, mac_list(arguments, warnings)))
+        if arguments.app in ("windows", "both"):
+            lists.append((WINDOWS_OUTPUT, windows_list(arguments, warnings)))
     except (Problem, OSError, subprocess.CalledProcessError) as error:
         sys.exit(f"error: {error}")
-    packages.sort(key=lambda package: package["name"].lower())
-    output = json.dumps({"packages": packages}, indent=2, ensure_ascii=False) + "\n"
-    if os.path.isdir(EXTRA_TEXTS):
+    # Only with both lists is it clear that no package needs a text.
+    if arguments.app == "both" and os.path.isdir(EXTRA_TEXTS):
         for filename in sorted(set(os.listdir(EXTRA_TEXTS)) - needed_texts):
             if not filename.startswith("."):
                 warnings.append(f"No package needs tools/licenses/{filename} anymore, so it can go.")
 
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
-    relative = os.path.relpath(OUTPUT, ROOT)
-    current = read(OUTPUT) if os.path.exists(OUTPUT) else None
-    if arguments.check:
-        if current != output:
-            sys.exit(f"error: {relative} is out of date. Run tools/acknowledgements.py.")
-        print(f"{relative} is up to date.")
-    elif current != output:
-        with open(OUTPUT, "w", encoding="utf-8") as f:
-            f.write(output)
-        print(f"Wrote {relative}, with {len(packages)} packages.")
-    else:
-        print(f"{relative} was already up to date.")
+    if not all([write(path, packages, arguments.check) for path, packages in lists]):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

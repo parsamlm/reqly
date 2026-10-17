@@ -4,6 +4,11 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include "quickjs.h"
 
 struct ReqlyRuntime {
@@ -13,9 +18,16 @@ struct ReqlyRuntime {
 };
 
 static double now(void) {
+#ifdef _WIN32
+    LARGE_INTEGER frequency, counter;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
     struct timespec time;
     clock_gettime(CLOCK_MONOTONIC, &time);
     return (double)time.tv_sec + (double)time.tv_nsec / 1e9;
+#endif
 }
 
 /// QuickJS asks this every so often while a script runs; nonzero stops it.

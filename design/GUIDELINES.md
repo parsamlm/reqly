@@ -75,9 +75,11 @@ Around the logo, keep empty space equal to half the icon's height. Around the ic
 
 The code is MIT-licensed, but the Reqly name, icon and wordmark are reserved. Anyone may use them unchanged to refer to Reqly, but modified versions need their own name and icon. The full rules are in [TRADEMARKS.md](../TRADEMARKS.md).
 
-### Menu-bar icon
+### Menu-bar and notification-area icon
 
 The menu bar uses [`logo/menubar/MenuBarIcon.imageset`](logo/menubar/MenuBarIcon.imageset). It is a template image, so macOS colors it for light and dark menu bars. Never color it or put the full app icon in the menu bar.
+
+Windows' notification area uses the same glyph. Windows doesn't color icons there, so the app has it twice, in black for a light taskbar and in white for a dark one, and picks the one that matches. The same rule applies: never color it or put the full app icon there.
 
 ## 2. Color
 

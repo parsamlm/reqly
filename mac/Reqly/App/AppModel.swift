@@ -28,8 +28,11 @@ final class AppModel {
     let settings = SettingsNavigation()
     let updates = UpdatesModel()
     let crashes = CrashReporter()
-    /// Files to open in windows of their own, such as ones double-clicked in Finder.
+    /// Files to open in windows of their own, such as ones double-clicked in Finder, until the
+    /// file opener opens them.
     var filesToOpen: [URL] = []
+    /// Whether the main window has asked to start capturing, as Settings may say to at launch.
+    @ObservationIgnored private var hasAskedToCapture = false
     /// The copies of the files open in windows. Closing a window deletes its copy; quitting
     /// deletes the ones still open.
     private var openedStores: [WeakReference<TrafficStore>] = []
@@ -74,8 +77,6 @@ final class AppModel {
                 _ = try? await SystemProxyController()?.removeHelper()
                 NSApp.terminate(nil)
             }
-        } else if defaults.bool(forKey: DefaultsKey.startCapturingOnLaunch) {
-            Task { await capture.start() }
         }
         #if DEBUG
             if let path = defaults.string(forKey: DefaultsKey.openFile) {
@@ -98,6 +99,20 @@ final class AppModel {
 extension AppModel {
     /// Where sessions live: this run's, and the copies of the ones you open.
     var sessionsFolder: URL { store.directory.deletingLastPathComponent() }
+
+    /// Starts capturing if Settings say to when Reqly opens. The main window asks the first time it
+    /// opens, so Reqly opened to show a file captures nothing until you open the main window. If
+    /// you've started capturing by then, capturing stays as you left it.
+    func startCapturingIfAsked() {
+        guard !hasAskedToCapture else { return }
+        hasAskedToCapture = true
+        let defaults = UserDefaults.standard
+        let removesHelper = defaults.bool(forKey: DefaultsKey.removeHelper)
+        guard defaults.bool(forKey: DefaultsKey.startCapturingOnLaunch), !removesHelper, !capture.hasStarted else {
+            return
+        }
+        Task { await capture.start() }
+    }
 
     func rememberOpened(_ store: TrafficStore) {
         openedStores.removeAll { $0.value == nil }
@@ -244,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
-    /// Files opened from Finder, or dropped on Reqly's icon.
+    /// Files opened from Finder, or dropped on Reqly's icon. The file opener opens them.
     func application(_ application: NSApplication, open urls: [URL]) {
         model.filesToOpen.append(contentsOf: urls)
     }
@@ -357,7 +372,7 @@ enum DefaultsKey {
         static let editRequest = "editRequest"
         /// `-sendComposed YES` sends what a composer window opens with.
         static let sendComposed = "sendComposed"
-        /// `-openFile path` opens a session or HAR file, as Finder does.
+        /// `-openFile path` opens a session or HAR file in a window of its own, beside the main window.
         static let openFile = "openFile"
         /// `-saveSessionTo path` saves the session there once `-saveAt` requests have arrived.
         static let saveSessionTo = "saveSessionTo"

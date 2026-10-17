@@ -27,13 +27,13 @@ To change one of these choices, open a pull request that explains why.
 | System proxy | ReqlyHelper, a small privileged helper that switches the proxy and always restores it |
 | Code organization | ReqlyKit, a Swift package with no UI code, plus the app, whose screens use `@Observable` models |
 | Tests | Swift Testing |
-| Updates | Sparkle, in copies built with the public half of the key that signs updates. Other copies check GitHub Releases once a day and link to the download |
+| Updates | Sparkle, in copies built with the public half of the key that signs updates. Other copies check GitHub Releases once a day and link to the download. On Windows, Velopack, from GitHub Releases too |
 | Crash reports | Never sent automatically; after a crash, Reqly offers a prefilled GitHub issue |
 | Distribution | Signed with Developer ID and notarized; on GitHub Releases and Homebrew |
 
 Why these:
 
-- **Swift everywhere.** One language covers everything from the proxy engine to the screens. Swift also runs on Windows, so the Windows app shares the core. Most people who use Reqly are Apple developers and can already read it.
+- **Swift for everything but the Windows screens.** One language covers everything from the proxy engine to the Mac's screens. Swift also runs on Windows, so the Windows app shares the core; its screens are WinUI 3 in C#, which reach the core through a small C interface. Most people who use Reqly are Apple developers and can already read it.
 - **SwiftNIO.** It is Apple's networking library for server-side Swift. It already has the HTTP/1.1, HTTP/2 and TLS pieces a proxy needs.
 - **AppKit only where SwiftUI would struggle.** That means a list with 100,000 live rows, and text views holding megabytes of text.
 - **Plain `@Observable` models.** Contributors don't have to learn an architecture framework to read the app.
@@ -87,9 +87,9 @@ Why these:
 ```
 Reqly.app          SwiftUI + AppKit, @Observable models
     │
-Capture            starts and stops capturing, records traffic
+Capture · Presentation   starts and stops capturing, records traffic; the list and bodies as screens show them
     │
-ProxyEngine · TrafficStore · SourceResolver · SystemProxy · Keychain · HAR · DeviceTools
+ProxyEngine · TrafficStore · SourceResolver · SystemProxy · Keychain · HAR · DeviceTools · DeviceBridge
     │
 CertificateAuthority · BodyKit · Scripts · HelperProtocol
     │
@@ -101,20 +101,22 @@ Each layer uses only the layers below it. Everything below Reqly.app lives in tw
 | Module | What it does | Uses |
 |---|---|---|
 | ReqlyModel | Value types shared by everything: exchanges, headers, timings, sources, rules | — |
-| BodyKit | Decompresses bodies, detects content types, builds JSON trees, highlights syntax, parses form data, formats hex, reads protobuf messages, `.proto` files and gRPC's framing | zlib (through CZlib); Compression for Brotli, on the Mac |
+| BodyKit | Decompresses bodies, detects content types, builds JSON trees, highlights syntax, parses form data, formats hex, reads protobuf messages, `.proto` files and gRPC's framing | zlib (through CZlib, or CZlibBundled on Windows); Compression for Brotli on the Mac, and Brotli's own decoder (CBrotliBundled) on Windows and Linux |
 | CertificateAuthority | Creates the root certificate, and issues and caches the certificates for decrypted hosts. `RootStore` is where the root is kept and trusted | swift-certificates, swift-crypto |
 | Keychain | Mac only. `CertificateStore`, the `RootStore` that keeps the root in the login keychain and asks macOS to trust it | CertificateAuthority, Security |
 | HelperProtocol | The XPC interface between the app and ReqlyHelper, and the code-signing checks both sides use | Security |
 | HelperCore | ReqlyHelper's work: saves the proxy settings, points them at Reqly, puts them back, and watches Reqly's process | HelperProtocol, SystemConfiguration |
 | ProxyEngine | The proxy: HTTP/1.1 and HTTP/2, CONNECT tunnels, decryption, connections to servers, interceptors | ReqlyModel, CertificateAuthority, SwiftNIO |
 | TrafficStore | Saves and queries traffic: batched writes, filters, search, bodies, size limits | ReqlyModel, BodyKit, GRDB |
-| SourceResolver | Finds which app or tool opened each connection, and the simulator or emulator it runs in, from the Mac's process table; and the hardware addresses of devices on the network | ReqlyModel |
+| SourceResolver | Finds which app or tool opened each connection, and the simulator or emulator it runs in, from the Mac's process table; and the hardware addresses of devices on the network | ReqlyModel, DeviceBridge |
 | SystemProxy | Registers ReqlyHelper and asks it to set or restore the proxy, as the model's `SystemProxySwitch` | HelperProtocol, ReqlyModel |
 | HAR | Imports and exports HAR files, and makes cURL commands | ReqlyModel, BodyKit |
-| DeviceTools | Lists running simulators and installs Reqly's certificate in them with Xcode's `simctl`; points Android emulators at Reqly with `adb` | — |
+| DeviceTools | Mac only. Lists running simulators and installs Reqly's certificate in them with Xcode's `simctl`. It passes DeviceBridge on to the app | DeviceBridge |
+| DeviceBridge | Points Android emulators at Reqly with `adb`, and copies Reqly's certificate onto them, on the Mac and on Windows; tells an emulator's own processes apart, so their traffic goes to the emulator; runs command-line tools, which on Windows inherit only their own pipes | ReqlyModel |
 | Scripts | Runs your JavaScript on matching requests and responses, each run in a sandbox with a time limit | ReqlyModel, CQuickJS |
 | CQuickJS | QuickJS-ng, the JavaScript engine, built from its amalgamation without its standard library | — |
-| Capture | Runs the engine, switches the proxy through a `SystemProxySwitch`, credits connections to apps and devices, records into the store, and keeps the rules | the modules above, except HAR and the Mac-only ones: SourceResolver, SystemProxy, Keychain and DeviceTools |
+| Capture | Runs the engine, switches the proxy through a `SystemProxySwitch`, credits connections to apps and devices, records into the store, and keeps the rules. It reads and writes the settings files the Mac and Windows share: the rules, the connections, and the devices you let in, with whom to ask about next | the modules above, except HAR, DeviceBridge and the Mac-only ones: SourceResolver, SystemProxy, Keychain and DeviceTools |
+| Presentation | What the Mac and Windows screens share: the request list engine (sidebar rows, filters, search, counts and row changes), bodies made ready to show, what a request's details say about decryption, the editors' drafts and what they say to fix (rules, the upstream and reverse proxies, paused requests), reading `.proto` files, and QR codes for the device setup page | ReqlyModel, BodyKit |
 
 Most of these modules will also build for Windows. [Other platforms](#other-platforms) says which, and what still has to change.
 
@@ -123,6 +125,8 @@ Most of these modules will also build for Windows. [Other platforms](#other-plat
 - **Scenes:**
   - the main window, for the traffic being captured
   - a window for each session or HAR file you open, laid out like the main window, without the controls for capturing
+    - Files opened from Finder reach the app delegate. SwiftUI also shows a window for each such opening, and the file opener is the only scene that takes it: an invisible window that opens the files' windows and closes before it's drawn. So a file opens without the main window, even when Reqly opens to show it, and SwiftUI, which would hand a window only the first of several files, never takes them itself.
+    - Reqly opened to show a file starts capturing, if Settings say to, and opens the welcome window the first time, only once you open the main window.
   - a composer window for each request you write or edit, with its response beside it
   - the Rules window, with every kind of rule and its switch
   - the Devices window, for setting up phones, tablets, simulators and emulators
@@ -299,7 +303,7 @@ TrafficStore keeps each session on disk, so a long session doesn't fill the memo
 - Secrets such as authorization headers and cookies are masked in the interface until you choose to show them. HAR export warns about them.
 - New dependencies need a reason in the pull request.
   - The list: swift-nio, swift-nio-ssl, swift-nio-http2, swift-certificates and swift-crypto from Apple, plus GRDB and QuickJS-ng. Sparkle belongs to the Mac app alone, so the Xcode project resolves it and ReqlyKit doesn't.
-  - After adding or updating one, run `tools/acknowledgements.py`, so the app shows its license. The script stops at a package it doesn't know, to have someone check what that package's license asks for.
+  - After adding or updating one, run `tools/acknowledgements.py`, so both apps show its license. The script stops at a package it doesn't know, to have someone check what that package's license asks for. It reads the Windows app's NuGet packages from `windows/Reqly/packages.lock.json`, which pins each one, the packages they bring too. Besides Microsoft's, the Windows app has one: Velopack, which installs and updates it. After updating it, run `tools/velopack_crates.py --write` too, for the licenses of the Rust libraries in its programs.
 
 ## Crash reports
 
@@ -310,6 +314,12 @@ TrafficStore keeps each session on disk, so a long session doesn't fill the memo
   - You read and edit the issue before you submit it. Show in Finder shows the full report, to attach.
 - Nothing is sent automatically.
 - Help › Report a Problem… opens a new issue with the versions filled in, for problems that aren't crashes.
+- Reqly for Windows offers the same, from what Windows has.
+  - Each run points its standard error, where Swift's runtime writes its error, such as `Fatal error` with its file and line, at a file of its own in `%LOCALAPPDATA%\Reqly\Crashes`. A .NET or WinUI error that stops Reqly goes there too, with its stack, caught by WinUI's unhandled-error event, by the window thread's synchronization context, which an async method that nothing waits for ends in, and by `Reported`, which every call Windows makes in Reqly outside WinUI's events goes through: queued work, a timer's tick, a window's event and the core's calls. Windows ends Reqly for an error in one of those without telling .NET or WinUI. Quitting deletes the file.
+  - At the next launch, the file a crashed run left, and Windows Error Reporting's report of the crash, which names the module, the exception and the offset, fill in the same window and issue as the Mac's. Each crash is offered once; its file stays, as `Crash-<time>.txt`, to attach. The five newest are kept.
+  - When Swift's code stops Reqly, as a failed check does, ReqlyCore.dll writes the crashed thread's whole stack to the file, as Swift's own backtracer would: an exception handler of its own, in `windows/ReqlyCore/Sources/CCrashStack`, ahead of .NET's, which ends Reqly at once for a fault in native code it called. When the crash came in a call from .NET, the handler then calls back into the app, on the crashed thread, which writes .NET's own frames: .NET compiles its code as it runs, so only .NET can name them, and only before Reqly ends. The report puts them in their place in the stack. The backtracer itself isn't used: started by an app with no console, it writes to a console window of its own, which flashes up.
+  - The report names each frame's function and line when the module still has its debug information and Swift's toolchain, with llvm-symbolizer and swift-demangle, is on the PC, as with a build of your own. A released Reqly's ReqlyCore.dll goes without it, so its report gives offsets, which `windows\scripts\symbolicate.ps1` turns into functions and lines with that version's debug information, as `private/releasing.md` says.
+  - Help › Report a problem… opens a new issue with the versions filled in, as on the Mac.
 - ReqlyHelper restores the system proxy no matter how Reqly ends.
 
 ## Project layout
@@ -336,12 +346,22 @@ Reqly/
 │   ├── Config/             .xcconfig files for signing and bundle identifiers
 │   └── distribution/       the Homebrew cask
 ├── windows/                Reqly for Windows, in Phase 2
+│   ├── Reqly/              the app, WinUI 3 in C#
+│   ├── ReqlyCore/          Swift package for ReqlyCore.dll: the core's C interface, and the
+│   │                       modules that reach Windows' own services
+│   ├── distribution/       the templates for Reqly's winget listing
+│   ├── patches/            fixes to SwiftNIO and swift-nio-ssl for Windows, until their releases
+│   │                       have them
+│   └── scripts/            builds the core, SQLite and the app on Windows, and the installer
 ├── ios/                    the companion app for iPhone and iPad, in Phase 3
 ├── android/                the companion app for Android, in Phase 4
 ├── design/                 logo and design guidelines
 ├── website/                reqly.net: the home page, the docs and the privacy page
-├── tools/                  acknowledgements.py, which collects the open-source licenses,
-│                           and licenses/, texts the package checkouts lack
+├── tools/                  acknowledgements.py, which collects both apps' open-source licenses,
+│                           licenses/, texts the package checkouts lack,
+│                           velopack_crates.py, which writes the Rust libraries' ones, and
+│                           windows_icon.py, which makes the Windows app's icons, the
+│                           notification area's with render_svg.swift
 ├── ARCHITECTURE.md
 └── ROADMAP.md
 ```
@@ -356,6 +376,7 @@ Reqly/
   - Its handlers are tested with SwiftNIO's `EmbeddedChannel`.
   - End-to-end tests start local HTTP/1.1 and HTTP/2 servers, send requests through the engine with `URLSession`, and check what was recorded. That includes decrypted HTTPS, using a test certificate authority.
 - **TrafficStore** is tested with generated sessions of 100,000 requests. This doubles as the speed check.
+- **Speed through Reqly:** `SpeedProbeTests` runs only when asked, in a release build (`REQLY_SPEED=1`). It times the same traffic straight to websites of its own and through the engine, and with `REQLY_SPEED_APP` through a Reqly that's running: small requests one and 16 at a time, downloads, HTTPS decrypted and not, and TLS alone with each cipher. On Windows, where a release build's tests aren't found, its files build into a program instead. The Windows app's self-check has a `serve` part for it, and a `speed` part that sends traffic from inside the app, whose timings include .NET's garbage collection pausing the test's own client.
 - **The app:**
   - Feature models are tested with fake services.
   - A few UI tests cover starting and stopping capture, and the certificate setup.
@@ -379,6 +400,7 @@ Reqly/
 - Use Reqly runs `adb shell settings put global http_proxy 10.0.2.2:<port>`. Copy Certificate pushes the certificate to the emulator's Downloads and opens its security settings, where you install it.
 - Their traffic arrives from the Mac, from the emulator's `qemu-system` process. SourceResolver labels it with the virtual device named in that process's `-avd` argument, and credits it to no app, since the app runs inside the emulator.
 - What they send over Wi-Fi, the network Android uses first, arrives from `netsimd` instead. The first emulator starts it, and the others share it, so its arguments name no virtual device. SourceResolver labels its traffic with the virtual device of the emulators running, while there's just one, and as "Android Emulator" while there are several, or none. It looks again for each connection, since emulators come and go while `netsimd` runs.
+- On Windows, emulators reach the PC the same way, and the Windows app's lookup follows the same rules, from DeviceBridge, reading each emulator's command line.
 
 **Apps on phones and emulators.** Reqly can't see which app on a phone, or inside an emulator, opened a connection. For the requests it can read, plain HTTP and the hosts you decrypt, the User-Agent names the app: Apple's networking sends the app's name first, as in `Weather/1 CFNetwork/1498.700.2 Darwin/23.6.0`, and browsers send their own form. Web views and networking libraries, such as okhttp, name no app.
 - An encrypted tunnel names nothing: an iPhone's `CONNECT` carries only Host, Proxy-Connection and Connection. Its app stays unknown, and the tunnel shows under its device alone.
@@ -445,6 +467,22 @@ BodyKit reads protobuf's wire format itself, so Reqly needs no code generated fr
 
 The Windows app in Phase 2 shares the core, and the phone companion apps in Phases 3 and 4 send their traffic to the desktop apps. The core is ready for that:
 
-- The core modules don't import Apple-only frameworks such as Security or ServiceManagement. Platform code lives in its own modules, which `Package.swift` lists only on the Mac. Brotli is the exception, behind `#if canImport(Compression)`.
+- The core modules don't import Apple-only frameworks such as Security or ServiceManagement. Platform code lives in its own modules, which `Package.swift` lists only on the Mac. Brotli is the exception: the Mac unpacks it with Apple's Compression framework, and Windows and Linux with Brotli's decoder, built from source.
 - CI builds and tests the core on Linux for every change. It's the cheapest way to catch Apple-only code slipping in.
-- Session files are SQLite databases that hold everything, bodies included, in one file, so the Windows app can open them as they are.
+- Session files are SQLite databases that hold everything, bodies included, in one file, so the Windows app can open them as they are. The core's tests open a session that Reqly for Mac 1.0 saved and one the Windows app saved, on every system, and check that both read as they were saved.
+- The Windows app runs the core in its own process, as `ReqlyCore.dll`. Requests and events cross between C# and Swift as small JSON messages, and bodies as bytes. The request list engine and body presentation live in the core's Presentation module, so both apps filter, search and show bodies the same way, and the Windows list asks only for the rows it shows.
+- The Windows app keeps the same settings files as the Mac, under `%LOCALAPPDATA%\Reqly`: `Rules.json`, `Connections.json`, `Protobuf.json` and `Devices.json`, which the core reads and writes for it. The upstream proxy's password and the client certificates' keys go in `Secrets.dat`, which Windows encrypts for your user account (DPAPI), as the Mac keeps them in the Keychain. The app's own preferences, such as the port and the window's place, are in `Settings.json`.
+- One Windows app runs at a time. A second launch, such as a file opened from File Explorer while Reqly runs, hands its files over a named pipe to the Reqly running, which opens them, or shows its live window for a launch without files; the second one quits before it touches anything. Two would share one port and one set of proxy settings, and each would put back what the other set. A Reqly whose settings files are elsewhere, such as a test run's, runs beside it.
+  - Reqly opened to show files shows only their windows. The live window's session opens hidden, since the files' windows send requests and read bodies through it, and capturing waits until you open Reqly again. Without the notification area's icon, closing the live window while files are open hides it and stops capturing, and Reqly quits once the last of its windows closes.
+- About Reqly, in the Windows app's Help menu, shows what the Mac's Reqly Help does, and its open-source licenses, from `windows/Reqly/Assets/Acknowledgements.json`: ReqlyKit's packages, the code Windows alone needs (zlib, Brotli's decoder, SQLite and BoringSSL's assembly for Windows), WebView2, which WinUI brings, Velopack with the Rust libraries in its programs (`tools/velopack_crates.py` lists them from Velopack's Cargo.lock and writes their licenses), and the runtimes the installer carries: .NET, and Swift's, with the ICU and libxml2 inside its Foundation. The Windows App SDK, WinUI among it, comes under Microsoft's license terms rather than an open-source license, so the list leaves it out.
+- Those terms ask that people who get the Windows App SDK agree to terms that protect it. So the first time Reqly opens, and again whenever they change, it shows a window before anything else that names Microsoft's software in Reqly, each name a link to its terms: the Windows App SDK, the Windows SDK, whose interface for .NET Reqly uses, and the Visual C++ runtime, which Swift's runtime uses. Reqly opens once you agree; Quit leaves it unused. Settings keep a hash of the terms you agreed to (`Help/Terms.cs`).
+- The Windows app has an icon in the notification area, as the Mac app has an item in the menu bar, unless you turn it off in Settings. It's the menu-bar icon's glyph, in black or white for a light or dark taskbar, added through Windows' own `Shell_NotifyIcon` from a hidden window of the app's, which also hears when Explorer starts again and the icon needs adding again. Clicking it opens the Mac's menu-bar panel, as a borderless WinUI window above the taskbar that closes when you click elsewhere: the capture switch, the traffic so far (from the core's `trafficSummary`, which counts every request, whatever the list shows), Breakpoints and Slow Network, and the way to decryption, devices, the live window, Settings and Quit. Double-clicking the icon opens the live window, as on Windows. With the icon, closing the live window hides it and Reqly goes on as it was, capturing too, as on the Mac when its window closes; a notification says so the first time. A request held at a breakpoint, or a device asking to connect, shows the window again behind the one you're in, with its taskbar button flashing. Reqly quits from the panel or File › Quit Reqly (Ctrl+Q), or, opened only to show files, when the last of their windows closes.
+- Reqly for Windows installs with Velopack, for your user alone and without administrator rights, in `%LOCALAPPDATA%\Reqly.App`, apart from its settings and sessions in `%LOCALAPPDATA%\Reqly`, which uninstalling leaves. Installing adds it to the Start menu, has it open `.reqly` sessions, and adds it to Open with for `.har` files, which other apps open too; uninstalling takes those back, with what `.reqly` pointed at before, puts your proxy settings back if a Reqly that crashed left them pointing at itself, and removes Reqly's certificate from your trusted roots, with its key, which Windows asks you to confirm. `windows/scripts/package.ps1` makes the installer and the packages updates come from. .NET, the Windows App SDK and the Swift runtime's DLLs go inside, so a PC needs none of them; ReqlyCore.dll goes without its debug information, which the script keeps apart for each version, for reading crash reports.
+  - An installed Reqly looks for updates on GitHub Releases half a minute after it opens and then once a day, as you can turn off in Settings › General, and downloads one it finds. It installs when Reqly quits, or at once from Settings or the notification area's panel, which restart Reqly for it. Updates never install as Reqly opens, since a second Reqly, such as one File Explorer starts to open a file, would stop the one running. A beta finds betas too. An update comes as the difference from the version installed, when the release has one: one that changed only Reqly's own files was 231 KB.
+  - Windows releases have tags of their own, `windows-v<version>`, and none is ever GitHub's latest release, which the Mac's updates read.
+- Windows Firewall asks the first time Reqly listens on your network for devices, as macOS does. Windows remembers your answer as rules for Reqly.exe, whose path an update keeps. While the Phones page shows, Reqly reads those rules, which any user can, and says on which kinds of network the firewall blocks it, with a way to Windows' list of the apps it lets through.
+- The Windows list keeps up with bursts the way WinUI lets it. It takes a burst's rows a few milliseconds at a time and brings the newest into view ten times a second at most. A row makes the icons most rows never show only when it shows one, and its columns after the request fill in a moment later. .NET's full garbage collections run in the background (`SustainedLowLatency`). While capturing, Reqly asks Windows not to slow it down when its windows are behind others, since it passes other apps' traffic on as it comes: with that power saving, downloads through it went about a third slower.
+- SwiftNIO's and swift-nio-ssl's releases don't work on Windows yet: SwiftNIO has bugs in its Windows event loop, and swift-nio-ssl supports Windows only in an open pull request. So on Windows, Reqly builds them with patches, which `windows/patches` keeps: that pull request and others, unchanged, and Reqly's own fixes. Before each build, `windows/scripts/patch-packages.ps1` downloads the versions `Package.resolved` pins, applies the patches, and has SwiftPM build with those copies, as edited packages. The Mac and Linux builds use the releases as they are. A patch goes once a release has its fix.
+- On Windows, BoringSSL, inside NIOSSL, writes its x86-64 assembly for NASM, which SwiftPM can't run. `windows/scripts/build-boringssl-asm.ps1` assembles BoringSSL's own files (`windows/third-party/boringssl-asm`) into `CNIOBoringSSLAsm.lib` before the Swift build, and the NIOSSL Reqly builds with on Windows links it. Without it, AES-GCM ran about 10 times slower and decrypted HTTPS downloads topped out at 40–80 MB/s; with it they run at 250–360 MB/s on the PC Reqly is tested on.
+- Windows draws an app's title bar light, even in dark mode, unless the app asks for its mode. So each Windows window that uses Windows' own title bar asks for Reqly's light or dark mode as it opens (`WindowLayout.MatchTitleBar`); the main window draws its own title bar.
+- On Windows, a new file takes an old one's place with a short retry, since antivirus software and the search indexer open new files to read them, and Windows won't replace a file while they do. Tools such as `adb` start with only their own pipes to inherit, because Windows otherwise hands a new process every handle it can inherit, Reqly's sockets among them, and the adb server that `adb` leaves running would keep Reqly's port taken.

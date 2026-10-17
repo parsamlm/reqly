@@ -15,7 +15,6 @@
 		D00000000000000000000031 /* ReqlyHelper in Embed Helper */ = {isa = PBXBuildFile; fileRef = D00000000000000000000020 /* ReqlyHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		D00000000000000000000036 /* CertificateAuthority in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000035 /* CertificateAuthority */; };
 		D00000000000000000000038 /* BodyKit in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000037 /* BodyKit */; };
-		D00000000000000000000052 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000051 /* Sparkle */; };
 		D0000000000000000000003A /* TrafficStore in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000039 /* TrafficStore */; };
 		D0000000000000000000003C /* SourceResolver in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000003B /* SourceResolver */; };
 		D0000000000000000000003E /* HAR in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000003D /* HAR */; };
@@ -23,6 +22,8 @@
 		D00000000000000000000042 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000041 /* LICENSE */; };
 		D00000000000000000000044 /* DeviceTools in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000043 /* DeviceTools */; };
 		D00000000000000000000046 /* Keychain in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000045 /* Keychain */; };
+		D00000000000000000000052 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000051 /* Sparkle */; };
+		D00000000000000000000055 /* Presentation in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000000054 /* Presentation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,6 +85,7 @@
 				D00000000000000000000044 /* DeviceTools in Frameworks */,
 				D00000000000000000000046 /* Keychain in Frameworks */,
 				D00000000000000000000052 /* Sparkle in Frameworks */,
+				D00000000000000000000055 /* Presentation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -171,6 +173,7 @@
 				D00000000000000000000043 /* DeviceTools */,
 				D00000000000000000000045 /* Keychain */,
 				D00000000000000000000051 /* Sparkle */,
+				D00000000000000000000054 /* Presentation */,
 			);
 			productName = Reqly;
 			productReference = D00000000000000000000004 /* Reqly.app */;
@@ -484,11 +487,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		D00000000000000000000051 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D00000000000000000000050 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
 		D00000000000000000000013 /* Capture */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
@@ -548,6 +546,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D00000000000000000000053 /* XCLocalSwiftPackageReference "ReqlyMacKit" */;
 			productName = Keychain;
+		};
+		D00000000000000000000051 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000050 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		D00000000000000000000054 /* Presentation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000000012 /* XCLocalSwiftPackageReference "../core" */;
+			productName = Presentation;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

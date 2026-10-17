@@ -1,0 +1,81 @@
+<UserControl
+    x:Class="Reqly.Rules.SlowNetworkView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Slow Network: the speed and delay to slow traffic down to, and the hosts it slows. -->
+  <StackPanel Spacing="4">
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Slow Network" />
+          <TextBlock Style="{StaticResource SettingsDescriptionStyle}"
+                     Text="Slow traffic down to the speed of a slower network, to see how apps cope." />
+        </StackPanel>
+        <ToggleSwitch x:Name="KindSwitch" Grid.Column="1" VerticalAlignment="Center" MinWidth="0" Toggled="OnKindToggled"
+                      AutomationProperties.Name="Slow Network" />
+      </Grid>
+    </Border>
+
+    <TextBlock Text="Network" Style="{StaticResource SettingsSectionHeaderStyle}" />
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid RowSpacing="12" ColumnSpacing="12">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="140" />
+          <ColumnDefinition Width="140" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Text="Profile" VerticalAlignment="Center" />
+        <ComboBox x:Name="Profile" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnProfileChanged"
+                  AutomationProperties.Name="Profile" />
+        <TextBlock Grid.Row="1" Text="Download" VerticalAlignment="Center" />
+        <NumberBox x:Name="Download" Grid.Row="1" Grid.Column="1" PlaceholderText="No limit" SpinButtonPlacementMode="Hidden"
+                   ValueChanged="OnNumberChanged" AutomationProperties.Name="Download, kilobits a second" />
+        <TextBlock Grid.Row="1" Grid.Column="2" Text="kbit/s" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Grid.Row="2" Text="Upload" VerticalAlignment="Center" />
+        <NumberBox x:Name="Upload" Grid.Row="2" Grid.Column="1" PlaceholderText="No limit" SpinButtonPlacementMode="Hidden"
+                   ValueChanged="OnNumberChanged" AutomationProperties.Name="Upload, kilobits a second" />
+        <TextBlock Grid.Row="2" Grid.Column="2" Text="kbit/s" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Grid.Row="3" Text="Latency" VerticalAlignment="Center" />
+        <NumberBox x:Name="Latency" Grid.Row="3" Grid.Column="1" PlaceholderText="None" SpinButtonPlacementMode="Hidden"
+                   ValueChanged="OnNumberChanged" AutomationProperties.Name="Latency, milliseconds" />
+        <TextBlock Grid.Row="3" Grid.Column="2" Text="ms" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Grid.Row="4" Text="Packet loss" VerticalAlignment="Center" />
+        <NumberBox x:Name="Loss" Grid.Row="4" Grid.Column="1" PlaceholderText="None" SpinButtonPlacementMode="Hidden"
+                   ValueChanged="OnNumberChanged" AutomationProperties.Name="Packet loss, percent" />
+        <TextBlock Grid.Row="4" Grid.Column="2" Text="%" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+      </Grid>
+    </Border>
+    <TextBlock Margin="1,4,0,0" Style="{StaticResource SettingsDescriptionStyle}"
+               Text="Latency is the time a round trip to the server takes, and opening a connection takes one too. Each lost packet holds the connection up for a round trip." />
+
+    <TextBlock Text="Hosts" Style="{StaticResource SettingsSectionHeaderStyle}" />
+    <Border Style="{StaticResource SettingsCardStyle}" Padding="0">
+      <StackPanel>
+        <StackPanel x:Name="HostRows" />
+        <TextBlock x:Name="EveryHost" Margin="16,14,16,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Every host" />
+        <Grid Padding="16,12" ColumnSpacing="8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <TextBox x:Name="NewHost" FontFamily="Cascadia Mono, Consolas" PlaceholderText="api.example.com or *.example.com"
+                   KeyDown="OnNewHostKeyDown" TextChanged="OnNewHostChanged" AutomationProperties.Name="Add a host" />
+          <Button x:Name="AddHostButton" Grid.Column="1" Content="Add host" Click="OnAddHostClicked" IsEnabled="False" />
+        </Grid>
+      </StackPanel>
+    </Border>
+    <TextBlock Margin="1,4,0,0" Style="{StaticResource SettingsDescriptionStyle}"
+               Text="With no hosts listed, every host is slowed down. Changes apply to new connections, and Reqly closes the encrypted connections a change affects, so apps reconnect over the new network." />
+  </StackPanel>
+</UserControl>

@@ -1,4 +1,5 @@
 import Capture
+import Presentation
 import ReqlyModel
 import SwiftUI
 
@@ -138,7 +139,7 @@ struct ScriptEditor: View {
                         Text("No matching requests yet").tag(ExchangeID?.none)
                     }
                     ForEach(requests) { summary in
-                        Text(Self.describe(summary)).tag(ExchangeID?.some(summary.id))
+                        Text(RuleDraft.describe(summary)).tag(ExchangeID?.some(summary.id))
                     }
                 }
                 .labelsHidden()
@@ -179,8 +180,7 @@ struct ScriptEditor: View {
 
     /// The captured requests the rule matches, newest first.
     private var matchingRequests: [ExchangeSummary] {
-        let match = draft.match
-        return Array(traffic.all.reversed().lazy.filter { $0.kind == .http && match.matches($0) }.prefix(50))
+        draft.matchingRequests(in: traffic.all)
     }
 
     /// The line a syntax error is on, to put the insertion point there.
@@ -188,15 +188,6 @@ struct ScriptEditor: View {
         guard let problem = syntaxProblem, let range = problem.range(of: #"on line (\d+)"#, options: .regularExpression)
         else { return nil }
         return Int(problem[range].split(separator: " ").last ?? "")
-    }
-
-    private static func describe(_ summary: ExchangeSummary) -> String {
-        let status = summary.status.map { " · \($0)" } ?? ""
-        var address = summary.displayHost + summary.target
-        if address.count > 72 {
-            address = address.prefix(71) + "…"
-        }
-        return "\(summary.method) \(address)\(status)"
     }
 
     private func useExample(_ example: ScriptExamples.Example) {

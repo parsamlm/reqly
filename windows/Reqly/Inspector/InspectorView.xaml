@@ -1,0 +1,89 @@
+<UserControl
+    x:Class="Reqly.Inspector.InspectorView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Reqly.Inspector">
+  <UserControl.Resources>
+    <!-- A WebSocket message's row in the Messages tab. -->
+    <DataTemplate x:Key="MessageRowTemplate" x:DataType="local:MessageRow">
+      <Grid ColumnSpacing="10" MinHeight="24">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="16" />
+          <ColumnDefinition Width="52" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="64" />
+          <ColumnDefinition Width="72" />
+        </Grid.ColumnDefinitions>
+        <FontIcon Glyph="{x:Bind Arrow}" FontSize="12" ToolTipService.ToolTip="{x:Bind Tip}" />
+        <TextBlock Grid.Column="1" Text="{x:Bind Kind}" VerticalAlignment="Center" FontSize="12" />
+        <TextBlock Grid.Column="2" Text="{x:Bind Preview}" VerticalAlignment="Center" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                   TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="3" Text="{x:Bind Size}" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Grid.Column="4" Text="{x:Bind Time}" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+      </Grid>
+    </DataTemplate>
+  </UserControl.Resources>
+  <!-- The selected request, as the Mac's detail pane shows it: a header, then tabs. -->
+  <Grid>
+    <Grid x:Name="Details" Visibility="Collapsed">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+
+      <StackPanel Padding="20,14,16,8" Spacing="4">
+        <Grid ColumnSpacing="8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <TextBlock x:Name="MethodText" FontFamily="Cascadia Mono, Consolas" FontSize="12" VerticalAlignment="Center"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          <TextBlock x:Name="TitleText" Grid.Column="1" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" />
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+            <Button x:Name="PinButton" Style="{StaticResource SubtleButtonStyle}" Padding="7" Click="OnPinClicked">
+              <FontIcon x:Name="PinIcon" Glyph="&#xE718;" FontSize="14" />
+            </Button>
+            <DropDownButton x:Name="ColorButton" Padding="7,5" ToolTipService.ToolTip="Mark with a color"
+                            AutomationProperties.Name="Color" Background="Transparent" BorderThickness="0">
+              <Grid Width="14" Height="14">
+                <Ellipse x:Name="ColorDot" Width="12" Height="12" StrokeThickness="1.2"
+                         Stroke="{ThemeResource TextFillColorSecondaryBrush}" />
+              </Grid>
+            </DropDownButton>
+            <Button x:Name="CommentButton" Style="{StaticResource SubtleButtonStyle}" Padding="7" Click="OnCommentClicked">
+              <FontIcon x:Name="CommentIcon" Glyph="&#xE90A;" FontSize="14" />
+            </Button>
+          </StackPanel>
+        </Grid>
+        <TextBlock x:Name="SubtitleText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+        <StackPanel x:Name="FactsLine" Orientation="Horizontal" Spacing="12" Margin="0,2,0,0" />
+      </StackPanel>
+
+      <SelectorBar x:Name="Tabs" Grid.Row="1" Margin="12,0,12,0" SelectionChanged="OnTabChanged">
+        <SelectorBarItem x:Name="OverviewItem" Text="Overview" Tag="overview" />
+        <SelectorBarItem x:Name="RequestItem" Text="Request" Tag="request" />
+        <SelectorBarItem x:Name="ResponseItem" Text="Response" Tag="response" />
+        <SelectorBarItem x:Name="MessagesItem" Text="Messages" Tag="messages" />
+        <SelectorBarItem x:Name="RawItem" Text="Raw" Tag="raw" />
+        <SelectorBarItem x:Name="TimingItem" Text="Timing" Tag="timing" />
+      </SelectorBar>
+
+      <ScrollViewer x:Name="Scroller" Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+        <StackPanel x:Name="TabContent" Padding="20,16,20,24" Spacing="24" />
+      </ScrollViewer>
+    </Grid>
+
+    <StackPanel x:Name="Nothing" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Padding="20">
+      <FontIcon Glyph="&#xE7C9;" FontSize="28" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+      <TextBlock HorizontalAlignment="Center" Text="No request selected" Style="{ThemeResource SubtitleTextBlockStyle}" />
+      <TextBlock HorizontalAlignment="Center" Text="Select a request to see its details."
+                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+    </StackPanel>
+  </Grid>
+</UserControl>

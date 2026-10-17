@@ -5,7 +5,7 @@ Reqly comes in four phases, one platform at a time. Each phase ships when it's r
 | Phase | Platform | Status |
 |---|---|---|
 | [1](#phase-1--reqly-for-mac) | Mac | Done |
-| [2](#phase-2--reqly-for-windows) | Windows | Planned |
+| [2](#phase-2--reqly-for-windows) | Windows | In progress |
 | [3](#phase-3--reqly-for-iphone-and-ipad) | iPhone and iPad | Planned |
 | [4](#phase-4--reqly-for-android) | Android | Planned |
 
@@ -31,9 +31,9 @@ A native app for macOS 26 and later, with what people expect from a traffic insp
 
 Everything from Phase 1 on Windows 11, built on the same core. A session saved on one opens on the other.
 
-- [ ] Capture Windows apps' traffic, with HTTPS decryption.
-- [ ] The request list, details, search and filters.
-- [ ] Sending and saving, rules and scripts, devices, protocols and connections.
+- [x] Capture Windows apps' traffic, with HTTPS decryption.
+- [x] The request list, details, search and filters.
+- [x] Sending and saving, rules and scripts, devices, protocols and connections.
 - [ ] An icon in the notification area, a signed installer, winget and automatic updates.
 
 ## Phase 3 — Reqly for iPhone and iPad

@@ -1,0 +1,68 @@
+swift-nio-ssl on Windows: BoringSSL's x86-64 assembly, by the Reqly authors, under swift-nio-ssl's
+license (Apache License 2.0).
+
+apple/swift-nio-ssl#567 builds BoringSSL without its assembly on Windows, since BoringSSL's x86-64
+assembly for Windows is NASM source, which SwiftPM can't build, and AES-GCM runs about ten times
+slower in C. Reqly assembles it beforehand into CNIOBoringSSLAsm.lib, with
+windows/scripts/build-boringssl-asm.ps1, and this has swift-nio-ssl link that library on x86-64.
+Other Windows architectures go on without assembly. Not for upstream as it is, since it needs a
+step outside SwiftPM.
+
+diff --git a/Package.swift b/Package.swift
+index 7757d8a..9f07905 100644
+--- a/Package.swift
++++ b/Package.swift
+@@ -95,17 +95,16 @@ let package = Package(
+                 // Silence the CRT's "consider using fopen_s" style deprecation warnings
+                 // for the vendored sources.
+                 .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: [.windows])),
+-                // The vendored assembly is only generated for ELF and Mach-O targets (and
+-                // SwiftPM cannot build the NASM sources BoringSSL uses for Windows), so the
+-                // C code must not reference the assembly implementations on Windows.
+-                .define("OPENSSL_NO_ASM", .when(platforms: [.windows])),
++                // BoringSSL's x86-64 assembly for Windows is NASM source, which SwiftPM can't
++                // build: Reqly assembles it beforehand into CNIOBoringSSLAsm.lib, which
++                // crypto/windows_x86_64_asm.c asks the linker for. Other Windows
++                // architectures build without assembly (CNIOBoringSSL_target.h).
+             ],
+             cxxSettings: [
+                 .define("_WINSOCKAPI_", .when(platforms: [.windows])),
+                 .define("NOMINMAX", .when(platforms: [.windows])),
+                 .define("NOCRYPT", .when(platforms: [.windows])),
+                 .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: [.windows])),
+-                .define("OPENSSL_NO_ASM", .when(platforms: [.windows])),
+             ]
+         ),
+         .target(
+diff --git a/Sources/CNIOBoringSSL/crypto/windows_x86_64_asm.c b/Sources/CNIOBoringSSL/crypto/windows_x86_64_asm.c
+new file mode 100644
+index 0000000..a7634d0
+--- /dev/null
++++ b/Sources/CNIOBoringSSL/crypto/windows_x86_64_asm.c
+@@ -0,0 +1,9 @@
++// BoringSSL's x86-64 assembly for Windows is NASM source, which SwiftPM can't build, so Reqly
++// assembles it beforehand into CNIOBoringSSLAsm.lib (its windows/scripts/build-boringssl-asm.ps1),
++// on the library path of the build. This asks the linker for it.
++
++#include <CNIOBoringSSL_base.h>
++
++#if defined(OPENSSL_WINDOWS) && defined(OPENSSL_X86_64) && !defined(OPENSSL_NO_ASM)
++#pragma comment(lib, "CNIOBoringSSLAsm")
++#endif
+diff --git a/Sources/CNIOBoringSSL/include/CNIOBoringSSL_target.h b/Sources/CNIOBoringSSL/include/CNIOBoringSSL_target.h
+index 77f8ac9..e5d990b 100644
+--- a/Sources/CNIOBoringSSL/include/CNIOBoringSSL_target.h
++++ b/Sources/CNIOBoringSSL/include/CNIOBoringSSL_target.h
+@@ -219,6 +219,12 @@
+ #define OPENSSL_ASM_INCOMPATIBLE
+ #endif
+ 
++// On Windows only the x86-64 assembly is built, outside SwiftPM, since it's NASM source:
++// see crypto/windows_x86_64_asm.c.
++#if defined(OPENSSL_WINDOWS) && !defined(OPENSSL_X86_64)
++#define OPENSSL_ASM_INCOMPATIBLE
++#endif
++
+ #if defined(OPENSSL_ASM_INCOMPATIBLE)
+ #undef OPENSSL_ASM_INCOMPATIBLE
+ #if !defined(OPENSSL_NO_ASM)

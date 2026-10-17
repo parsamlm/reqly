@@ -140,7 +140,7 @@ public actor ProxyServer {
             }
             let bootstrap = ServerBootstrap(group: group)
                 .serverChannelOption(.backlog, value: 256)
-                .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+                .ownPort()
                 .childChannelOption(.tcpOption(.tcp_nodelay), value: 1)
                 .childChannelInitializer { channel in
                     channel.eventLoop.makeCompletedFuture {
@@ -238,7 +238,7 @@ public actor ProxyServer {
         do {
             return try await ServerBootstrap(group: group)
                 .serverChannelOption(.backlog, value: 256)
-                .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+                .ownPort()
                 .childChannelOption(.tcpOption(.tcp_nodelay), value: 1)
                 .childChannelInitializer { channel in
                     channel.eventLoop.makeCompletedFuture {
@@ -247,7 +247,7 @@ public actor ProxyServer {
                 }
                 .bind(host: host, port: port)
                 .get()
-        } catch let error as IOError where error.errnoCode == EADDRINUSE {
+        } catch let error as IOError where Sockets.isAddressInUse(error) {
             throw ServerError.portInUse(port)
         }
     }

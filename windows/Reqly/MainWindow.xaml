@@ -1,0 +1,346 @@
+<Window
+    x:Class="Reqly.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:traffic="using:Reqly.Traffic"
+    xmlns:inspector="using:Reqly.Inspector"
+    Title="Reqly">
+  <Grid x:Name="Root">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <!-- The title bar holds the search field, as Windows 11's own apps do. -->
+    <TitleBar x:Name="AppTitleBar" Title="Reqly" IsPaneToggleButtonVisible="True" PaneToggleRequested="OnPaneToggleRequested">
+      <TitleBar.Content>
+        <Grid ColumnSpacing="12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <!-- The Mac's menus, in the title bar, as Visual Studio has them. -->
+          <MenuBar x:Name="Menus" VerticalAlignment="Center">
+            <MenuBarItem Title="File">
+              <MenuFlyoutItem x:Name="NewRequestItem" Text="New request" KeyboardAcceleratorTextOverride="Ctrl+N" Click="OnNewRequestClicked" />
+              <MenuFlyoutItem x:Name="OpenItem" Text="Open…" KeyboardAcceleratorTextOverride="Ctrl+O" Click="OnOpenClicked" />
+              <MenuFlyoutItem x:Name="SaveItem" Text="Save session…" KeyboardAcceleratorTextOverride="Ctrl+S" Click="OnSaveClicked" />
+              <MenuFlyoutItem x:Name="ExportItem" Text="Export as HAR…" KeyboardAcceleratorTextOverride="Ctrl+Shift+E" Click="OnExportClicked" />
+              <MenuFlyoutSeparator />
+              <MenuFlyoutItem x:Name="CloseItem" Text="Close" KeyboardAcceleratorTextOverride="Ctrl+W" Click="OnCloseClicked" />
+              <MenuFlyoutItem Text="Quit Reqly" KeyboardAcceleratorTextOverride="Ctrl+Q" Click="OnQuitClicked" />
+            </MenuBarItem>
+            <MenuBarItem x:Name="CaptureMenu" Title="Capture">
+              <MenuFlyoutItem x:Name="CaptureItem" Text="Start capturing" KeyboardAcceleratorTextOverride="Ctrl+R" Click="OnCaptureClicked" />
+              <MenuFlyoutItem x:Name="ClearItem" Text="Clear traffic" KeyboardAcceleratorTextOverride="Ctrl+K" Click="OnClearClicked" />
+              <MenuFlyoutSeparator />
+              <MenuFlyoutItem Text="Decrypt HTTPS…" Click="OnDecryptHttpsClicked" />
+              <MenuFlyoutItem Text="Devices…" KeyboardAcceleratorTextOverride="Ctrl+Shift+D" Click="OnDevicesClicked" />
+            </MenuBarItem>
+            <MenuBarItem Title="Request">
+              <MenuFlyoutItem x:Name="CopyUrlItem" Text="Copy URL" KeyboardAcceleratorTextOverride="Ctrl+Shift+C" Click="OnCopyUrlClicked" />
+              <MenuFlyoutItem x:Name="CopyCurlItem" Text="Copy as cURL" KeyboardAcceleratorTextOverride="Ctrl+Alt+C" Click="OnCopyCurlClicked" />
+              <MenuFlyoutItem x:Name="CopyBodyItem" Text="Copy response body" Click="OnCopyBodyClicked" />
+              <MenuFlyoutSeparator />
+              <MenuFlyoutItem x:Name="ResendItem" Text="Resend" Click="OnResendClicked" />
+              <MenuFlyoutItem x:Name="EditResendItem" Text="Edit and resend…" Click="OnEditResendClicked" />
+              <MenuFlyoutSubItem x:Name="AddRuleItem" Text="Add rule" />
+              <MenuFlyoutSeparator />
+              <MenuFlyoutItem x:Name="PinItem" Text="Pin request" Click="OnPinClicked" />
+              <MenuFlyoutItem x:Name="UnpinAllItem" Text="Unpin all requests" Click="OnUnpinAllClicked" />
+              <MenuFlyoutItem x:Name="CommentItem" Text="Add comment…" Click="OnCommentClicked" />
+            </MenuBarItem>
+            <MenuBarItem x:Name="RulesMenu" Title="Rules">
+              <ToggleMenuFlyoutItem x:Name="BreakpointsItem" Text="Breakpoints" Tag="breakpoint" KeyboardAcceleratorTextOverride="Ctrl+Shift+B" Click="OnRuleKindItemClicked" />
+              <MenuFlyoutItem x:Name="ContinueAllItem" Text="Continue all paused requests" KeyboardAcceleratorTextOverride="Ctrl+Alt+Enter" Click="OnContinueAllClicked" />
+              <MenuFlyoutSeparator />
+              <ToggleMenuFlyoutItem x:Name="MapLocalItem" Text="Map Local" Tag="mapLocal" Click="OnRuleKindItemClicked" />
+              <ToggleMenuFlyoutItem x:Name="MapRemoteItem" Text="Map Remote" Tag="mapRemote" Click="OnRuleKindItemClicked" />
+              <ToggleMenuFlyoutItem x:Name="RewriteItem" Text="Rewrite" Tag="rewrite" Click="OnRuleKindItemClicked" />
+              <ToggleMenuFlyoutItem x:Name="BlockItem" Text="Block" Tag="block" Click="OnRuleKindItemClicked" />
+              <ToggleMenuFlyoutItem x:Name="ScriptsItem" Text="Scripts" Tag="script" Click="OnRuleKindItemClicked" />
+              <MenuFlyoutSeparator />
+              <ToggleMenuFlyoutItem x:Name="SlowNetworkItem" Text="Slow Network" Tag="slowNetwork" KeyboardAcceleratorTextOverride="Ctrl+Shift+T" Click="OnRuleKindItemClicked" />
+              <MenuFlyoutSeparator />
+              <MenuFlyoutItem Text="Show rules" KeyboardAcceleratorTextOverride="Ctrl+Alt+R" Click="OnShowRulesClicked" />
+            </MenuBarItem>
+            <MenuBarItem Title="View">
+              <MenuFlyoutItem Text="Overview" KeyboardAcceleratorTextOverride="Ctrl+1" Click="OnTabMenuClicked" Tag="overview" />
+              <MenuFlyoutItem Text="Request" KeyboardAcceleratorTextOverride="Ctrl+2" Click="OnTabMenuClicked" Tag="request" />
+              <MenuFlyoutItem Text="Response" KeyboardAcceleratorTextOverride="Ctrl+3" Click="OnTabMenuClicked" Tag="response" />
+              <MenuFlyoutItem Text="Raw" KeyboardAcceleratorTextOverride="Ctrl+4" Click="OnTabMenuClicked" Tag="raw" />
+              <MenuFlyoutItem Text="Timing" KeyboardAcceleratorTextOverride="Ctrl+5" Click="OnTabMenuClicked" Tag="timing" />
+              <MenuFlyoutItem Text="Messages" KeyboardAcceleratorTextOverride="Ctrl+6" Click="OnTabMenuClicked" Tag="messages" />
+              <MenuFlyoutSeparator />
+              <MenuFlyoutItem Text="Sidebar" Click="OnSidebarMenuClicked" />
+            </MenuBarItem>
+            <MenuBarItem Title="Help">
+              <MenuFlyoutItem Text="Reqly help" KeyboardAcceleratorTextOverride="F1" Click="OnHelpClicked" />
+              <MenuFlyoutItem x:Name="WelcomeItem" Text="Welcome to Reqly" Click="OnWelcomeClicked" />
+              <MenuFlyoutItem Text="Check for updates…" Click="OnCheckForUpdatesClicked" />
+              <MenuFlyoutItem Text="Report a problem…" Click="OnReportProblemClicked" />
+              <MenuFlyoutSeparator />
+              <MenuFlyoutItem Text="About Reqly" Click="OnAboutClicked" />
+            </MenuBarItem>
+          </MenuBar>
+          <AutoSuggestBox x:Name="SearchBox" Grid.Column="1" PlaceholderText="Search requests" QueryIcon="Find" MinWidth="240" MaxWidth="480"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Center" TextChanged="OnSearchChanged"
+                          AutomationProperties.Name="Search requests" />
+        </Grid>
+      </TitleBar.Content>
+      <TitleBar.RightHeader>
+        <Button x:Name="SettingsButton" Click="OnSettingsClicked" Margin="0,0,4,0" Style="{StaticResource SubtleButtonStyle}"
+                ToolTipService.ToolTip="Settings (Ctrl+,)" AutomationProperties.Name="Settings">
+          <FontIcon Glyph="&#xE713;" FontSize="16" />
+        </Button>
+      </TitleBar.RightHeader>
+    </TitleBar>
+
+    <!-- The sidebar narrows the list to all traffic, the pinned requests, an app, a device or a host. -->
+    <NavigationView x:Name="Navigation" Grid.Row="1" PaneDisplayMode="Left" OpenPaneLength="232" IsBackButtonVisible="Collapsed"
+                    IsSettingsVisible="False" IsPaneToggleButtonVisible="False" IsTitleBarAutoPaddingEnabled="False"
+                    AutomationProperties.Name="Sidebar">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Capturing, clearing, and what the list shows. -->
+        <Grid Padding="16,10,16,6" ColumnSpacing="8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <Button x:Name="CaptureButton" Click="OnCaptureClicked" MinWidth="128">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse x:Name="CapturingDot" Width="8" Height="8" VerticalAlignment="Center" Visibility="Collapsed" />
+              <TextBlock x:Name="CaptureText" Text="Start capturing" />
+            </StackPanel>
+          </Button>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+            <Button x:Name="ClearButton" Click="OnClearClicked" Style="{StaticResource SubtleButtonStyle}"
+                    AutomationProperties.Name="Clear traffic">
+              <FontIcon Glyph="&#xE74D;" FontSize="16" />
+            </Button>
+            <!-- The rules you turn on and off most, as on the Mac's toolbar. -->
+            <ToggleButton x:Name="BreakpointsButton" Click="OnRuleKindButtonClicked" Tag="breakpoint" Style="{StaticResource SubtleToggleButtonStyle}"
+                          AutomationProperties.Name="Breakpoints">
+              <FontIcon Glyph="&#xE769;" FontSize="16" />
+            </ToggleButton>
+            <ToggleButton x:Name="SlowNetworkButton" Click="OnRuleKindButtonClicked" Tag="slowNetwork" Style="{StaticResource SubtleToggleButtonStyle}"
+                          AutomationProperties.Name="Slow Network">
+              <FontIcon Glyph="&#xE916;" FontSize="16" />
+            </ToggleButton>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="8,0,0,0">
+            <TextBlock x:Name="Heading" Style="{ThemeResource BodyStrongTextBlockStyle}" Text="All Traffic" TextTrimming="CharacterEllipsis" />
+            <TextBlock x:Name="Subheading" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          </StackPanel>
+        </Grid>
+
+        <traffic:FilterBar x:Name="Filters" Grid.Row="1" Visibility="Collapsed" />
+
+        <Grid x:Name="Panes" Grid.Row="2">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="480" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition x:Name="DetailsColumn" Width="400" MinWidth="320" MaxWidth="640" />
+          </Grid.ColumnDefinitions>
+
+          <!-- The requests. -->
+          <Grid x:Name="ListArea">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <!-- Padded as the rows are, by their margin and padding, so each title sits over its column. -->
+            <Grid x:Name="ListHeader" Padding="20,6,16,6" ColumnSpacing="8" BorderThickness="0,1,0,1"
+                  BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Status, Mode=OneWay}" />
+                <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Method, Mode=OneWay}" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.App, Mode=OneWay}" />
+                <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Time, Mode=OneWay}" />
+                <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Duration, Mode=OneWay}" />
+                <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Size, Mode=OneWay}" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Status" Style="{StaticResource ColumnHeaderStyle}" />
+              <TextBlock Grid.Column="1" Text="Method" Style="{StaticResource ColumnHeaderStyle}" />
+              <TextBlock Grid.Column="2" Text="Request" Style="{StaticResource ColumnHeaderStyle}" />
+              <TextBlock Grid.Column="3" Text="App" Style="{StaticResource ColumnHeaderStyle}" />
+              <TextBlock Grid.Column="4" Text="Time" Style="{StaticResource ColumnHeaderStyle}" />
+              <TextBlock Grid.Column="5" Text="Duration" HorizontalAlignment="Right" Style="{StaticResource ColumnHeaderStyle}" />
+              <TextBlock Grid.Column="6" Text="Size" HorizontalAlignment="Right" Style="{StaticResource ColumnHeaderStyle}" />
+              <!-- The columns' right edges, to drag; the Request column takes what's left. -->
+              <traffic:ColumnGrip Column="0" />
+              <traffic:ColumnGrip Grid.Column="1" Column="1" />
+              <traffic:ColumnGrip Grid.Column="3" Column="2" />
+              <traffic:ColumnGrip Grid.Column="4" Column="3" />
+              <traffic:ColumnGrip Grid.Column="5" Column="4" />
+            </Grid>
+            <ListView x:Name="List" Grid.Row="1" SelectionMode="Single" SelectionChanged="OnSelectionChanged"
+                      ContextRequested="OnListContextRequested" AutomationProperties.Name="Requests">
+              <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                  <Setter Property="MinHeight" Value="28" />
+                  <Setter Property="Height" Value="28" />
+                  <Setter Property="Margin" Value="4,0" />
+                  <!-- Windows' own list padding, which leaves room for the selection's mark at the start. -->
+                  <Setter Property="Padding" Value="16,0,12,0" />
+                  <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+              </ListView.ItemContainerStyle>
+              <ListView.ItemTemplate>
+                <DataTemplate x:DataType="traffic:RequestRow">
+                  <Grid Margin="-16,0,-12,0" Padding="16,0,12,0" ColumnSpacing="8" Background="{x:Bind Tint, Mode=OneWay}">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Status, Mode=OneWay}" />
+                      <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Method, Mode=OneWay}" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.App, Mode=OneWay}" />
+                      <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Time, Mode=OneWay}" />
+                      <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Duration, Mode=OneWay}" />
+                      <ColumnDefinition Width="{x:Bind traffic:ListColumns.Shared.Size, Mode=OneWay}" />
+                    </Grid.ColumnDefinitions>
+                    <!-- A row is laid out for every request a screen shows, so what most rows never show
+                         isn't made until a row does (x:Load), and the columns after the request fill in
+                         a moment later (x:Phase), when a screen of new rows comes at once. -->
+                    <!-- A marked request's color, along its leading edge where the selection's mark shows, which takes its place. -->
+                    <Rectangle Width="3" HorizontalAlignment="Left" Margin="-12,3,0,3" RadiusX="1.5" RadiusY="1.5"
+                               x:Name="RowMark" x:Load="{x:Bind ShowsMark, Mode=OneWay}" Fill="{x:Bind MarkBrush, Mode=OneWay}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                ToolTipService.ToolTip="{x:Bind StatusTip, Mode=OneWay}">
+                      <Grid Width="12" Height="12">
+                        <Ellipse Width="7" Height="7" Fill="{x:Bind DotBrush, Mode=OneWay}" Visibility="{x:Bind DotVisibility, Mode=OneWay}" />
+                        <FontIcon Glyph="&#xE7BA;" FontSize="11" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                  x:Name="RowFailedIcon" x:Load="{x:Bind ShowsFailed, Mode=OneWay}" />
+                        <FontIcon Glyph="&#xE769;" FontSize="11" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                  x:Name="RowPausedIcon" x:Load="{x:Bind ShowsPaused, Mode=OneWay}" />
+                        <FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                  x:Name="RowLockIcon" x:Load="{x:Bind ShowsLock, Mode=OneWay}" />
+                        <FontIcon Glyph="&#xEA3A;" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                  x:Name="RowProgressIcon" x:Load="{x:Bind ShowsProgress, Mode=OneWay}" />
+                      </Grid>
+                      <TextBlock Text="{x:Bind Status, Mode=OneWay}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Text="{x:Bind Method, Mode=OneWay}" VerticalAlignment="Center" FontSize="12"
+                               FontFamily="Cascadia Mono, Consolas" TextTrimming="CharacterEllipsis"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <Grid Grid.Column="2" ColumnSpacing="4">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                                 ToolTipService.ToolTip="{x:Bind Comment, Mode=OneWay}">
+                        <Run Text="{x:Bind DisplayHost, Mode=OneWay}" /><Run Text="{x:Bind Rest, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                      </TextBlock>
+                      <FontIcon Grid.Column="1" Glyph="&#xE840;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                x:Name="RowPinIcon" x:Load="{x:Bind IsPinned, Mode=OneWay}" />
+                      <FontIcon Grid.Column="2" Glyph="&#xE90A;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                x:Name="RowCommentIcon" x:Load="{x:Bind HasComment, Mode=OneWay}" />
+                    </Grid>
+                    <Grid Grid.Column="3" ColumnSpacing="6">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <Image Source="{x:Bind AppIcon, Mode=OneWay}" Width="16" Height="16" VerticalAlignment="Center" x:Phase="1" />
+                      <TextBlock Grid.Column="1" Text="{x:Bind App, Mode=OneWay}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" x:Phase="1" />
+                    </Grid>
+                    <TextBlock Grid.Column="4" Text="{x:Bind Time, Mode=OneWay}" VerticalAlignment="Center" Style="{StaticResource NumberTextStyle}"
+                               x:Phase="1" />
+                    <TextBlock Grid.Column="5" Text="{x:Bind Duration, Mode=OneWay}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Style="{StaticResource NumberTextStyle}" x:Phase="1" />
+                    <TextBlock Grid.Column="6" Text="{x:Bind Size, Mode=OneWay}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Style="{StaticResource NumberTextStyle}" x:Phase="1" />
+                  </Grid>
+                </DataTemplate>
+              </ListView.ItemTemplate>
+            </ListView>
+
+            <!-- Nothing captured yet. -->
+            <StackPanel x:Name="EmptyTraffic" Grid.RowSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Spacing="12" MaxWidth="440" Padding="20" Visibility="Collapsed">
+              <Border Width="52" Height="52" CornerRadius="26" HorizontalAlignment="Center"
+                      Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                <FontIcon Glyph="&#xE8AB;" FontSize="22" />
+              </Border>
+              <TextBlock x:Name="EmptyTitle" HorizontalAlignment="Center" Style="{ThemeResource SubtitleTextBlockStyle}" />
+              <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <TextBlock x:Name="EmptyCommand" HorizontalAlignment="Center" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                         IsTextSelectionEnabled="True" Visibility="Collapsed" />
+              <Button x:Name="EmptyCaptureButton" HorizontalAlignment="Center" Style="{StaticResource AccentButtonStyle}"
+                      Content="Start capturing" Click="OnCaptureClicked" Padding="20,8" />
+              <TextBlock x:Name="EmptyShortcut" HorizontalAlignment="Center" Text="or press Ctrl+R"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" Style="{ThemeResource CaptionTextBlockStyle}" />
+              <Border x:Name="HttpsHint" HorizontalAlignment="Center" Margin="0,8,0,0" Padding="14,6" CornerRadius="16"
+                      Background="{ThemeResource ControlFillColorSecondaryBrush}" Visibility="Collapsed">
+                <!-- A grid, so the words wrap and the link stays in the panel's width. -->
+                <Grid ColumnSpacing="8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <FontIcon Glyph="&#xE72E;" FontSize="12" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Text="HTTPS traffic stays encrypted until you set up HTTPS." VerticalAlignment="Center" TextWrapping="Wrap" />
+                  <HyperlinkButton Grid.Column="2" Content="Set up HTTPS…" Padding="0" Click="OnSetUpHttpsClicked" VerticalAlignment="Center" />
+                </Grid>
+              </Border>
+            </StackPanel>
+
+            <!-- Traffic, but none that the sidebar, the filters and the search let through. -->
+            <StackPanel x:Name="NoMatches" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10"
+                        MaxWidth="420" Padding="20" Visibility="Collapsed">
+              <FontIcon x:Name="NoMatchesIcon" Glyph="&#xE71C;" FontSize="32" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <TextBlock x:Name="NoMatchesTitle" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                         Style="{ThemeResource SubtitleTextBlockStyle}" />
+              <TextBlock x:Name="NoMatchesText" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <Button x:Name="ClearFiltersButton" HorizontalAlignment="Center" Content="Clear filters" Click="OnClearFiltersClicked" />
+            </StackPanel>
+          </Grid>
+
+          <!-- Drag to give the details more or less room. -->
+          <traffic:PaneSplitter x:Name="Splitter" Grid.Column="1" Width="5" Target="{x:Bind DetailsColumn}" />
+
+          <!-- The selected request. -->
+          <Border Grid.Column="2" BorderThickness="1,0,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+            <Grid>
+              <inspector:InspectorView x:Name="Inspector" />
+              <!-- A request or response held at a breakpoint, ready to edit, in place of its details. -->
+              <ContentControl x:Name="PausedArea" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                              IsTabStop="False" Visibility="Collapsed" />
+            </Grid>
+          </Border>
+        </Grid>
+
+        <!-- What Reqly is doing. -->
+        <Grid Grid.Row="3" Padding="16,5" ColumnSpacing="8" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Grid Width="12" VerticalAlignment="Center">
+            <Ellipse x:Name="StatusDot" Width="7" Height="7" />
+            <FontIcon x:Name="StatusWarning" Glyph="&#xE7BA;" FontSize="11" Visibility="Collapsed" />
+            <FontIcon x:Name="StatusFile" Glyph="&#xE8A5;" FontSize="11" Visibility="Collapsed" />
+          </Grid>
+          <TextBlock x:Name="StatusText" Grid.Column="1" Style="{ThemeResource CaptionTextBlockStyle}" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis" Text="Starting…" />
+          <TextBlock x:Name="CountText" Grid.Column="2" Style="{ThemeResource CaptionTextBlockStyle}" VerticalAlignment="Center" />
+        </Grid>
+      </Grid>
+    </NavigationView>
+  </Grid>
+</Window>

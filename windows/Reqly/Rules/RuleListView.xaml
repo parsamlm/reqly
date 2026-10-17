@@ -1,0 +1,80 @@
+<UserControl
+    x:Class="Reqly.Rules.RuleListView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Reqly.Rules">
+  <!-- A kind of rule: its switch, then its rules in the order they act. -->
+  <StackPanel Spacing="4">
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock x:Name="KindTitle" />
+          <TextBlock x:Name="KindExplanation" Style="{StaticResource SettingsDescriptionStyle}" />
+        </StackPanel>
+        <ToggleSwitch x:Name="KindSwitch" Grid.Column="1" VerticalAlignment="Center" MinWidth="0" Toggled="OnKindToggled" />
+      </Grid>
+    </Border>
+
+    <TextBlock Text="Rules" Style="{StaticResource SettingsSectionHeaderStyle}" />
+    <Border Style="{StaticResource SettingsCardStyle}" Padding="0">
+      <StackPanel>
+        <ListView x:Name="RuleList" SelectionMode="Single" CanReorderItems="True" CanDragItems="True" AllowDrop="True"
+                  Padding="0,4,0,4" DragItemsCompleted="OnDragCompleted" DoubleTapped="OnListDoubleTapped"
+                  KeyDown="OnListKeyDown" SelectionChanged="OnSelectionChanged" ContextRequested="OnContextRequested"
+                  AutomationProperties.Name="Rules">
+          <ListView.ItemTemplate>
+            <DataTemplate x:DataType="local:RuleItem">
+              <Grid ColumnSpacing="12" Padding="0,6,0,6" Opacity="{x:Bind Opacity, Mode=OneWay}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ToggleSwitch IsOn="{x:Bind IsOn, Mode=OneWay}" Toggled="{x:Bind OnToggled}" OnContent="" OffContent=""
+                              MinWidth="0" Width="44" VerticalAlignment="Center" AutomationProperties.Name="Use this rule" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                  <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{x:Bind Match, Mode=OneWay}" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <Border Grid.Column="2" VerticalAlignment="Center" CornerRadius="10" Padding="8,2,8,3"
+                        Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                  <TextBlock Text="{x:Bind What, Mode=OneWay}" Style="{ThemeResource CaptionTextBlockStyle}" MaxWidth="200"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                </Border>
+              </Grid>
+            </DataTemplate>
+          </ListView.ItemTemplate>
+        </ListView>
+        <TextBlock x:Name="NoRules" Margin="16,16,16,8" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                   Text="No rules yet. Add one here, or right-click a request in the list." />
+        <Grid Padding="10,8,12,8" ColumnSpacing="4" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Button x:Name="AddButton" Style="{StaticResource SubtleButtonStyle}" Click="OnAddClicked">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE710;" FontSize="12" />
+              <TextBlock Text="Add rule" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="RemoveButton" Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" Click="OnRemoveClicked" IsEnabled="False">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE738;" FontSize="12" />
+              <TextBlock Text="Remove" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="EditButton" Grid.Column="3" Content="Edit…" Click="OnEditClicked" IsEnabled="False" />
+        </Grid>
+      </StackPanel>
+    </Border>
+    <TextBlock x:Name="Footer" Margin="1,4,0,0" Style="{StaticResource SettingsDescriptionStyle}" />
+  </StackPanel>
+</UserControl>

@@ -1,0 +1,19 @@
+<Window
+    x:Class="Reqly.Rules.RulesWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Reqly Rules">
+  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <!-- A section for each kind of rule, as on the Mac, with a dot by the kinds that are on. -->
+    <NavigationView x:Name="Navigation" PaneDisplayMode="Left" OpenPaneLength="220" IsBackButtonVisible="Collapsed"
+                    IsSettingsVisible="False" IsPaneToggleButtonVisible="False" SelectionChanged="OnSectionChanged">
+      <ScrollViewer>
+        <StackPanel Padding="36,8,36,36" MaxWidth="1000">
+          <TextBlock x:Name="PageTitle" Style="{ThemeResource TitleTextBlockStyle}" Margin="0,0,0,20" />
+          <InfoBar x:Name="ProblemBar" Severity="Warning" IsClosable="False" IsOpen="False" Margin="0,0,0,12" />
+          <ContentControl x:Name="Page" HorizontalContentAlignment="Stretch" IsTabStop="False" />
+        </StackPanel>
+      </ScrollViewer>
+    </NavigationView>
+  </Grid>
+</Window>

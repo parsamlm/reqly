@@ -363,8 +363,14 @@ struct Fixtures {
             "100,000 exchanges: writing \(batches.reduce(.zero, +)), \(writing) per 1,000 at the median,",
             "searching \(searching), reading \(reading)")
         // Even a debug build on a slow CI machine saves 4,000 exchanges a second, far more than
-        // a busy Mac sends.
-        #expect(writing < .milliseconds(250))
+        // a busy Mac sends. On Windows, a debug build on a 2019 laptop takes 250 ms per 1,000 (an
+        // optimized one 110 ms), so there the bar is 2,000 a second.
+        #if os(Windows)
+            let writingLimit = Duration.milliseconds(500)
+        #else
+            let writingLimit = Duration.milliseconds(250)
+        #endif
+        #expect(writing < writingLimit)
         #expect(searching < .milliseconds(100))
         #expect(reading < .milliseconds(50))
     }

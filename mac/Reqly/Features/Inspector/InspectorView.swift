@@ -1,4 +1,5 @@
 import BodyKit
+import Presentation
 import ReqlyModel
 import SwiftUI
 
@@ -301,7 +302,8 @@ private struct OverviewTab: View {
             .id(exchange.id)
         DecryptionCallout(
             summary: ExchangeSummaryForCallout(
-                host: exchange.request.host, situation: situation, device: exchange.device?.name))
+                host: exchange.request.host, situation: DecryptionSituation(exchange),
+                device: exchange.device?.name))
         if let url = exchange.request.url {
             DetailSection("URL") {
                 Text(url.absoluteString)
@@ -399,15 +401,6 @@ private struct OverviewTab: View {
                     DetailRow("Client certificate", certificate)
                 }
             }
-        }
-    }
-
-    private var situation: ExchangeSummaryForCallout.Situation {
-        switch (exchange.kind, exchange.state) {
-        case (.tunnel, .failed(let failure)) where failure.isDecryptionFailure: .certificateRejected
-        case (.tunnel, .failed): .plain
-        case (.tunnel, _): .encryptedTunnel
-        case (.http, _): exchange.isDecrypted ? .decrypted : .plain
         }
     }
 
@@ -521,7 +514,7 @@ private struct MessageTab: View {
 
     var body: some View {
         if let query, !query.isEmpty {
-            let parameters = Self.parameters(in: query)
+            let parameters = QueryParameters.parse(query)
             DetailSection("Query parameters", count: parameters.count) {
                 ForEach(Array(parameters.enumerated()), id: \.offset) { _, parameter in
                     DetailRow(parameter.name, parameter.value, monospaced: true)
@@ -553,14 +546,6 @@ private struct MessageTab: View {
             id: bodyID, data: data, headers: headers, emptyText: emptyBody, rootLabel: rootLabel, url: url)
     }
 
-    private static func parameters(in query: String) -> [(name: String, value: String)] {
-        query.split(separator: "&").map { pair in
-            let parts = pair.split(separator: "=", maxSplits: 1).map {
-                String($0).removingPercentEncoding ?? String($0)
-            }
-            return (parts[0], parts.count > 1 ? parts[1] : "")
-        }
-    }
 }
 
 // MARK: - Building blocks

@@ -1,0 +1,43 @@
+<Window
+    x:Class="Reqly.CrashReports.CrashReportWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Reqly quit unexpectedly">
+  <!-- After a crash, as on the Mac: what the report on GitHub would say, to open it in the
+       browser, where you read it, add what you were doing and submit it yourself. -->
+  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="24,22,24,24">
+    <StackPanel x:Name="Contents" Spacing="16" VerticalAlignment="Top">
+      <Grid ColumnSpacing="14">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Image x:Name="AppIcon" Width="56" Height="56" VerticalAlignment="Top" AutomationProperties.AccessibilityView="Raw" />
+        <StackPanel Grid.Column="1" Spacing="6">
+          <TextBlock Text="Reqly quit unexpectedly" Style="{StaticResource SubtitleTextBlockStyle}" AutomationProperties.HeadingLevel="Level1" />
+          <TextBlock x:Name="Explanation" TextWrapping="Wrap" />
+        </StackPanel>
+      </Grid>
+      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+              BorderThickness="1" CornerRadius="{ThemeResource ControlCornerRadius}">
+        <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" Padding="12,10">
+          <TextBlock x:Name="Details" FontFamily="Cascadia Mono, Consolas" FontSize="12" IsTextSelectionEnabled="True" TextWrapping="Wrap"
+                     AutomationProperties.Name="Crash details" />
+        </ScrollViewer>
+      </Border>
+      <Grid ColumnSpacing="8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Button Content="Show in File Explorer" Click="OnShowClicked" ToolTipService.ToolTip="Shows the full report, to attach to the issue." />
+        <Button x:Name="CopyButton" Grid.Column="1" Content="Copy details" Click="OnCopyClicked" />
+        <Button Grid.Column="3" Content="Don't report" Click="OnDontReportClicked" />
+        <Button x:Name="ReportButton" Grid.Column="4" Content="Report on GitHub…" Style="{StaticResource AccentButtonStyle}" Click="OnReportClicked" />
+      </Grid>
+    </StackPanel>
+  </Grid>
+</Window>

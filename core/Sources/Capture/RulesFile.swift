@@ -29,12 +29,48 @@ public enum RulesFile {
         return try JSONDecoder().decode(Contents.self, from: data).ruleSet
     }
 
+    /// The saved rules as Reqly opens them, and what went wrong, if anything.
+    public struct Opened: Sendable {
+        public var rules: RuleSet
+        /// The file is a newer Reqly's, so changes aren't saved over it.
+        public var isReadOnly: Bool
+        public var problem: String?
+    }
+
+    /// Opens the saved rules. A file Reqly can't read is moved aside, so it's kept rather than
+    /// lost, and Reqly starts over; one from a newer Reqly is left as it is.
+    public static func open(_ url: URL) -> Opened {
+        do {
+            return Opened(rules: try load(from: url), isReadOnly: false, problem: nil)
+        } catch Problem.newerVersion {
+            return Opened(
+                rules: RuleSet(), isReadOnly: true,
+                problem:
+                    "A newer version of Reqly saved the rules, so this one can't use them. Changes you make here aren't saved."
+            )
+        } catch {
+            // Kept, not lost: the file may have been edited by hand.
+            let kept = url.deletingLastPathComponent().appending(path: "Rules (unreadable).json")
+            try? FileManager.default.removeItem(at: kept)
+            try? FileManager.default.moveItem(at: url, to: kept)
+            return Opened(
+                rules: RuleSet(), isReadOnly: false,
+                problem:
+                    "Reqly couldn't read its saved rules, so it moved them to “\(kept.lastPathComponent)” and started over."
+            )
+        }
+    }
+
+    /// What to say when the rules couldn't be saved.
+    public static func saveProblem(_ error: any Error) -> String {
+        "Reqly couldn't save the rules. \(error.localizedDescription)"
+    }
+
     public static func save(_ rules: RuleSet, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(Contents(version: version, ruleSet: rules))
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
+        try FileReplacement.write(data, to: url)
     }
 
     private struct Version: Decodable {

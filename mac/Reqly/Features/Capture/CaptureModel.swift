@@ -17,6 +17,8 @@ final class CaptureModel {
     }
 
     private(set) var status = Status.stopped
+    /// Whether capturing has started since Reqly opened, by itself or by you.
+    @ObservationIgnored private(set) var hasStarted = false
     /// A problem that doesn't stop capturing, such as proxy settings that couldn't be put back.
     private(set) var warning: String?
     /// Whether Reqly points the Mac's proxy at itself while capturing. Builds that aren't signed
@@ -84,6 +86,7 @@ final class CaptureModel {
     func start() async {
         guard !isCapturing, status != .starting, status != .stopping else { return }
         status = .starting
+        hasStarted = true
         warning = nil
         do {
             let port = try await session.start(port: port)

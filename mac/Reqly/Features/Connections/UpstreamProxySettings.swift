@@ -1,3 +1,4 @@
+import Presentation
 import ReqlyModel
 import SwiftUI
 
@@ -6,50 +7,8 @@ import SwiftUI
 struct UpstreamProxySettings: View {
     @Environment(ConnectionsModel.self) private var connections
     @Environment(CaptureModel.self) private var capture
-    @State private var draft = Draft()
+    @State private var draft = UpstreamProxyDraft()
     @State private var hasLoaded = false
-
-    struct Draft: Equatable {
-        var isOn = false
-        var host = ""
-        var port = ""
-        var username = ""
-        var password = ""
-        var bypass = ""
-        var bypassesLocalAddresses = true
-
-        init() {}
-
-        init(_ proxy: UpstreamProxy?, isOn: Bool) {
-            self.isOn = isOn
-            guard let proxy else { return }
-            host = proxy.host
-            port = String(proxy.port)
-            username = proxy.username ?? ""
-            password = proxy.password ?? ""
-            bypass = proxy.bypass.map(\.rawValue).joined(separator: ", ")
-            bypassesLocalAddresses = proxy.bypassesLocalAddresses
-        }
-
-        /// The patterns in the bypass list, and the entries that aren't hosts.
-        var patterns: (valid: [HostPattern], invalid: [String]) {
-            let entries = bypass.split(whereSeparator: { $0 == "," || $0.isNewline || $0 == " " })
-                .map(String.init).filter { !$0.isEmpty }
-            return (
-                entries.compactMap(HostPattern.init(rawValue:)), entries.filter { HostPattern(rawValue: $0) == nil }
-            )
-        }
-
-        var proxy: UpstreamProxy? {
-            let host = host.trimmingCharacters(in: .whitespaces)
-            guard !host.isEmpty, let port = Int(port.trimmingCharacters(in: .whitespaces)) else { return nil }
-            let username = username.trimmingCharacters(in: .whitespaces)
-            return UpstreamProxy(
-                host: host, port: port, username: username.isEmpty ? nil : username,
-                password: username.isEmpty || password.isEmpty ? nil : password, bypass: patterns.valid,
-                bypassesLocalAddresses: bypassesLocalAddresses)
-        }
-    }
 
     var body: some View {
         Form {
@@ -120,32 +79,15 @@ struct UpstreamProxySettings: View {
         }
     }
 
-    private var saved: Draft {
-        Draft(connections.upstreamProxy, isOn: connections.usesUpstreamProxy)
+    private var saved: UpstreamProxyDraft {
+        UpstreamProxyDraft(connections.upstreamProxy, isOn: connections.usesUpstreamProxy)
     }
 
     private var hasChanges: Bool { draft != saved }
 
     /// What's wrong with the settings, while the proxy is on.
     private var validation: String? {
-        guard draft.isOn else { return nil }
-        let host = draft.host.trimmingCharacters(in: .whitespaces)
-        if host.isEmpty {
-            return "Enter the proxy's server."
-        }
-        if host.contains(where: \.isWhitespace) || host.contains("/") {
-            return "The server is a host name or an address, without http:// or a path."
-        }
-        guard let port = Int(draft.port.trimmingCharacters(in: .whitespaces)), (1...65535).contains(port) else {
-            return "The port is a number from 1 to 65535."
-        }
-        if HostScope.isThisMac(host), port == capture.port {
-            return "That's Reqly's own address. Enter the other proxy's."
-        }
-        if let invalid = draft.patterns.invalid.first {
-            return "“\(invalid)” isn't a host name or a pattern such as *.example.com."
-        }
-        return nil
+        draft.problem(proxyPort: capture.port)
     }
 
     private func load() {

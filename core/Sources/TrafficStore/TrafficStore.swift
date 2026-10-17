@@ -200,8 +200,12 @@ public final class TrafficStore: Sendable {
         }
     }
 
-    /// Deletes the session's folder, for when the session ends without being saved.
+    /// Deletes the session's folder, for when the session ends without being saved. The store
+    /// can't be used afterwards.
     public func discard() {
+        // Windows can't delete files that are open, so the database and the lock close first.
+        try? database.close()
+        lock?.release()
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -259,7 +263,7 @@ public final class TrafficStore: Sendable {
     private func write(_ data: Data, to file: String, at offset: Int) throws {
         let url = bodyURL(file)
         if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
-            FileManager.default.createFile(
+            _ = FileManager.default.createFile(
                 atPath: url.path(percentEncoded: false), contents: nil, attributes: [.posixPermissions: 0o600]
             )
         }

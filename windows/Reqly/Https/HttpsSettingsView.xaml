@@ -1,0 +1,80 @@
+<UserControl
+    x:Class="Reqly.Https.HttpsSettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The HTTPS page of Settings: Reqly's certificate, and the hosts it decrypts. -->
+  <StackPanel Spacing="4">
+    <TextBlock Text="Certificate" Style="{StaticResource SettingsSectionHeaderStyle}" Margin="1,0,0,6" />
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid Width="28" Height="28" VerticalAlignment="Center">
+          <Border x:Name="Badge" CornerRadius="14">
+            <FontIcon x:Name="BadgeIcon" FontSize="13" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+          </Border>
+          <ProgressRing x:Name="Progress" Width="20" Height="20" IsActive="False" />
+        </Grid>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+          <TextBlock x:Name="CertificateTitle" TextWrapping="Wrap" />
+          <TextBlock x:Name="CertificateDetails" Style="{StaticResource SettingsDescriptionStyle}" />
+        </StackPanel>
+        <Button x:Name="CertificateButton" Grid.Column="2" VerticalAlignment="Center" Click="OnCertificateButtonClicked" />
+      </Grid>
+    </Border>
+    <Border x:Name="RemoveCard" Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Remove certificate" />
+          <TextBlock Style="{StaticResource SettingsDescriptionStyle}"
+                     Text="Reqly stops decrypting HTTPS, and removes its certificate and key from this PC. You can set up HTTPS again at any time." />
+        </StackPanel>
+        <Button x:Name="RemoveButton" Grid.Column="1" VerticalAlignment="Center" Content="Remove…" Click="OnRemoveClicked" />
+      </Grid>
+    </Border>
+
+    <TextBlock Text="Decrypt HTTPS for these hosts" Style="{StaticResource SettingsSectionHeaderStyle}" />
+    <Border Style="{StaticResource SettingsCardStyle}" Padding="0">
+      <StackPanel>
+        <StackPanel x:Name="HostRows" />
+        <TextBlock x:Name="NoHosts" Margin="16,14,16,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                   Text="No hosts yet. Add one here, or choose Decrypt in a request's details." />
+        <Grid Padding="16,12" ColumnSpacing="8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <TextBox x:Name="NewHost" FontFamily="Cascadia Mono, Consolas" PlaceholderText="api.example.com or *.example.com"
+                   KeyDown="OnNewHostKeyDown" TextChanged="OnNewHostChanged" AutomationProperties.Name="New host" />
+          <Button Grid.Column="1" Content="Add host" Click="OnAddHostClicked" />
+        </Grid>
+        <TextBlock x:Name="AddProblem" Margin="16,0,16,12" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                   TextWrapping="Wrap" Visibility="Collapsed" />
+      </StackPanel>
+    </Border>
+    <TextBlock x:Name="HostsFooter" Margin="1,4,0,0" Style="{StaticResource SettingsDescriptionStyle}" />
+
+    <Border Style="{StaticResource SettingsCardStyle}" Margin="0,16,0,0">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Decrypt all hosts" />
+          <TextBlock Style="{StaticResource SettingsDescriptionStyle}"
+                     Text="Not recommended. Some apps stop working when their traffic is decrypted." />
+        </StackPanel>
+        <ToggleSwitch x:Name="EveryHost" Grid.Column="1" VerticalAlignment="Center" MinWidth="0"
+                      Toggled="OnEveryHostToggled" AutomationProperties.Name="Decrypt all hosts" />
+      </Grid>
+    </Border>
+  </StackPanel>
+</UserControl>

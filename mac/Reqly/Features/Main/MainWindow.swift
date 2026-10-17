@@ -45,28 +45,25 @@ struct MainWindow: View {
         .focusedSceneValue(\.findRequests) { isSearching = true }
         .onAppear {
             guard file == nil else { return }
-            // The first-run guide opens once, the first time Reqly does.
+            // The first-run guide opens once, the first time the main window does.
             let defaults = UserDefaults.standard
             if !defaults.bool(forKey: DefaultsKey.hasSeenWelcome) {
                 defaults.set(true, forKey: DefaultsKey.hasSeenWelcome)
                 openWindow(id: "welcome")
             }
+            model.startCapturingIfAsked()
         }
         .onChange(of: model.crashes.report, initial: true) {
             if file == nil, model.crashes.report != nil {
                 openWindow(id: "crash-report")
             }
         }
-        .onChange(of: model.filesToOpen, initial: true) {
-            // Files opened from Finder open in windows of their own, from the live window only.
-            guard file == nil, !model.filesToOpen.isEmpty else { return }
-            for url in model.filesToOpen {
-                openWindow(id: "file", value: url)
-            }
-            model.filesToOpen.removeAll()
-        }
         #if DEBUG
             .onAppear {
+                if file == nil, !model.filesToOpen.isEmpty {
+                    // -openFile's file, which no event brings.
+                    openWindow(id: "opener")
+                }
                 if file == nil, UserDefaults.standard.bool(forKey: DefaultsKey.showHelp) {
                     openWindow(id: "help")
                 }

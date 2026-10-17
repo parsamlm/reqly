@@ -29,29 +29,16 @@ final class ConnectionsModel {
     private static let proxyService = "Reqly Upstream Proxy"
     private static let certificateService = "Reqly Client Certificate"
 
-    private struct Saved: Codable {
-        var version = 1
-        var upstreamProxy: UpstreamProxy?
-        var usesUpstreamProxy = false
-        var reverseProxies: [ReverseProxy] = []
-        var clientCertificates: [ClientCertificate] = []
-    }
-
     init(session: CaptureSession) {
         self.session = session
         secrets = SecretStores.standard
         url = Self.fileURL
-        if let data = try? Data(contentsOf: url) {
-            do {
-                let saved = try JSONDecoder().decode(Saved.self, from: data)
-                upstreamProxy = saved.upstreamProxy
-                usesUpstreamProxy = saved.usesUpstreamProxy
-                reverseProxies = saved.reverseProxies
-                clientCertificates = saved.clientCertificates
-            } catch {
-                problem = "Reqly couldn't read its connection settings, so it started without them."
-            }
-        }
+        let saved = ConnectionsFile.load(from: url)
+        upstreamProxy = saved.contents.upstreamProxy
+        usesUpstreamProxy = saved.contents.usesUpstreamProxy
+        reverseProxies = saved.contents.reverseProxies
+        clientCertificates = saved.contents.clientCertificates
+        problem = saved.problem
         if var proxy = upstreamProxy, proxy.username != nil,
             let password = secrets.load(service: Self.proxyService, account: "password")
         {
@@ -161,7 +148,7 @@ final class ConnectionsModel {
     /// `password`, or PEM files with the certificate and its key. Its key goes in the Keychain.
     func addClientCertificate(from files: [URL], password: String, hosts: [HostPattern]) throws(ClientIdentity.Problem)
     {
-        let identity = try Self.identity(from: files, password: password, hosts: hosts)
+        let identity = try ClientIdentity.read(files, password: password, hosts: hosts)
         let certificate = ClientCertificate(
             hosts: hosts, name: identity.name, issuer: identity.issuer, expires: identity.expires)
         do {
@@ -175,21 +162,6 @@ final class ConnectionsModel {
         identities[certificate.id] = identity
         clientCertificates.append(certificate)
         clientCertificatesChanged()
-    }
-
-    /// What a certificate's files hold, checked without keeping anything.
-    static func identity(from files: [URL], password: String, hosts: [HostPattern]) throws(ClientIdentity.Problem)
-        -> ClientIdentity
-    {
-        let contents = files.compactMap { try? Data(contentsOf: $0) }
-        guard contents.count == files.count, !contents.isEmpty else { throw .unreadable }
-        // A PKCS #12 file is binary; PEM files are text, which may come in two files.
-        let isPKCS12 = files.contains { ["p12", "pfx"].contains($0.pathExtension.lowercased()) }
-        if isPKCS12 || String(data: contents[0], encoding: .utf8) == nil {
-            return try ClientIdentity(pkcs12: [UInt8](contents[0]), password: password, hosts: hosts)
-        }
-        let pem = contents.map { String(decoding: $0, as: UTF8.self) }.joined(separator: "\n")
-        return try ClientIdentity(pem: pem, password: password.isEmpty ? nil : password, hosts: hosts)
     }
 
     func setHosts(_ hosts: [HostPattern], of id: ClientCertificate.ID) {
@@ -237,18 +209,14 @@ final class ConnectionsModel {
     private func save() {
         var proxy = upstreamProxy
         proxy?.password = nil
-        let saved = Saved(
+        let saved = ConnectionsFile.Contents(
             upstreamProxy: proxy, usesUpstreamProxy: usesUpstreamProxy, reverseProxies: reverseProxies,
             clientCertificates: clientCertificates)
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try encoder.encode(saved).write(to: url, options: .atomic)
+            try ConnectionsFile.save(saved, to: url)
             problem = nil
         } catch {
-            problem = "Reqly couldn't save its connection settings: \(error.localizedDescription)"
+            problem = ConnectionsFile.saveProblem(error)
         }
     }
 }

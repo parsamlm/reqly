@@ -24,6 +24,9 @@ final class ServerConnection {
     var shared: HTTP2Connection?
     /// A stream on a shared HTTP/2 connection, which carries one exchange only.
     var isStream = false
+    /// Carries an exchange other than the one that opened it: a later one on the same
+    /// connection, or one on a stream of an HTTP/2 connection another exchange opened.
+    var isReused = false
     private(set) var channel: (any Channel)?
     /// The server's IP address and port, once connected.
     private(set) var address: String?

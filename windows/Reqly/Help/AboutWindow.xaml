@@ -1,0 +1,52 @@
+<Window
+    x:Class="Reqly.Help.AboutWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="About Reqly">
+  <!-- Help › About Reqly, as the Mac's Help › Reqly Help: the version, the website, the license,
+       and the licenses of the open-source code inside Reqly. -->
+  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="28,24,28,28">
+    <StackPanel x:Name="Contents" Spacing="18" VerticalAlignment="Top">
+      <StackPanel Spacing="6" HorizontalAlignment="Center">
+        <Image x:Name="AppIcon" Width="80" Height="80" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
+        <TextBlock Text="Reqly" Style="{StaticResource SubtitleTextBlockStyle}" HorizontalAlignment="Center" />
+        <TextBlock x:Name="VersionText" HorizontalAlignment="Center" IsTextSelectionEnabled="True"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+      </StackPanel>
+      <TextBlock Text="An open-source inspector for what your apps send and receive." TextAlignment="Center" TextWrapping="Wrap"
+                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+              BorderThickness="1" CornerRadius="{ThemeResource OverlayCornerRadius}" Padding="16,14">
+        <Grid ColumnSpacing="14" RowSpacing="10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <TextBlock Text="Website" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          <HyperlinkButton x:Name="WebsiteLink" Grid.Column="1" Content="reqly.net" Padding="0" />
+          <TextBlock Grid.Row="1" Text="Source code" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          <HyperlinkButton x:Name="SourceCodeLink" Grid.Row="1" Grid.Column="1" Content="github.com/parsamlm/reqly" Padding="0" />
+          <TextBlock Grid.Row="2" Text="License" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          <StackPanel Grid.Row="2" Grid.Column="1" Spacing="8">
+            <TextBlock Text="MIT License" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="View license" Click="OnViewLicenseClicked" />
+              <Button Content="Open-source licenses" Click="OnOpenSourceLicensesClicked" />
+            </StackPanel>
+          </StackPanel>
+        </Grid>
+      </Border>
+      <StackPanel Spacing="2">
+        <TextBlock x:Name="CopyrightText" Style="{StaticResource CaptionTextBlockStyle}" HorizontalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Text="The Reqly name, icon and wordmark aren't covered by the license." Style="{StaticResource CaptionTextBlockStyle}"
+                   TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+      </StackPanel>
+    </StackPanel>
+  </Grid>
+</Window>

@@ -1,8 +1,9 @@
 import Foundation
 import NIOHTTP1
+import ReqlyModel
 
 /// The page a phone or tablet opens at Reqly's address to set itself up: Reqly's certificate to
-/// download, and the steps to trust it and to use the Mac as its proxy.
+/// download, and the steps to trust it and to use this computer as its proxy.
 struct SetupPage {
     struct Answer {
         var status: HTTPResponseStatus
@@ -31,7 +32,7 @@ struct SetupPage {
         }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-:[]"))
         let isAddress = !host.isEmpty && host.unicodeScalars.allSatisfy(allowed.contains)
-        self.host = isAddress ? host : "this Mac's address"
+        self.host = isAddress ? host : "this \(ThisComputer.name)'s address"
         self.port = port
         self.certificate = certificate
         isAndroid = head.headers.first(name: "User-Agent")?.contains("Android") ?? false
@@ -49,7 +50,7 @@ struct SetupPage {
             } else {
                 Answer(
                     status: .notFound, contentType: "text/plain; charset=utf-8",
-                    body: Data("Set up HTTPS in Reqly on the Mac first.\n".utf8))
+                    body: Data("Set up HTTPS in Reqly on the \(ThisComputer.name) first.\n".utf8))
             }
         default:
             Answer(
@@ -80,7 +81,8 @@ struct SetupPage {
             ]
         } else {
             download =
-                #"<p class="callout">To see HTTPS traffic, first set up HTTPS in Reqly on your Mac, with Capture › Decrypt HTTPS. Then open this page again.</p>"#
+                #"<p class="callout">To see HTTPS traffic, first set up HTTPS in Reqly on your "# + ThisComputer.name
+                + #", with Capture › Decrypt HTTPS. Then open this page again.</p>"#
             iPhoneSteps = [
                 "In Settings › Wi-Fi, tap ⓘ next to your network, then Configure Proxy › Manual. Enter server \(address) and port \(port)."
             ]
@@ -121,7 +123,7 @@ struct SetupPage {
             </head>
             <body><main>
             <h1>Set up this device</h1>
-            <p class="lead">Install Reqly's certificate and trust it, then use the Mac as this device's proxy. Reqly then shows the device's traffic, HTTPS included.</p>
+            <p class="lead">Install Reqly's certificate and trust it, then use the \(ThisComputer.name) as this device's proxy. Reqly then shows the device's traffic, HTTPS included.</p>
             \(download)
             \(isAndroid ? android + iPhone : iPhone + android)
             <p class="note">When you're done, set the proxy back to Off.</p>

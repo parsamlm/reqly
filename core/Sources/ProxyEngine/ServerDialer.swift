@@ -120,7 +120,7 @@ struct UpstreamProxyError: Error {
                 if error.connectionErrors.isEmpty {
                     return "the upstream proxy's name, \(error.host), didn't resolve."
                 }
-                if let refused = error.connectionErrors.first?.error as? IOError, refused.errnoCode == ECONNREFUSED {
+                if let refused = error.connectionErrors.first?.error as? IOError, Sockets.isConnectionRefused(refused) {
                     return "\(proxy) refused the connection."
                 }
                 return "\(proxy) didn't accept the connection."

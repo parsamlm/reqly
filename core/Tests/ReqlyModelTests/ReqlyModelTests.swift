@@ -122,6 +122,46 @@ import Testing
         #expect(hosts.decrypts("auth.weatherly.dev"))
         #expect(!hosts.decrypts("api.weatherly.dev"))
     }
+
+    @Test func decryptingAHostSwitchesItsEntryOnOrAddsOne() {
+        var hosts = DecryptedHosts(entries: [.init(api, isOn: false)])
+        hosts.decrypt("API.weatherly.dev")
+        hosts.decrypt("auth.weatherly.dev")
+        #expect(hosts.entries == [.init(api), .init(HostPattern(rawValue: "auth.weatherly.dev")!)])
+        // A host decrypted already, here by the wildcard, adds nothing.
+        hosts = DecryptedHosts(entries: [.init(weatherly)])
+        hosts.decrypt("api.weatherly.dev")
+        #expect(hosts.entries == [.init(weatherly)])
+    }
+
+    @Test func stoppingAHostKeepsItOnTheListSwitchedOff() {
+        var hosts = DecryptedHosts(entries: [.init(weatherly)])
+        hosts.stopDecrypting("api.weatherly.dev")
+        #expect(hosts.entries == [.init(weatherly), .init(api, isOn: false)])
+        #expect(!hosts.decrypts("api.weatherly.dev"))
+        #expect(hosts.decrypts("auth.weatherly.dev"))
+        hosts = DecryptedHosts(includesEveryHost: true)
+        hosts.stopDecrypting("example.com")
+        #expect(hosts.entries == [.init(HostPattern(rawValue: "example.com")!, isOn: false)])
+        hosts.stopDecrypting("apple.com")
+        #expect(hosts.entries.count == 2)
+    }
+
+    @Test func addingSaysWhyAHostCantJoin() {
+        var hosts = DecryptedHosts()
+        #expect(hosts.add("  *.Weatherly.dev ") == nil)
+        #expect(hosts.entries == [.init(weatherly)])
+        #expect(hosts.add("*.weatherly.dev") == .onTheList(weatherly))
+        #expect(hosts.add("api weatherly") == .notAHost("api weatherly"))
+        let notAHost =
+            "“api weatherly” isn't a host. Enter a name like api.example.com, or *.example.com for its subdomains."
+        #expect(hosts.add("api weatherly")?.message == notAHost)
+        #expect(hosts.add("*.weatherly.dev")?.message == "*.weatherly.dev is on the list already.")
+        hosts.setDecrypts(false, weatherly)
+        #expect(hosts.entries == [.init(weatherly, isOn: false)])
+        hosts.remove([weatherly])
+        #expect(hosts.entries.isEmpty)
+    }
 }
 
 @Suite struct TimingPhaseTests {

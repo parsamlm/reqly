@@ -24,10 +24,15 @@ let package = Package(
         .target(name: "Keychain", dependencies: [.product(name: "CertificateAuthority", package: "core")]),
         .target(name: "HelperProtocol"),
         // It reads the Mac's process table.
-        .target(name: "SourceResolver", dependencies: [.product(name: "ReqlyModel", package: "core")]),
+        .target(
+            name: "SourceResolver",
+            dependencies: [
+                .product(name: "ReqlyModel", package: "core"), .product(name: "DeviceBridge", package: "core"),
+            ]
+        ),
         .target(name: "SystemProxy", dependencies: ["HelperProtocol", .product(name: "ReqlyModel", package: "core")]),
-        // Simulators through Xcode's simctl, and Android emulators through adb.
-        .target(name: "DeviceTools"),
+        // Simulators through Xcode's simctl, and Android emulators through adb, which is in the core.
+        .target(name: "DeviceTools", dependencies: [.product(name: "DeviceBridge", package: "core")]),
         // Only ReqlyHelper, the privileged helper, uses HelperCore.
         .target(name: "HelperCore", dependencies: ["HelperProtocol"]),
 

@@ -1,0 +1,50 @@
+<Window
+    x:Class="Reqly.Settings.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Reqly Settings">
+  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <!-- A page for each group of settings, as on the Mac. More pages join as their features do. -->
+    <NavigationView x:Name="Navigation" PaneDisplayMode="Left" OpenPaneLength="240" IsBackButtonVisible="Collapsed"
+                    IsSettingsVisible="False" IsPaneToggleButtonVisible="False" SelectionChanged="OnPageChanged">
+      <NavigationView.MenuItems>
+        <NavigationViewItem x:Name="GeneralItem" Content="General" Tag="general">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE713;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem x:Name="HttpsItem" Content="HTTPS" Tag="https">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE72E;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem x:Name="UpstreamProxyItem" Content="Upstream proxy" Tag="upstreamProxy">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE968;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem x:Name="ReverseProxyItem" Content="Reverse proxy" Tag="reverseProxy">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE8AB;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem x:Name="ClientCertificatesItem" Content="Client certificates" Tag="clientCertificates">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xEB95;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+        <NavigationViewItem x:Name="ProtobufItem" Content="Protobuf" Tag="protobuf">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE943;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+      </NavigationView.MenuItems>
+      <ScrollViewer>
+        <StackPanel Padding="36,8,36,36" MaxWidth="1000">
+          <TextBlock x:Name="PageTitle" Style="{ThemeResource TitleTextBlockStyle}" Margin="0,0,0,20" />
+          <ContentControl x:Name="Page" HorizontalContentAlignment="Stretch" IsTabStop="False" />
+        </StackPanel>
+      </ScrollViewer>
+    </NavigationView>
+  </Grid>
+</Window>

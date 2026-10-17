@@ -4,6 +4,11 @@ import SwiftASN1
 import Synchronization
 import X509
 
+#if canImport(WinSDK)
+    // inet_pton and the address types, which Foundation brings along everywhere else.
+    import WinSDK
+#endif
+
 /// Reqly's root certificate and its private key.
 public struct RootIdentity: Sendable {
     public let certificate: Certificate

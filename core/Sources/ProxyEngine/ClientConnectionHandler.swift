@@ -429,6 +429,7 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             server.usesTLS == destination.usesTLS, server.network == network, server.path == path,
             server.generation == generation, server.isOpen
         {
+            server.isReused = true
             engine.emit(.serverReused(exchange, address: server.address, tlsVersion: server.tlsVersion))
             engine.emit(.serverProtocol(exchange, "HTTP/1.1"))
             if let certificate = server.clientCertificate.presentedName {
@@ -476,6 +477,7 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
 
     /// Starts the exchange on a stream of a shared HTTP/2 connection.
     private func reuse(_ shared: HTTP2Connection, for connection: ServerConnection, exchange: ExchangeID) {
+        connection.isReused = true
         engine.emit(.serverReused(exchange, address: shared.address, tlsVersion: shared.tlsVersion))
         engine.emit(.serverProtocol(exchange, "HTTP/2"))
         if let certificate = shared.clientCertificate.presentedName {
@@ -795,11 +797,7 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         on loop: any EventLoop,
         resolved: @escaping @Sendable (Date) -> Void
     ) -> (any Resolver & Sendable)? {
-        #if os(Windows)
-            return nil
-        #else
-            return authority.isIPAddress ? nil : TimedResolver(loop: loop, resolved: resolved)
-        #endif
+        authority.isIPAddress ? nil : TimedResolver(loop: loop, resolved: resolved)
     }
 
     func serverRead(_ part: HTTPClientResponsePart, from connection: ServerConnection?) {
@@ -914,7 +912,10 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         guard isWaitingOnServer else { return }
         // A stream ends when its connection fails, and the connection knows why.
         if let failure = connection?.shared?.failure {
-            fail(Self.serverFailure(for: failure, certificate: connection?.clientCertificate ?? .noCertificate))
+            fail(
+                Self.serverFailure(
+                    for: failure, certificate: connection?.clientCertificate ?? .noCertificate,
+                    alertMayBeLost: mayHaveLostAlert(on: connection)))
         } else {
             fail(.serverClosed)
         }
@@ -925,8 +926,21 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         guard connection === server else { return }
         server = nil
         if isWaitingOnServer {
-            fail(Self.serverFailure(for: error, certificate: connection?.clientCertificate ?? .noCertificate))
+            fail(
+                Self.serverFailure(
+                    for: error, certificate: connection?.clientCertificate ?? .noCertificate,
+                    alertMayBeLost: mayHaveLostAlert(on: connection)))
         }
+    }
+
+    /// Whether a reset on `connection` may have taken the server's TLS alert with it, as it can on
+    /// Windows. Only a secure connection this exchange opened, with no response yet, can have been
+    /// turned down for its client certificate.
+    private func mayHaveLostAlert(on connection: ServerConnection?) -> Bool {
+        guard Sockets.resetDropsUnreadData, let connection, connection.usesTLS, !connection.isReused,
+            case .forwarding(let forwarding) = state
+        else { return false }
+        return !forwarding.responseStarted
     }
 
     /// Whether the current exchange needs the server still. A request that's held hasn't gone
@@ -1514,7 +1528,7 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             if error.connectionErrors.isEmpty {
                 return "the name \(error.host) didn't resolve."
             }
-            if let refused = error.connectionErrors.first?.error as? IOError, refused.errnoCode == ECONNREFUSED {
+            if let refused = error.connectionErrors.first?.error as? IOError, Sockets.isConnectionRefused(refused) {
                 return "\(error.host) refused the connection."
             }
             return "\(error.host) didn't accept the connection."
@@ -1527,10 +1541,13 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
 
     /// Why the secure connection to a server failed, in plain words. `certificate` says whether
     /// Reqly has a client certificate for the server's host, and whether the server got it.
-    static func serverFailure(for error: any Error, certificate: ClientCertificateUse) -> ExchangeFailure {
+    /// `alertMayBeLost` says a reset may have dropped the server's alert before Reqly read it.
+    static func serverFailure(
+        for error: any Error, certificate: ClientCertificateUse, alertMayBeLost: Bool = false
+    ) -> ExchangeFailure {
         let text = String(describing: error)
         if text.contains("CERTIFICATE_VERIFY_FAILED") || text.contains("unableToValidateCertificate") {
-            return .serverCertificateInvalid("Your Mac doesn't trust the certificate the server sent.")
+            return .serverCertificateInvalid("Your \(ThisComputer.name) doesn't trust the certificate the server sent.")
         }
         // A trusted certificate, but for other names. For a server reached by its IP address,
         // such as 127.0.0.1, the address is missing from the certificate.
@@ -1564,9 +1581,38 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             // alert isn't about a client certificate.
             break
         }
+        // On TLS 1.3, Reqly's side of the handshake is done, and the request on its way, before
+        // the server has checked the client certificate. A server that turns it down sends an
+        // alert and closes with the request unread in its socket, which resets the connection.
+        // Windows drops what Reqly hadn't read yet when the reset arrives, the alert included,
+        // so then only the reset is left to go by.
+        if alertMayBeLost, brokeOffWithoutAlert(error) {
+            switch certificate {
+            case .presented:
+                return .clientCertificateRejected
+            case .noCertificate:
+                return .secureConnectionFailed(
+                    "The server closed the connection before it answered. The server may require a client certificate, and Reqly has none for this host. Add one in Settings, under Client Certificates."
+                )
+            case .ready:
+                break
+            }
+        }
         if error is NIOSSLError || error is BoringSSLError {
             return .secureConnectionFailed("The secure handshake with the server failed.")
         }
         return .serverClosed
+    }
+
+    /// Whether the connection broke off with no TLS alert to say why: the server reset it, or
+    /// it closed in the middle of TLS.
+    static func brokeOffWithoutAlert(_ error: any Error) -> Bool {
+        if let error = error as? NIOSSLError, case .uncleanShutdown = error {
+            return true
+        }
+        if let error = error as? IOError {
+            return Sockets.isConnectionReset(error)
+        }
+        return false
     }
 }

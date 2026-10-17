@@ -1,0 +1,79 @@
+<UserControl
+    x:Class="Reqly.Settings.UpstreamProxySettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Another proxy that Reqly sends its own traffic through. Changes apply when you click Apply,
+       since they reconnect what's open. -->
+  <StackPanel Spacing="4">
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Use an upstream proxy" />
+          <TextBlock Style="{StaticResource SettingsDescriptionStyle}"
+                     Text="For networks that reach the internet only through another proxy, as many offices do." />
+        </StackPanel>
+        <ToggleSwitch x:Name="IsOn" Grid.Column="1" VerticalAlignment="Center" MinWidth="0" Toggled="OnChanged"
+                      AutomationProperties.Name="Use an upstream proxy" />
+      </Grid>
+    </Border>
+
+    <TextBlock Text="Proxy" Style="{StaticResource SettingsSectionHeaderStyle}" />
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <StackPanel x:Name="ProxyFields" Spacing="12">
+        <Grid ColumnSpacing="12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="120" />
+          </Grid.ColumnDefinitions>
+          <TextBox x:Name="Server" Header="Server" PlaceholderText="proxy.example.com" TextChanged="OnChanged" KeyDown="OnFieldKeyDown" />
+          <TextBox x:Name="Port" Grid.Column="1" Header="Port" PlaceholderText="8080" InputScope="Number" TextChanged="OnChanged" KeyDown="OnFieldKeyDown" />
+        </Grid>
+        <Grid ColumnSpacing="12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBox x:Name="Username" Header="User name" PlaceholderText="Optional" TextChanged="OnChanged" KeyDown="OnFieldKeyDown" />
+          <PasswordBox x:Name="Password" Grid.Column="1" Header="Password" PlaceholderText="Optional" PasswordChanged="OnChanged" KeyDown="OnFieldKeyDown" />
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <TextBlock Text="Reach directly" Style="{StaticResource SettingsSectionHeaderStyle}" />
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <StackPanel x:Name="BypassFields" Spacing="12">
+        <TextBox x:Name="Bypass" PlaceholderText="intranet.example.com, *.corp.example.com" AcceptsReturn="True"
+                 TextWrapping="Wrap" MaxHeight="110" FontFamily="Cascadia Mono, Consolas" TextChanged="OnChanged">
+          <TextBox.Header>
+            <TextBlock Text="Hosts" FontFamily="{ThemeResource ContentControlThemeFontFamily}" />
+          </TextBox.Header>
+        </TextBox>
+        <Grid ColumnSpacing="16">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <StackPanel VerticalAlignment="Center" Spacing="2">
+            <TextBlock Text="Addresses on the local network" />
+            <TextBlock Style="{StaticResource SettingsDescriptionStyle}" Text="Such as 192.168.1.20 and printer.local" />
+          </StackPanel>
+          <ToggleSwitch x:Name="LocalAddresses" Grid.Column="1" VerticalAlignment="Center" MinWidth="0" Toggled="OnChanged"
+                        AutomationProperties.Name="Reach addresses on the local network directly" />
+        </Grid>
+      </StackPanel>
+    </Border>
+    <TextBlock Margin="1,4,0,0" Style="{StaticResource SettingsDescriptionStyle}" Text="This PC is always reached directly." />
+
+    <StackPanel x:Name="Problems" Spacing="6" Margin="0,16,0,0" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button x:Name="RevertButton" Content="Revert" Click="OnRevertClicked" />
+      <Button x:Name="ApplyButton" Content="Apply" Style="{StaticResource AccentButtonStyle}" Click="OnApplyClicked" />
+    </StackPanel>
+    <TextBlock Margin="1,12,0,0" Style="{StaticResource SettingsDescriptionStyle}"
+               Text="HTTPS, WebSocket and encrypted connections go through tunnels the proxy opens, and plain HTTP requests go to it with their whole address. Reqly keeps the password encrypted for your Windows account." />
+  </StackPanel>
+</UserControl>

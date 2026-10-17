@@ -23,7 +23,7 @@ public final class HARWriter {
 
     /// Starts the file at `url`, replacing any file there.
     public init(url: URL, options: Options, creatorVersion: String) throws {
-        FileManager.default.createFile(atPath: url.path(percentEncoded: false), contents: nil)
+        _ = FileManager.default.createFile(atPath: url.path(percentEncoded: false), contents: nil)
         handle = try FileHandle(forWritingTo: url)
         self.options = options
         encoder.outputFormatting = [.withoutEscapingSlashes]

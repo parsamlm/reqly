@@ -1,15 +1,23 @@
-import CZlib
 import Foundation
+
+#if os(Windows)
+    import CZlibBundled
+#else
+    import CZlib
+#endif
 
 #if canImport(Compression)
     import Compression
+#elseif os(Windows) || os(Linux)
+    import CBrotliBundled
 #endif
 
 /// Unpacks bodies the way the app that received them does, so Reqly can show them. Reqly keeps
 /// the bytes exactly as they came over the wire and unpacks them only to show, search or export.
 ///
-/// gzip and deflate go through zlib, which every platform has. Brotli goes through Apple's
-/// Compression framework, so only the Mac unpacks it for now.
+/// gzip and deflate go through zlib: the system's, or on Windows, the copy built from source. Brotli
+/// goes through Apple's Compression framework on the Mac, and through Brotli's own decoder, built
+/// from source, on Windows and Linux.
 public enum BodyDecoder {
     /// Unpacked bodies stop growing here, so a tiny malicious body can't fill the memory.
     public static let sizeLimit = 64 * 1024 * 1024
@@ -21,7 +29,7 @@ public enum BodyDecoder {
 
     private static let decodableEncodings: Set<String> = {
         var names: Set<String> = ["gzip", "x-gzip", "deflate", "identity"]
-        #if canImport(Compression)
+        #if canImport(Compression) || os(Windows) || os(Linux)
             names.insert("br")
         #endif
         return names
@@ -47,7 +55,7 @@ public enum BodyDecoder {
                 guard let unpacked = inflateWhole(body, format: hasZlibHeader(body) ? .zlib : .raw) else { return nil }
                 body = unpacked
             case "br":
-                #if canImport(Compression)
+                #if canImport(Compression) || os(Windows) || os(Linux)
                     guard let unpacked = brotli(body) else { return nil }
                     body = unpacked
                 #else
@@ -104,6 +112,37 @@ public enum BodyDecoder {
                     case COMPRESSION_STATUS_END:
                         return output
                     default:
+                        return nil
+                    }
+                }
+            }
+        }
+    #elseif os(Windows) || os(Linux)
+        private static func brotli(_ data: Data) -> Data? {
+            guard !data.isEmpty else { return Data() }
+            guard let decoder = BrotliDecoderCreateInstance(nil, nil, nil) else { return nil }
+            defer { BrotliDecoderDestroyInstance(decoder) }
+            let chunk = 64 * 1024
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: chunk)
+            defer { buffer.deallocate() }
+            var output = Data()
+            return data.withUnsafeBytes { (input: UnsafeRawBufferPointer) -> Data? in
+                var nextIn = input.bindMemory(to: UInt8.self).baseAddress
+                var availableIn = input.count
+                while true {
+                    var nextOut: UnsafeMutablePointer<UInt8>? = buffer
+                    var availableOut = chunk
+                    let result = BrotliDecoderDecompressStream(
+                        decoder, &availableIn, &nextIn, &availableOut, &nextOut, nil)
+                    output.append(buffer, count: chunk - availableOut)
+                    guard output.count <= sizeLimit else { return nil }
+                    switch result {
+                    case BROTLI_DECODER_RESULT_SUCCESS:
+                        return output
+                    case BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT:
+                        continue
+                    default:
+                        // Out of input before the end marker, so the body is cut short, or damaged.
                         return nil
                     }
                 }
@@ -186,7 +225,7 @@ final class Inflater {
             while true {
                 stream.pointee.next_out = buffer
                 stream.pointee.avail_out = uInt(chunk)
-                let status = CZlib.inflate(stream, Z_NO_FLUSH)
+                let status = zlibInflate(stream, Z_NO_FLUSH)
                 output.append(buffer, count: chunk - Int(stream.pointee.avail_out))
                 guard output.count <= limit else { return nil }
                 switch status {
@@ -204,4 +243,10 @@ final class Inflater {
             }
         }
     }
+}
+
+/// zlib's `inflate`, which `Inflater.inflate` hides inside the type. zlib's module has another name
+/// on Windows, so the call can't name the module.
+private func zlibInflate(_ stream: UnsafeMutablePointer<z_stream>, _ flush: Int32) -> Int32 {
+    inflate(stream, flush)
 }

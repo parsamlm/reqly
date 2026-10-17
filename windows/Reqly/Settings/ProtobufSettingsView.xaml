@@ -1,0 +1,58 @@
+<UserControl
+    x:Class="Reqly.Settings.ProtobufSettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The .proto files and folders Reqly reads bodies with, and what it couldn't use in them. -->
+  <StackPanel Spacing="4">
+    <TextBlock Text=".proto files" Style="{StaticResource SettingsSectionHeaderStyle}" Margin="1,0,0,6" />
+    <Border Style="{StaticResource SettingsCardStyle}" Padding="0">
+      <StackPanel>
+        <ListView x:Name="SourceList" SelectionMode="Single" Padding="0,4,0,4" SelectionChanged="OnSelectionChanged"
+                  KeyDown="OnListKeyDown" ContextRequested="OnContextRequested" AutomationProperties.Name=".proto files" />
+        <TextBlock x:Name="NoSources" Margin="16,16,16,8" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                   Text="No .proto files yet. Without them, fields show by their numbers." />
+        <Grid Padding="10,8,12,8" ColumnSpacing="4" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Button Style="{StaticResource SubtleButtonStyle}" Click="OnAddFilesClicked">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE710;" FontSize="12" />
+              <TextBlock Text="Add files" />
+            </StackPanel>
+          </Button>
+          <Button Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" Click="OnAddFolderClicked">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE8F4;" FontSize="12" />
+              <TextBlock Text="Add folder" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="RemoveButton" Grid.Column="2" Style="{StaticResource SubtleButtonStyle}" Click="OnRemoveClicked" IsEnabled="False">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE738;" FontSize="12" />
+              <TextBlock Text="Remove" />
+            </StackPanel>
+          </Button>
+          <ProgressRing x:Name="LoadingRing" Grid.Column="4" Width="16" Height="16" Margin="0,0,8,0" IsActive="False" />
+          <Button x:Name="ReloadButton" Grid.Column="5" Content="Reload" Click="OnReloadClicked"
+                  ToolTipService.ToolTip="Read the files again, after you change them" />
+        </Grid>
+      </StackPanel>
+    </Border>
+    <TextBlock x:Name="Summary" Margin="1,4,0,0" Style="{StaticResource SettingsDescriptionStyle}" />
+    <TextBlock Margin="1,2,0,0" Style="{StaticResource SettingsDescriptionStyle}"
+               Text="Reqly reads protobuf and gRPC bodies with these files, to show each field's name and type. Add a folder to include the files that others import. Reqly reads the files again each time it opens, or when you click Reload." />
+
+    <StackPanel x:Name="ProblemSection" Visibility="Collapsed">
+      <TextBlock Text="Problems" Style="{StaticResource SettingsSectionHeaderStyle}" />
+      <Border Style="{StaticResource SettingsCardStyle}">
+        <StackPanel x:Name="ProblemRows" Spacing="10" />
+      </Border>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

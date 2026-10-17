@@ -97,7 +97,7 @@ public enum ExchangeFailure: Sendable, Hashable, Codable {
         case .loopDetected: "The request was sent to Reqly itself, so Reqly stopped it."
         case .captureStopped: "Capturing stopped before the response finished."
         case .certificateRejected:
-            "The app didn't accept Reqly's certificate. Either the Mac or device it runs on doesn't trust Reqly's current certificate, for example after you made a new one, or the app accepts only its own. Install the certificate again, or stop decrypting this host."
+            "The app didn't accept Reqly's certificate. Either the \(ThisComputer.name) or device it runs on doesn't trust Reqly's current certificate, for example after you made a new one, or the app accepts only its own. Install the certificate again, or stop decrypting this host."
         case .serverCertificateInvalid(let reason):
             "The server's certificate isn't valid, so Reqly didn't send the request. \(reason)"
         case .secureConnectionFailed(let reason): "Reqly couldn't set up a secure connection. \(reason)"

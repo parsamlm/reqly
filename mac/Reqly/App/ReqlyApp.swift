@@ -21,6 +21,8 @@ struct ReqlyApp: App {
                 .environment(model.settings)
         }
         .defaultSize(width: 1360, height: 860)
+        // Files opened from Finder go to the file opener instead, so they come without this window.
+        .handlesExternalEvents(matching: [])
         // Reqly's other windows open from the menus their work belongs to, so the Window menu
         // doesn't list them too: their scenes' commands are removed.
         .commands {
@@ -100,6 +102,19 @@ struct ReqlyApp: App {
             }
         }
         .defaultSize(width: 1360, height: 860)
+        .handlesExternalEvents(matching: [])
+        .commandsRemoved()
+
+        // Takes the files Finder opens and opens each one's window, unseen.
+        Window("Opening Files", id: "opener") {
+            FileOpener()
+                .environment(model)
+        }
+        .windowStyle(.plain)
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+        .handlesExternalEvents(matching: ["*"])
         .commandsRemoved()
 
         // The rules for the traffic being captured, which the live list's requests count against.

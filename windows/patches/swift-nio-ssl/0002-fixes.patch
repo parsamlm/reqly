@@ -1,0 +1,43 @@
+swift-nio-ssl on Windows: Reqly's fixes to apple/swift-nio-ssl#567, by the Reqly authors, under
+swift-nio-ssl's license (Apache License 2.0).
+
+1. BoringSSL's thread-exit callback for Windows, p_thread_callback_boringssl, has no symbol
+   prefix, so linking swift-nio-ssl's BoringSSL beside swift-crypto's, as Reqly does, fails with
+   a duplicate symbol. It gets the prefix that every other BoringSSL symbol has.
+2. VirtualUnlock works on whole pages and doesn't count, so when two locked buffers share a page,
+   unlocking the second fails with ERROR_NOT_LOCKED, and decoding PKCS#12 bundles at the same
+   time crashed. That error is now treated as munlock treats it on POSIX: not an error.
+
+diff --git a/Sources/CNIOBoringSSL/include/CNIOBoringSSL_boringssl_prefix_symbols.h b/Sources/CNIOBoringSSL/include/CNIOBoringSSL_boringssl_prefix_symbols.h
+index 2c40b9c..887a4a5 100644
+--- a/Sources/CNIOBoringSSL/include/CNIOBoringSSL_boringssl_prefix_symbols.h
++++ b/Sources/CNIOBoringSSL/include/CNIOBoringSSL_boringssl_prefix_symbols.h
+@@ -16,6 +16,7 @@
+ // iteration of macro expansion on its arguments before pasting.
+ #define BORINGSSL_ADD_PREFIX(a, b) BORINGSSL_ADD_PREFIX_INNER(a, b)
+ #define BORINGSSL_ADD_PREFIX_INNER(a, b) a ## _ ## b
++#define p_thread_callback_boringssl BORINGSSL_ADD_PREFIX(BORINGSSL_PREFIX, p_thread_callback_boringssl)
+ 
+ #define ACCESS_DESCRIPTION_free BORINGSSL_ADD_PREFIX(BORINGSSL_PREFIX, ACCESS_DESCRIPTION_free)
+ #define ACCESS_DESCRIPTION_new BORINGSSL_ADD_PREFIX(BORINGSSL_PREFIX, ACCESS_DESCRIPTION_new)
+diff --git a/Sources/NIOSSL/PosixPort.swift b/Sources/NIOSSL/PosixPort.swift
+index 19dc55c..5437d19 100644
+--- a/Sources/NIOSSL/PosixPort.swift
++++ b/Sources/NIOSSL/PosixPort.swift
+@@ -213,7 +213,15 @@ internal enum Posix {
+     @discardableResult
+     internal static func munlock(addr: UnsafeRawPointer, len: Int) throws -> CInt {
+         guard VirtualUnlock(UnsafeMutableRawPointer(mutating: addr), SIZE_T(len)) else {
+-            throw IOError(errnoCode: ENOMEM, reason: "VirtualUnlock failed: GetLastError() = \(GetLastError())")
++            let error = GetLastError()
++            // VirtualLock and VirtualUnlock work on whole pages and don't count. When two
++            // buffers share a page, as small heap allocations do, unlocking one unlocks the page
++            // for both, and unlocking the other then fails with ERROR_NOT_LOCKED. munlock has the
++            // same page semantics but doesn't fail there, so neither does this.
++            if error == DWORD(ERROR_NOT_LOCKED) {
++                return 0
++            }
++            throw IOError(errnoCode: ENOMEM, reason: "VirtualUnlock failed: GetLastError() = \(error)")
+         }
+         return 0
+     }

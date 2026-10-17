@@ -44,8 +44,11 @@ final class EngineContext: Sendable {
     private let generation = Atomic<Int>(0)
     /// Each script's `shared` object, as JSON, by its rule, kept from one run to the next.
     private let scriptStates = Mutex<[UUID: String]>([:])
-    /// How connections to servers check certificates: the way macOS does.
+    /// How connections to servers check certificates: the way macOS does, or on Windows, the way
+    /// Windows does.
     private let clientConfiguration: TLSConfiguration
+    /// Roots trusted besides the system's, in DER, such as a test's own authority.
+    private let extraTrustedRoots: [[UInt8]]
     /// The TLS setup for connections to servers, offering HTTP/2 and HTTP/1.1.
     let upstreamTLS: NIOSSLContext?
     /// The same, offering HTTP/1.1 only: for requests that switch protocols, such as to
@@ -54,6 +57,7 @@ final class EngineContext: Sendable {
 
     init(continuation: AsyncStream<ProxyEvent>.Continuation, extraTrustedRoots: [[UInt8]] = []) {
         self.continuation = continuation
+        self.extraTrustedRoots = extraTrustedRoots
         var configuration = TLSConfiguration.makeClientConfiguration()
         if !extraTrustedRoots.isEmpty {
             let roots = extraTrustedRoots.compactMap { try? NIOSSLCertificate(bytes: $0, format: .der) }
@@ -230,10 +234,12 @@ final class EngineContext: Sendable {
             return (key, state.list[index], state.version, state.idle[key]?.popLast())
         }
         guard let found else {
-            return (offeringHTTP2 ? upstreamTLS : upstreamTLSForHTTP1).map { ServerTLS(context: $0, certificate: nil) }
+            return (offeringHTTP2 ? upstreamTLS : upstreamTLSForHTTP1).map {
+                ServerTLS(context: $0, certificate: nil, extraRoots: extraTrustedRoots)
+            }
         }
         if let idle = found.idle {
-            return ServerTLS(context: idle.context, certificate: idle)
+            return ServerTLS(context: idle.context, certificate: idle, extraRoots: extraTrustedRoots)
         }
         var configuration = clientConfiguration
         configuration.applicationProtocols = offeringHTTP2 ? ["h2", "http/1.1"] : ["http/1.1"]
@@ -248,7 +254,7 @@ final class EngineContext: Sendable {
                 state.idle[key, default: []].append(released)
             }
         }
-        return made.map { ServerTLS(context: $0.context, certificate: $0) }
+        return made.map { ServerTLS(context: $0.context, certificate: $0, extraRoots: extraTrustedRoots) }
     }
 
     /// Connections to servers that open from now on go the new way. The shared ones take no new

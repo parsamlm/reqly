@@ -9,6 +9,8 @@ struct ServerTLS: Sendable {
     /// The setup that presents the host's client certificate, which the connection holds until
     /// it closes.
     let certificate: ClientCertificateTLS?
+    /// Roots trusted besides the system's, in DER, such as a test's own authority.
+    let extraRoots: [[UInt8]]
 
     /// Before the handshake: Reqly has no certificate for the host, or has one to present if
     /// the server asks.
@@ -18,8 +20,15 @@ struct ServerTLS: Sendable {
 
     /// Adds TLS to a new connection's pipeline.
     func addHandler(to channel: any Channel, serverHostname: String?) throws {
-        try channel.pipeline.syncOperations.addHandler(
-            NIOSSLClientHandler(context: context, serverHostname: serverHostname))
+        #if os(Windows)
+            // NIOSSL trusts no roots on Windows, so Windows checks the server's certificate.
+            let handler = try NIOSSLClientHandler(
+                context: context, serverHostname: serverHostname,
+                customVerificationCallback: WindowsTrust.callback(extraRoots: extraRoots))
+        #else
+            let handler = try NIOSSLClientHandler(context: context, serverHostname: serverHostname)
+        #endif
+        try channel.pipeline.syncOperations.addHandler(handler)
     }
 
     /// Lets the connection that `connecting` opens hold the setup until it closes. When the

@@ -1,0 +1,103 @@
+<UserControl
+    x:Class="Reqly.Settings.GeneralSettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The General page of Settings: the proxy port, how Reqly starts and goes on, and what it does to your proxy settings. -->
+  <StackPanel Spacing="4">
+    <TextBlock Text="Capturing" Style="{StaticResource SettingsSectionHeaderStyle}" Margin="1,0,0,6" />
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Proxy port" />
+          <TextBlock x:Name="PortDescription" Style="{StaticResource SettingsDescriptionStyle}" />
+        </StackPanel>
+        <TextBox x:Name="PortBox" Grid.Column="1" Width="96" VerticalAlignment="Center" TextAlignment="Right" PlaceholderText="9090"
+                 InputScope="Number" KeyDown="OnPortKeyDown" LostFocus="OnPortLostFocus" AutomationProperties.Name="Proxy port" />
+      </Grid>
+    </Border>
+    <Border x:Name="RestartCard" Style="{StaticResource SettingsCardStyle}" Visibility="Collapsed">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock x:Name="RestartText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Button x:Name="RestartButton" Grid.Column="1" VerticalAlignment="Center" Content="Restart capturing" Click="OnRestartClicked" />
+      </Grid>
+    </Border>
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="Start capturing when Reqly opens" VerticalAlignment="Center" TextWrapping="Wrap" />
+        <ToggleSwitch x:Name="StartsCapturing" Grid.Column="1" VerticalAlignment="Center" MinWidth="0"
+                      Toggled="OnStartsCapturingToggled" AutomationProperties.Name="Start capturing when Reqly opens" />
+      </Grid>
+    </Border>
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Show Reqly in the notification area" TextWrapping="Wrap" />
+          <TextBlock Text="Closing Reqly's window leaves Reqly running there, capturing if it was, until you quit it."
+                     Style="{StaticResource SettingsDescriptionStyle}" />
+        </StackPanel>
+        <ToggleSwitch x:Name="ShowsNotificationIcon" Grid.Column="1" VerticalAlignment="Center" MinWidth="0"
+                      Toggled="OnShowsNotificationIconToggled" AutomationProperties.Name="Show Reqly in the notification area" />
+      </Grid>
+    </Border>
+
+    <TextBlock Text="Your network settings" Style="{StaticResource SettingsSectionHeaderStyle}" />
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid Width="28" Height="28" VerticalAlignment="Center">
+          <Ellipse Fill="{ThemeResource AccentFillColorDefaultBrush}" Opacity="0.14" />
+          <FontIcon x:Name="NetworkIcon" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+        </Grid>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+          <TextBlock x:Name="NetworkTitle" />
+          <TextBlock x:Name="NetworkDetails" Style="{StaticResource SettingsDescriptionStyle}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <TextBlock Text="Updates" Style="{StaticResource SettingsSectionHeaderStyle}" />
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="Check for updates automatically" VerticalAlignment="Center" TextWrapping="Wrap" />
+        <ToggleSwitch x:Name="ChecksForUpdates" Grid.Column="1" VerticalAlignment="Center" MinWidth="0"
+                      Toggled="OnChecksForUpdatesToggled" AutomationProperties.Name="Check for updates automatically" />
+      </Grid>
+    </Border>
+    <Border Style="{StaticResource SettingsCardStyle}">
+      <Grid ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock x:Name="VersionText" />
+          <TextBlock x:Name="UpdateStatus" Style="{StaticResource SettingsDescriptionStyle}" />
+        </StackPanel>
+        <Button x:Name="UpdateButton" Grid.Column="1" VerticalAlignment="Center" Click="OnUpdateButtonClicked" />
+      </Grid>
+    </Border>
+  </StackPanel>
+</UserControl>

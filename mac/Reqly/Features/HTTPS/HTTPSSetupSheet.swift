@@ -1,3 +1,4 @@
+import Presentation
 import SwiftUI
 
 /// Sets up HTTPS decryption: Reqly creates its certificate, and macOS trusts it after asking
@@ -120,12 +121,8 @@ struct DecryptionCallout: View {
 
 /// The few facts the decryption callout needs about a request.
 struct ExchangeSummaryForCallout {
-    enum Situation {
-        case plain, encryptedTunnel, decrypted, certificateRejected
-    }
-
     var host: String
-    var situation: Situation
+    var situation: DecryptionSituation
     /// The device the request came from, or `nil` for this Mac.
     var device: String? = nil
 }

@@ -10,6 +10,13 @@ DerivedData/
 # Swift Package Manager
 .build/
 .swiftpm/
+# Links to the packages SwiftPM builds edited copies of, such as the patched ones on Windows
+Packages/
+
+# The Windows app's build output, the self-check's test builds among it
+windows/Reqly/bin/
+windows/Reqly/bin-test/
+windows/Reqly/obj/
 
 # Signing settings that stay on your Mac
 mac/Config/Local.xcconfig

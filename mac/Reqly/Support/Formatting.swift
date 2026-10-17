@@ -1,4 +1,5 @@
 import AppKit
+import Presentation
 import ReqlyModel
 import SwiftUI
 
@@ -6,16 +7,7 @@ import SwiftUI
 enum Format {
     /// Decimal units, as Finder uses: `713 B`, `4.1 KB`, `254 KB`, `1.2 MB`.
     static func size(_ bytes: Int64) -> String {
-        guard bytes >= 1000 else { return "\(bytes.formatted()) B" }
-        let units = ["KB", "MB", "GB", "TB"]
-        var value = Double(bytes) / 1000
-        var unit = 0
-        while value >= 1000, unit < units.count - 1 {
-            value /= 1000
-            unit += 1
-        }
-        let digits = value < 100 ? 1 : 0
-        return "\(value.formatted(.number.precision(.fractionLength(digits)))) \(units[unit])"
+        ByteCount.text(bytes)
     }
 
     /// `340 ms`, `1.24 s`, `4 min 12 s` or `2 h 5 min`. With `showingTenths`, times under

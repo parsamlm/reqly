@@ -1,0 +1,42 @@
+<UserControl
+    x:Class="Reqly.Settings.ClientCertificateSettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The certificates Reqly presents to servers that ask apps to identify themselves. -->
+  <StackPanel Spacing="4">
+    <TextBlock Text="Client certificates" Style="{StaticResource SettingsSectionHeaderStyle}" Margin="1,0,0,6" />
+    <Border Style="{StaticResource SettingsCardStyle}" Padding="0">
+      <StackPanel>
+        <ListView x:Name="CertificateList" SelectionMode="Single" Padding="0,4,0,4" SelectionChanged="OnSelectionChanged"
+                  DoubleTapped="OnListDoubleTapped" KeyDown="OnListKeyDown" ContextRequested="OnContextRequested"
+                  AutomationProperties.Name="Client certificates" />
+        <TextBlock x:Name="NoCertificates" Margin="16,16,16,8" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                   Text="No client certificates yet. Add one here." />
+        <Grid Padding="10,8,12,8" ColumnSpacing="4" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Button Style="{StaticResource SubtleButtonStyle}" Click="OnAddClicked">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE710;" FontSize="12" />
+              <TextBlock Text="Add client certificate" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="RemoveButton" Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" Click="OnRemoveClicked" IsEnabled="False">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE738;" FontSize="12" />
+              <TextBlock Text="Remove" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="EditButton" Grid.Column="3" Content="Edit hosts…" Click="OnEditClicked" IsEnabled="False" />
+        </Grid>
+      </StackPanel>
+    </Border>
+    <TextBlock Margin="1,4,0,0" Style="{StaticResource SettingsDescriptionStyle}"
+               Text="Reqly presents a certificate to the servers that ask apps to identify themselves, for the hosts you choose. It keeps certificates and their private keys encrypted for your Windows account." />
+    <StackPanel x:Name="Problems" Margin="0,8,0,0" />
+  </StackPanel>
+</UserControl>

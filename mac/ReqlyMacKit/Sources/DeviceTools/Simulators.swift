@@ -1,4 +1,5 @@
 #if os(macOS)
+    import DeviceBridge
     import Foundation
 
     /// A running iOS, iPadOS, watchOS, tvOS or visionOS Simulator.

@@ -76,6 +76,20 @@ public struct ClientIdentity: Sendable {
         try self.init(chain: chain, key: key, hosts: hosts)
     }
 
+    /// What a certificate's files hold, checked without keeping anything: a `.p12` or `.pfx`
+    /// file unlocked with `password`, or PEM files with the certificate and its private key.
+    public static func read(_ files: [URL], password: String, hosts: [HostPattern]) throws(Problem) -> ClientIdentity {
+        let contents = files.compactMap { try? Data(contentsOf: $0) }
+        guard contents.count == files.count, !contents.isEmpty else { throw .unreadable }
+        // A PKCS #12 file is binary; PEM files are text, which may come in two files.
+        let isPKCS12 = files.contains { ["p12", "pfx"].contains($0.pathExtension.lowercased()) }
+        if isPKCS12 || String(data: contents[0], encoding: .utf8) == nil {
+            return try ClientIdentity(pkcs12: [UInt8](contents[0]), password: password, hosts: hosts)
+        }
+        let pem = contents.map { String(decoding: $0, as: UTF8.self) }.joined(separator: "\n")
+        return try ClientIdentity(pem: pem, password: password.isEmpty ? nil : password, hosts: hosts)
+    }
+
     /// From what ``serialized`` returned.
     public init(serialized: Data, hosts: [HostPattern]) throws(Problem) {
         guard

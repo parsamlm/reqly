@@ -1,0 +1,33 @@
+<Window
+    x:Class="Reqly.Help.TermsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Welcome to Reqly">
+  <!-- The first thing Reqly shows: its license, and Microsoft's terms for the software from
+       Microsoft that comes with it, which you agree to before using Reqly. -->
+  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="28,24,28,24">
+    <StackPanel x:Name="Contents" Spacing="16" VerticalAlignment="Top">
+      <StackPanel Orientation="Horizontal" Spacing="14">
+        <Image x:Name="AppIcon" Width="56" Height="56" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Welcome to Reqly" Style="{StaticResource SubtitleTextBlockStyle}" />
+          <TextBlock Text="Before you start" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </StackPanel>
+      </StackPanel>
+      <TextBlock TextWrapping="Wrap"
+                 Text="Reqly is open source, under the MIT License. It also comes with software from Microsoft, which Microsoft licenses under its own terms:" />
+      <StackPanel x:Name="PartsList" Spacing="2" />
+      <TextBlock TextWrapping="Wrap" Text="To use Reqly, agree to Microsoft's terms for them." />
+      <Grid ColumnSpacing="8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <HyperlinkButton Content="Reqly's license" Padding="0" VerticalAlignment="Center" Click="OnLicenseClicked" />
+        <Button x:Name="QuitButton" Grid.Column="1" Content="Quit" MinWidth="96" Click="OnQuitClicked" />
+        <Button x:Name="AgreeButton" Grid.Column="2" Content="Agree" MinWidth="96" Style="{StaticResource AccentButtonStyle}" Click="OnAgreeClicked" />
+      </Grid>
+    </StackPanel>
+  </Grid>
+</Window>

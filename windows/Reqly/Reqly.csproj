@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reqly for Windows. Its screens are WinUI 3; everything else is the Swift core, in
+       ReqlyCore.dll, built from ../ReqlyCore. It carries the Windows App SDK itself, so nothing
+       needs installing to run it. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22621.0</TargetPlatformMinVersion>
+    <RootNamespace>Reqly</RootNamespace>
+    <AssemblyName>Reqly</AssemblyName>
+    <!-- As the Mac app's, which About Reqly shows, as do the file's properties. -->
+    <Copyright>Copyright © 2026 The Reqly Authors</Copyright>
+    <!-- Reqly for Windows' version, which About, HAR files, the installer and updates use. -->
+    <Version>1.0.0-beta.1</Version>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- The Windows App SDK's own build steps, which publish Reqly.pri with Reqly, as WinUI's
+         templates have them. Without them, a published Reqly can't find its XAML and stops. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Made from design/logo/Reqly.icon by tools/windows_icon.py. -->
+    <ApplicationIcon>Assets\Reqly.ico</ApplicationIcon>
+    <!-- Test builds go to bin-test, so neither build folder is the project's own content. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;bin-test\**</DefaultItemExcludes>
+    <!-- Program.cs starts the app, so a watcher can run without any windows. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <!-- packages.lock.json pins every package, those the ones below bring too, for the same build
+         each time and for tools/acknowledgements.py, which lists their licenses. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Only the parts of Windows App SDK 2.5.1 a WinUI app needs, at the versions 2.5.1 pins. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.12" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <!-- Installs Reqly and keeps it up to date; windows/scripts/package.ps1 makes its installer. -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- For the windows' title bars and the taskbar, and the large icon Welcome shows. -->
+    <Content Include="Assets\Reqly.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Reqly.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Reqly's icon in the notification area, for light and dark taskbars. -->
+    <Content Include="Assets\NotificationIcon-on-light.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\NotificationIcon-on-dark.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- For About Reqly: Reqly's license, and the open-source licenses, which tools/acknowledgements.py writes. -->
+    <Content Include="..\..\LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Acknowledgements.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Microsoft's terms, which you agree to the first time Reqly opens. -->
+    <Content Include="Assets\Terms\*.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ReqlyCoreDir)' != ''">
+    <Content Include="$(ReqlyCoreDir)\ReqlyCore.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

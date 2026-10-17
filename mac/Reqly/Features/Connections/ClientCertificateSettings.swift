@@ -1,4 +1,5 @@
 import AppKit
+import Presentation
 import ProxyEngine
 import ReqlyModel
 import SwiftUI
@@ -205,7 +206,7 @@ private struct ClientCertificateAdder: View {
     }
 
     private var patterns: [HostPattern] {
-        hosts.split(whereSeparator: { $0 == "," || $0 == " " }).compactMap { HostPattern(rawValue: String($0)) }
+        HostList(hosts).patterns
     }
 
     private func choose() {
@@ -223,11 +224,8 @@ private struct ClientCertificateAdder: View {
     }
 
     private func add() {
-        let invalid = hosts.split(whereSeparator: { $0 == "," || $0 == " " }).first {
-            HostPattern(rawValue: String($0)) == nil
-        }
-        if let invalid {
-            problem = "“\(invalid)” isn't a host name or a pattern such as *.example.com."
+        if let invalid = HostList(hosts).problem {
+            problem = invalid
             return
         }
         do {
@@ -259,12 +257,9 @@ private struct HostsEditor: View {
                 } header: {
                     Text(certificate.name)
                 } footer: {
-                    if let invalid {
-                        Label(
-                            "“\(invalid)” isn't a host name or a pattern such as *.example.com.",
-                            systemImage: "exclamationmark.triangle.fill"
-                        )
-                        .foregroundStyle(.orange)
+                    if let invalid = HostList(hosts).problem {
+                        Label(invalid, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
                     }
                 }
             }
@@ -278,18 +273,12 @@ private struct HostsEditor: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(patterns.isEmpty || invalid != nil)
+                .disabled(patterns.isEmpty || HostList(hosts).problem != nil)
             }
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 460)
     }
 
-    private var entries: [String] {
-        hosts.split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init)
-    }
-
-    private var patterns: [HostPattern] { entries.compactMap(HostPattern.init(rawValue:)) }
-
-    private var invalid: String? { entries.first { HostPattern(rawValue: $0) == nil } }
+    private var patterns: [HostPattern] { HostList(hosts).patterns }
 }

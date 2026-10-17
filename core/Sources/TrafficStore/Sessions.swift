@@ -1,9 +1,12 @@
 import Foundation
+import Synchronization
 
 #if canImport(Darwin)
     import Darwin
 #elseif canImport(Glibc)
     import Glibc
+#elseif canImport(WinSDK)
+    import WinSDK
 #endif
 
 extension TrafficStore {
@@ -46,11 +49,21 @@ extension TrafficStore {
 /// lock when the process ends, even in a crash, so a session nobody holds was left behind.
 final class SessionLock: Sendable {
     private static let fileName = ".lock"
-    private let descriptor: Int32
+    #if os(Windows)
+        // A HANDLE is a pointer, which Swift doesn't count as Sendable. The lock only closes it.
+        nonisolated(unsafe) private let handle: HANDLE
+    #else
+        private let descriptor: Int32
+    #endif
+    private let isReleased = Mutex(false)
 
     init(folder: URL) throws {
-        #if canImport(Darwin) || canImport(Glibc)
-            let path = folder.appending(path: Self.fileName).path(percentEncoded: false)
+        let url = folder.appending(path: Self.fileName)
+        #if os(Windows)
+            guard let handle = Self.lockFile(url, creating: true) else { throw CocoaError(.fileLocking) }
+            self.handle = handle
+        #elseif canImport(Darwin) || canImport(Glibc)
+            let path = url.path(percentEncoded: false)
             let descriptor = open(path, O_RDWR | O_CREAT, 0o600)
             guard descriptor >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
             guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
@@ -64,7 +77,19 @@ final class SessionLock: Sendable {
     }
 
     deinit {
-        #if canImport(Darwin) || canImport(Glibc)
+        release()
+    }
+
+    /// Lets go of the lock, before the session's folder is deleted.
+    func release() {
+        let wasReleased = isReleased.withLock { isReleased in
+            defer { isReleased = true }
+            return isReleased
+        }
+        guard !wasReleased else { return }
+        #if os(Windows)
+            CloseHandle(handle)
+        #elseif canImport(Darwin) || canImport(Glibc)
             close(descriptor)
         #endif
     }
@@ -72,18 +97,56 @@ final class SessionLock: Sendable {
     /// Whether `folder` is a session that no running Reqly holds. A folder without a lock may be
     /// one that another Reqly is still setting up, so it counts as abandoned only after a minute.
     static func isAbandoned(_ folder: URL) -> Bool {
-        #if canImport(Darwin) || canImport(Glibc)
-            let path = folder.appending(path: fileName).path(percentEncoded: false)
-            let descriptor = open(path, O_RDWR)
-            guard descriptor >= 0 else {
-                let created = (try? folder.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
-                return Date().timeIntervalSince(created) > 60
-            }
+        let url = folder.appending(path: fileName)
+        #if os(Windows)
+            guard FileManager.default.fileExists(atPath: url.path) else { return isOld(folder) }
+            guard let handle = lockFile(url, creating: false) else { return false }
+            CloseHandle(handle)
+            return true
+        #elseif canImport(Darwin) || canImport(Glibc)
+            let descriptor = open(url.path(percentEncoded: false), O_RDWR)
+            guard descriptor >= 0 else { return isOld(folder) }
             defer { close(descriptor) }
             return flock(descriptor, LOCK_EX | LOCK_NB) == 0
         #else
             // Without a way to tell, keep every session.
             return false
         #endif
+    }
+
+    /// Whether a folder without a lock is old enough that no Reqly is still setting it up.
+    private static func isOld(_ folder: URL) -> Bool {
+        let created = (try? folder.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+        return Date().timeIntervalSince(created) > 60
+    }
+
+    #if os(Windows)
+        /// Opens the lock file at `url` and locks it for this process alone. `nil` when another
+        /// process holds it, or it can't be opened. Windows lets go of the lock when the handle
+        /// closes, or the process ends.
+        private static func lockFile(_ url: URL, creating: Bool) -> HANDLE? {
+            let handle = url.nativePath.withCString(encodedAs: UTF16.self) { name in
+                CreateFileW(
+                    name, DWORD(truncatingIfNeeded: GENERIC_READ) | DWORD(truncatingIfNeeded: GENERIC_WRITE),
+                    DWORD(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE), nil,
+                    DWORD(creating ? OPEN_ALWAYS : OPEN_EXISTING), DWORD(FILE_ATTRIBUTE_NORMAL), nil)
+            }
+            guard let handle, handle != INVALID_HANDLE_VALUE else { return nil }
+            var overlapped = OVERLAPPED()
+            let flags = DWORD(LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY)
+            guard LockFileEx(handle, flags, 0, 1, 0, &overlapped) else {
+                CloseHandle(handle)
+                return nil
+            }
+            return handle
+        }
+    #endif
+}
+
+extension URL {
+    /// The path the way the system's own file functions take it. On Windows, that's `C:\Users\…`,
+    /// where `path(percentEncoded:)` gives `/C:/Users/…`.
+    var nativePath: String {
+        withUnsafeFileSystemRepresentation { String(cString: $0!) }
     }
 }

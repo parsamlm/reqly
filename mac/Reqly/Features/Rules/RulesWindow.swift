@@ -1,3 +1,4 @@
+import Presentation
 import ReqlyModel
 import SwiftUI
 
@@ -186,7 +187,7 @@ private struct RuleRow: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 8)
-            Text(tag)
+            Text(rule.tag)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -198,25 +199,6 @@ private struct RuleRow: View {
         .opacity(rule.isOn ? 1 : 0.6)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    /// What the rule does, in a word or two.
-    private var tag: String {
-        switch rule.action {
-        case .breakpoint(let phase): phase.title
-        case .mapLocal(let local): (local.path as NSString).lastPathComponent
-        case .mapRemote(let remote): URLComponents(string: remote.destination)?.host ?? remote.destination
-        case .rewrite(let changes): changes.count == 1 ? "1 change" : "\(changes.count) changes"
-        case .block(.status(let code)): String(code)
-        case .block(.closeConnection): "Close"
-        case .script(let script):
-            switch (script.runsOnRequest, script.runsOnResponse) {
-            case (true, true): "Both"
-            case (true, false): "Request"
-            case (false, true): "Response"
-            case (false, false): "Nothing"
-            }
-        }
     }
 }
 

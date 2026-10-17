@@ -53,6 +53,35 @@ import X509
         }
     }
 
+    @Test func readsTheFilesYouChoose() throws {
+        let folder = URL.temporaryDirectory.appending(path: "ReqlyTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let certificate = folder.appending(path: "client.crt")
+        let key = folder.appending(path: "client.key")
+        let bundle = folder.appending(path: "client.p12")
+        let renamed = folder.appending(path: "client.cert")
+        try Data(Fixtures.certificate.utf8).write(to: certificate)
+        try Data(Fixtures.encryptedKey.utf8).write(to: key)
+        try Data(Fixtures.modernPKCS12).write(to: bundle)
+        try Data(Fixtures.modernPKCS12).write(to: renamed)
+        // PEM in two files, its key locked; a .p12 file; and one that's binary, whatever its name.
+        let pem = try ClientIdentity.read([certificate, key], password: "secret", hosts: localhost)
+        #expect(pem.name == "Reqly Test Client")
+        #expect(try ClientIdentity.read([bundle], password: "secret", hosts: localhost).name == "Reqly Test Client")
+        #expect(try ClientIdentity.read([renamed], password: "secret", hosts: localhost).name == "Reqly Test Client")
+        #expect(throws: ClientIdentity.Problem.wrongPassword) {
+            try ClientIdentity.read([certificate, key], password: "", hosts: localhost)
+        }
+        let missing = folder.appending(path: "missing.key")
+        #expect(throws: ClientIdentity.Problem.unreadable) {
+            try ClientIdentity.read([certificate, missing], password: "", hosts: localhost)
+        }
+        #expect(throws: ClientIdentity.Problem.unreadable) {
+            try ClientIdentity.read([], password: "", hosts: localhost)
+        }
+    }
+
     @Test func keepsTheCertificateAndKeyTogether() throws {
         let identity = try ClientIdentity(pkcs12: Fixtures.modernPKCS12, password: "secret", hosts: localhost)
         let restored = try ClientIdentity(serialized: try identity.serialized, hosts: localhost)
@@ -227,6 +256,24 @@ import X509
         #expect(failure("BAD_CERTIFICATE", .noCertificate) == .clientCertificateRequired)
         #expect(failure("BAD_CERTIFICATE", .presented("Weatherly App")) == .clientCertificateRejected)
         #expect(failure("BAD_CERTIFICATE", .ready("Weatherly App")) != .clientCertificateRejected)
+    }
+
+    @Test func blamesTheCertificateForAResetThatMayHaveDroppedTheAlert() {
+        // Windows drops an alert that a reset overtakes, so a server that turns the certificate
+        // down on TLS 1.3 may leave only the reset.
+        func failure(_ certificate: ClientCertificateUse, alertMayBeLost: Bool) -> ExchangeFailure {
+            ClientConnectionHandler.serverFailure(
+                for: NIOSSLError.uncleanShutdown, certificate: certificate, alertMayBeLost: alertMayBeLost)
+        }
+        #expect(failure(.presented("Weatherly App"), alertMayBeLost: true) == .clientCertificateRejected)
+        #expect(failure(.noCertificate, alertMayBeLost: true).message.contains("may require a client certificate"))
+        #expect(
+            failure(.ready("Weatherly App"), alertMayBeLost: true)
+                == failure(.ready("Weatherly App"), alertMayBeLost: false))
+        // A reused connection, a response under way, or a Mac that kept the alert: a reset is
+        // just a reset.
+        #expect(failure(.presented("Weatherly App"), alertMayBeLost: false) != .clientCertificateRejected)
+        #expect(!failure(.noCertificate, alertMayBeLost: false).message.contains("client certificate"))
     }
 
     @Test func presentsItOnlyToItsHosts() async throws {

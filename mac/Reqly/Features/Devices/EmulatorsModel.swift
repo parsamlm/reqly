@@ -5,16 +5,7 @@ import Observation
 /// The Android emulators that are running, and pointing them at Reqly with adb.
 @Observable
 final class EmulatorsModel {
-    struct Emulator: Hashable, Identifiable {
-        /// adb's serial, such as `emulator-5554`.
-        var id: String
-        /// Such as "Pixel 10 Pro XL".
-        var name: String
-        /// The proxy it sends its traffic to, such as `10.0.2.2:9090`.
-        var proxy: String?
-        /// Still starting up, or not answering adb.
-        var isReady: Bool
-    }
+    typealias Emulator = AndroidEmulator
 
     private(set) var emulators: [Emulator] = []
     /// Why the emulators can't be reached.
@@ -33,33 +24,22 @@ final class EmulatorsModel {
 
     /// The proxy that points an emulator at Reqly on `port`.
     static func proxy(port: Int) -> String {
-        "\(AndroidDebugBridge.macAddress):\(port)"
+        AndroidDebugBridge.proxy(port: port)
     }
 
     func refresh() async {
         guard let adb else {
-            problem = "Reqly can't find adb. It comes with Android Studio, or with the Android SDK Platform Tools."
+            problem = AndroidDebugBridge.missing
             return
         }
         isRefreshing = true
         defer { isRefreshing = false }
         do {
-            var found: [Emulator] = []
-            for device in try await adb.devices() where device.isEmulator {
-                var emulator = Emulator(id: device.id, name: device.model ?? device.id, isReady: device.isReady)
-                if device.isReady {
-                    if let name = try? await adb.emulatorName(device.id) {
-                        emulator.name = name.replacingOccurrences(of: "_", with: " ")
-                    }
-                    emulator.proxy = try? await adb.proxy(of: device.id)
-                }
-                found.append(emulator)
-            }
-            emulators = found
+            emulators = try await adb.emulators()
             problem = nil
         } catch {
             emulators = []
-            problem = "Reqly couldn't ask adb about emulators. \(error.localizedDescription)"
+            problem = AndroidDebugBridge.listingProblem(error)
         }
     }
 

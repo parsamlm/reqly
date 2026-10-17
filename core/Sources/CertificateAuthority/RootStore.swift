@@ -1,4 +1,6 @@
+import Crypto
 import Foundation
+import X509
 
 /// Where Reqly keeps its root, and asks the system to trust it: the login keychain on the Mac,
 /// which the Keychain module reaches.
@@ -21,4 +23,27 @@ public enum CertificateStoreError: Error, Equatable {
     case cancelled
     case failed(String)
     case unreadable
+}
+
+extension RootIdentity {
+    /// The root as bytes, for a store to keep: a binary property list of its certificate, in DER,
+    /// and its private key. The Mac's keychain and Windows' store keep it in this same form.
+    public func serialized() throws -> Data {
+        try PropertyListSerialization.data(
+            fromPropertyList: ["certificate": Data(try certificateDER), "key": key.rawRepresentation],
+            format: .binary,
+            options: 0
+        )
+    }
+
+    /// The root from what ``serialized()`` made.
+    public init(serialized data: Data) throws {
+        guard let list = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Data],
+            let certificate = list["certificate"], let key = list["key"]
+        else { throw CertificateStoreError.unreadable }
+        self.init(
+            certificate: try Certificate(derEncoded: [UInt8](certificate)),
+            key: try P256.Signing.PrivateKey(rawRepresentation: key)
+        )
+    }
 }

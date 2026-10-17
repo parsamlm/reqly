@@ -186,6 +186,34 @@ final class FakeSystemProxy: SystemProxySwitch {
         }
     }
 
+    @Test func letsAPauseForAClearedExchangeGoOn() async throws {
+        let store = try temporaryStore()
+        defer { store.discard() }
+        let session = CaptureSession(store: store)
+        var changes = session.changes.makeAsyncIterator()
+        let head = RequestHead(
+            method: "GET", scheme: "http", host: "api.weatherly.dev", port: 80, target: "/v2/forecast")
+        await record([.requestHead(first, ConnectionID(rawValue: 1), head, at: start)], in: session)
+        await session.clear()
+        // Its response is held after the clear, as a breakpoint on both does once clearing lets the
+        // request go on. No row shows it, so the session lets it go on rather than ask.
+        let response = ResponseHead(status: 200, reason: "OK")
+        await record([.paused(first, .response(response, body: Data()), breakpoint: "Hold")], in: session)
+        // A new exchange's pause still goes to the interface.
+        let second = ExchangeID(rawValue: 2)
+        await record(
+            [
+                .requestHead(second, ConnectionID(rawValue: 1), head, at: start),
+                .paused(second, .request(head, body: Data()), breakpoint: "Hold"),
+            ], in: session)
+        while let change = await changes.next() {
+            if case .paused(let id, _, _) = change {
+                #expect(id == second)
+                break
+            }
+        }
+    }
+
     @Test func savesKeepAnAnnotationMadeWhileInProgress() async throws {
         let store = try temporaryStore()
         defer { store.discard() }

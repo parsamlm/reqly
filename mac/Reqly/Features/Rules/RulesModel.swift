@@ -1,6 +1,7 @@
 import Capture
 import Foundation
 import Observation
+import Presentation
 import ReqlyModel
 
 /// The rules that change traffic, as the Rules window edits them. Each change is saved, and
@@ -23,20 +24,10 @@ final class RulesModel {
     init(session: CaptureSession) {
         self.session = session
         url = Self.fileURL
-        do {
-            ruleSet = try RulesFile.load(from: url)
-        } catch RulesFile.Problem.newerVersion {
-            isReadOnly = true
-            problem =
-                "A newer version of Reqly saved the rules, so this one can't use them. Changes you make here aren't saved."
-        } catch {
-            // Kept, not lost: the file may have been edited by hand.
-            let kept = url.deletingLastPathComponent().appending(path: "Rules (unreadable).json")
-            try? FileManager.default.removeItem(at: kept)
-            try? FileManager.default.moveItem(at: url, to: kept)
-            problem =
-                "Reqly couldn't read its saved rules, so it moved them to “\(kept.lastPathComponent)” and started over."
-        }
+        let opened = RulesFile.open(url)
+        ruleSet = opened.rules
+        isReadOnly = opened.isReadOnly
+        problem = opened.problem
         session.setRules(ruleSet)
     }
 
@@ -157,7 +148,7 @@ final class RulesModel {
             try RulesFile.save(changed, to: url)
             problem = nil
         } catch {
-            problem = "Reqly couldn't save the rules. \(error.localizedDescription)"
+            problem = RulesFile.saveProblem(error)
         }
     }
 }
@@ -251,4 +242,17 @@ extension RuleKind {
 
     /// The kinds that are rules of their own, as the Add Rule menu offers them.
     static let rules: [RuleKind] = [.breakpoint, .mapLocal, .mapRemote, .rewrite, .block, .script]
+}
+
+extension RewriteDraft.Change {
+    var title: String {
+        switch self {
+        case .setHeader: "Set Header"
+        case .removeHeader: "Remove Header"
+        case .setQueryParameter: "Set Query Parameter"
+        case .removeQueryParameter: "Remove Query Parameter"
+        case .replaceBody: "Replace Body Text"
+        case .setStatus: "Set Status"
+        }
+    }
 }

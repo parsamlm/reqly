@@ -140,22 +140,12 @@ public struct CertificateStore: RootStore {
     /// The root as the keychain item keeps it: a property list of its certificate, in DER, and its
     /// private key.
     public static func data(for root: RootIdentity) throws -> Data {
-        try PropertyListSerialization.data(
-            fromPropertyList: ["certificate": Data(try root.certificateDER), "key": root.key.rawRepresentation],
-            format: .binary,
-            options: 0
-        )
+        try root.serialized()
     }
 
     /// The root from what ``data(for:)`` made.
     public static func root(from data: Data) throws -> RootIdentity {
-        guard let list = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Data],
-            let certificate = list["certificate"], let key = list["key"]
-        else { throw CertificateStoreError.unreadable }
-        return RootIdentity(
-            certificate: try Certificate(derEncoded: [UInt8](certificate)),
-            key: try P256.Signing.PrivateKey(rawRepresentation: key)
-        )
+        try RootIdentity(serialized: data)
     }
 
     static func secCertificate(_ root: RootIdentity) throws -> SecCertificate {

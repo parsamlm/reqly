@@ -1,3 +1,4 @@
+import Presentation
 import ReqlyModel
 import SwiftUI
 
@@ -73,8 +74,7 @@ struct ReverseProxySettings: View {
 
     /// A port no reverse proxy uses yet, from 8080 up.
     private var suggestedPort: Int {
-        let used = Set(connections.reverseProxies.map(\.localPort))
-        return (8080...8999).first { !used.contains($0) && $0 != capture.port } ?? 8080
+        ReverseProxy.suggestedPort(among: connections.reverseProxies, proxyPort: capture.port)
     }
 
     private func remove(_ id: ReverseProxy.ID) {
@@ -203,21 +203,6 @@ private struct ReverseProxyEditor: View {
     }
 
     private var problem: String? {
-        guard let number = Int(port.trimmingCharacters(in: .whitespaces)), (1...65535).contains(number) else {
-            return "The port is a number from 1 to 65535."
-        }
-        if number == capture.port {
-            return "Port \(String(number)) is the one Reqly's proxy uses."
-        }
-        if connections.reverseProxies.contains(where: { $0.id != proxy.id && $0.localPort == number }) {
-            return "Another reverse proxy uses port \(String(number))."
-        }
-        if proxy.serverURL.trimmingCharacters(in: .whitespaces).isEmpty {
-            return "Enter the server that requests go to."
-        }
-        if proxy.server == nil {
-            return "The server is an address such as https://api.example.com."
-        }
-        return nil
+        proxy.problem(port: port, proxyPort: capture.port, among: connections.reverseProxies)
     }
 }

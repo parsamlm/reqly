@@ -29,6 +29,24 @@ import X509
         #expect(lifetime < 2 * 366 * 86_400)
     }
 
+    @Test func keepsTheRootAsBytesInTheSameFormEverywhere() throws {
+        let bytes = try root.serialized()
+        let read = try RootIdentity(serialized: bytes)
+        #expect(try read.certificateDER == root.certificateDER)
+        #expect(read.key.rawRepresentation == root.key.rawRepresentation)
+
+        // The form the Mac's keychain already holds: a binary property list with two entries.
+        let handMade = try PropertyListSerialization.data(
+            fromPropertyList: ["certificate": Data(try root.certificateDER), "key": root.key.rawRepresentation],
+            format: .binary, options: 0)
+        #expect(try RootIdentity(serialized: handMade).certificateDER == root.certificateDER)
+
+        #expect(throws: CertificateStoreError.unreadable) { try RootIdentity(serialized: Data("not a root".utf8)) }
+        let missingKey = try PropertyListSerialization.data(
+            fromPropertyList: ["certificate": Data(try root.certificateDER)], format: .binary, options: 0)
+        #expect(throws: CertificateStoreError.unreadable) { try RootIdentity(serialized: missingKey) }
+    }
+
     @Test func issuesHostCertificatesThatMacOSAccepts() throws {
         let identity = try authority.identity(for: "api.weatherly.dev")
         #expect(identity.certificateChain.count == 2)

@@ -1,0 +1,740 @@
+swift-nio-ssl on Windows: apple/swift-nio-ssl#567, "Add support for Windows", by Joannis, as of
+its commit 22c1c18, without its changes to .github, which are swift-nio-ssl's own CI.
+https://github.com/apple/swift-nio-ssl/pull/567
+
+No swift-nio-ssl release supports Windows yet. The pull request starts from 8d8f784 on main,
+which 2.37.5 has, and applies to it unchanged. Open upstream, not released yet.
+
+diff --git a/Package.swift b/Package.swift
+index c242431..7757d8a 100644
+--- a/Package.swift
++++ b/Package.swift
+@@ -92,11 +92,20 @@ let package = Package(
+                 .define("_WINSOCKAPI_", .when(platforms: [.windows])),
+                 .define("NOMINMAX", .when(platforms: [.windows])),
+                 .define("NOCRYPT", .when(platforms: [.windows])),
++                // Silence the CRT's "consider using fopen_s" style deprecation warnings
++                // for the vendored sources.
++                .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: [.windows])),
++                // The vendored assembly is only generated for ELF and Mach-O targets (and
++                // SwiftPM cannot build the NASM sources BoringSSL uses for Windows), so the
++                // C code must not reference the assembly implementations on Windows.
++                .define("OPENSSL_NO_ASM", .when(platforms: [.windows])),
+             ],
+             cxxSettings: [
+                 .define("_WINSOCKAPI_", .when(platforms: [.windows])),
+                 .define("NOMINMAX", .when(platforms: [.windows])),
+                 .define("NOCRYPT", .when(platforms: [.windows])),
++                .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: [.windows])),
++                .define("OPENSSL_NO_ASM", .when(platforms: [.windows])),
+             ]
+         ),
+         .target(
+diff --git a/Sources/NIOSSL/ByteBufferBIO.swift b/Sources/NIOSSL/ByteBufferBIO.swift
+index 0f82413..329b18b 100644
+--- a/Sources/NIOSSL/ByteBufferBIO.swift
++++ b/Sources/NIOSSL/ByteBufferBIO.swift
+@@ -23,6 +23,8 @@ import Musl
+ import Glibc
+ #elseif canImport(Bionic)
+ import Bionic
++#elseif os(Windows)
++import ucrt
+ #else
+ #error("unsupported os")
+ #endif
+diff --git a/Sources/NIOSSL/IdentityVerification.swift b/Sources/NIOSSL/IdentityVerification.swift
+index f2b2d8c..6355150 100644
+--- a/Sources/NIOSSL/IdentityVerification.swift
++++ b/Sources/NIOSSL/IdentityVerification.swift
+@@ -23,6 +23,9 @@ import Musl
+ import Glibc
+ #elseif canImport(Android)
+ import Android
++#elseif os(Windows)
++import ucrt
++import WinSDK
+ #else
+ #error("unsupported os")
+ #endif
+diff --git a/Sources/NIOSSL/NIOSSLClientHandler.swift b/Sources/NIOSSL/NIOSSLClientHandler.swift
+index f4d0a36..1098ad8 100644
+--- a/Sources/NIOSSL/NIOSSLClientHandler.swift
++++ b/Sources/NIOSSL/NIOSSLClientHandler.swift
+@@ -22,6 +22,8 @@ import Musl
+ import Glibc
+ #elseif canImport(Android)
+ import Android
++#elseif os(Windows)
++import WinSDK
+ #else
+ #error("unsupported os")
+ #endif
+diff --git a/Sources/NIOSSL/PosixPort.swift b/Sources/NIOSSL/PosixPort.swift
+index d8d7c2f..19dc55c 100644
+--- a/Sources/NIOSSL/PosixPort.swift
++++ b/Sources/NIOSSL/PosixPort.swift
+@@ -30,6 +30,9 @@ import Musl
+ import Glibc
+ #elseif canImport(Android)
+ import Android
++#elseif os(Windows)
++import ucrt
++import WinSDK
+ #else
+ #error("unsupported os")
+ #endif
+@@ -40,13 +43,49 @@ internal typealias FILEPointer = OpaquePointer
+ internal typealias FILEPointer = UnsafeMutablePointer<FILE>
+ #endif
+ 
++#if os(Windows)
++// fopen is marked deprecated on Windows; fopen_s is the supported spelling. It
++// reports failure through errno just like fopen does.
++private let sysFopen: @Sendable (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> FILEPointer? = { path, mode in
++    var file: FILEPointer? = nil
++    _ = fopen_s(&file, path, mode)
++    return file
++}
++#else
+ private let sysFopen = fopen
+-private let sysMlock = mlock
+-private let sysMunlock = munlock
++#endif
+ private let sysFclose = fclose
+ private let sysStat = { @Sendable in stat($0, $1) }
++#if !os(Windows)
++private let sysMlock = mlock
++private let sysMunlock = munlock
+ private let sysLstat = lstat
+ private let sysReadlink = readlink
++#endif
++
++// On Windows errno is a function-like macro and so invisible to Swift; read it
++// through the underlying function the macro expands to.
++private var currentErrno: CInt {
++    #if os(Windows)
++    _errno().pointee
++    #else
++    errno
++    #endif
++}
++
++private func errnoDescription(_ err: CInt) -> String {
++    #if os(Windows)
++    // strerror is marked deprecated on Windows; strerror_s is the supported spelling.
++    withUnsafeTemporaryAllocation(of: CChar.self, capacity: 95) { buffer in
++        guard strerror_s(buffer.baseAddress, buffer.count, err) == 0 else {
++            return "Unknown error: \(err)"
++        }
++        return String(cString: buffer.baseAddress!)
++    }
++    #else
++    String(cString: strerror(err)!)
++    #endif
++}
+ 
+ // MARK:- Copied code from SwiftNIO
+ private func isUnacceptableErrno(_ code: CInt) -> Bool {
+@@ -65,11 +104,11 @@ internal func wrapSyscall<T: FixedWidthInteger>(where function: String = #functi
+     while true {
+         let res = try body()
+         if res == -1 {
+-            let err = errno
++            let err = currentErrno
+             if err == EINTR {
+                 continue
+             }
+-            assert(!isUnacceptableErrno(err), "unacceptable errno \(err) \(strerror(err)!)")
++            assert(!isUnacceptableErrno(err), "unacceptable errno \(err) \(errnoDescription(err))")
+             throw IOError(errnoCode: err, reason: function)
+         }
+         return res
+@@ -84,11 +123,11 @@ internal func wrapErrorIsNullReturnCall<T>(
+ ) throws -> T {
+     while true {
+         guard let res = try body() else {
+-            let err = errno
++            let err = currentErrno
+             if err == EINTR {
+                 continue
+             }
+-            assert(!isUnacceptableErrno(err), "unacceptable errno \(err) \(strerror(err)!)")
++            assert(!isUnacceptableErrno(err), "unacceptable errno \(err) \(errnoDescription(err))")
+             throw IOError(errnoCode: err, reason: errorReason())
+         }
+         return res
+@@ -113,6 +152,15 @@ internal enum Posix {
+         }
+     }
+ 
++    @inline(never)
++    @discardableResult
++    internal static func stat(path: UnsafePointer<CChar>, buf: UnsafeMutablePointer<stat>) throws -> CInt {
++        try wrapSyscall {
++            sysStat(path, buf)
++        }
++    }
++
++    #if !os(Windows)
+     @inline(never)
+     internal static func readlink(
+         path: UnsafePointer<Int8>,
+@@ -124,14 +172,6 @@ internal enum Posix {
+         }
+     }
+ 
+-    @inline(never)
+-    @discardableResult
+-    internal static func stat(path: UnsafePointer<CChar>, buf: UnsafeMutablePointer<stat>) throws -> CInt {
+-        try wrapSyscall {
+-            sysStat(path, buf)
+-        }
+-    }
+-
+     @inline(never)
+     @discardableResult
+     internal static func lstat(path: UnsafePointer<Int8>, buf: UnsafeMutablePointer<stat>) throws -> Int32 {
+@@ -155,4 +195,27 @@ internal enum Posix {
+             sysMunlock(addr, len)
+         }
+     }
++    #else
++    // Windows has no mlock/munlock; VirtualLock/VirtualUnlock are the closest
++    // equivalents (they too keep the locked pages out of the pagefile). They
++    // report failure via GetLastError rather than errno, so they don't go
++    // through wrapSyscall.
++    @inline(never)
++    @discardableResult
++    internal static func mlock(addr: UnsafeRawPointer, len: Int) throws -> CInt {
++        guard VirtualLock(UnsafeMutableRawPointer(mutating: addr), SIZE_T(len)) else {
++            throw IOError(errnoCode: ENOMEM, reason: "VirtualLock failed: GetLastError() = \(GetLastError())")
++        }
++        return 0
++    }
++
++    @inline(never)
++    @discardableResult
++    internal static func munlock(addr: UnsafeRawPointer, len: Int) throws -> CInt {
++        guard VirtualUnlock(UnsafeMutableRawPointer(mutating: addr), SIZE_T(len)) else {
++            throw IOError(errnoCode: ENOMEM, reason: "VirtualUnlock failed: GetLastError() = \(GetLastError())")
++        }
++        return 0
++    }
++    #endif
+ }
+diff --git a/Sources/NIOSSL/SSLCallbacks.swift b/Sources/NIOSSL/SSLCallbacks.swift
+index 5dc10a8..040405b 100644
+--- a/Sources/NIOSSL/SSLCallbacks.swift
++++ b/Sources/NIOSSL/SSLCallbacks.swift
+@@ -23,6 +23,8 @@ import Musl
+ import Glibc
+ #elseif canImport(Bionic)
+ import Bionic
++#elseif os(Windows)
++import ucrt
+ #else
+ #error("unsupported os")
+ #endif
+diff --git a/Sources/NIOSSL/SSLCertificate.swift b/Sources/NIOSSL/SSLCertificate.swift
+index e64c6f3..e64cb8a 100644
+--- a/Sources/NIOSSL/SSLCertificate.swift
++++ b/Sources/NIOSSL/SSLCertificate.swift
+@@ -24,6 +24,8 @@ import Musl
+ import Glibc
+ #elseif canImport(Bionic)
+ import Bionic
++#elseif os(Windows)
++import ucrt
+ #else
+ #error("unsupported os")
+ #endif
+@@ -427,7 +429,7 @@ extension NIOSSLCertificate {
+         var dataPtr: UnsafeMutablePointer<CChar>? = nil
+         let length = CNIOBoringSSL_BIO_get_mem_data(bio, &dataPtr)
+ 
+-        guard let bytes = dataPtr.map({ UnsafeRawBufferPointer(start: $0, count: length) }) else {
++        guard let bytes = dataPtr.map({ UnsafeRawBufferPointer(start: $0, count: Int(length)) }) else {
+             fatalError("Failed to map bytes from a certificate")
+         }
+ 
+diff --git a/Sources/NIOSSL/SSLContext.swift b/Sources/NIOSSL/SSLContext.swift
+index c147fba..14cbc52 100644
+--- a/Sources/NIOSSL/SSLContext.swift
++++ b/Sources/NIOSSL/SSLContext.swift
+@@ -24,6 +24,9 @@ import Musl
+ import Glibc
+ #elseif canImport(Android)
+ import Android
++#elseif os(Windows)
++import ucrt
++import WinSDK
+ #else
+ #error("unsupported os")
+ #endif
+@@ -66,6 +69,9 @@ internal enum FileSystemObject {
+ 
+         #if os(Android) && arch(arm)
+         return (statObj.st_mode & UInt32(S_IFDIR)) != 0 ? .directory : .file
++        #elseif os(Windows)
++        // st_mode is CUnsignedShort on Windows while S_IFDIR is CInt.
++        return (CInt(statObj.st_mode) & S_IFDIR) != 0 ? .directory : .file
+         #else
+         return (statObj.st_mode & S_IFDIR) != 0 ? .directory : .file
+         #endif
+@@ -817,6 +823,10 @@ extension NIOSSLContext {
+         else { return false }
+ 
+         // Check if the element is a symlink. If it is not, return false.
++        #if os(Windows)
++        // Windows has no symlinks in the c_rehash sense (`openssl rehash` creates plain
++        // copies there), so any entry whose name matches the rehash format is accepted.
++        #else
+         var buffer = stat()
+         let _ = try Posix.lstat(path: path, buf: &buffer)
+         // Check the mode to make sure this is a symlink
+@@ -825,6 +835,7 @@ extension NIOSSLContext {
+         #else
+         if (buffer.st_mode & S_IFMT) != S_IFLNK { return false }
+         #endif
++        #endif
+ 
+         // Return true at this point because the file format is considered to be in rehash format and a symlink.
+         // Rehash format being "%08x.%s%d" with an empty infix, or HHHHHHHH.D where D is one or
+@@ -948,7 +959,13 @@ internal class DirectoryContents: Sequence, IteratorProtocol {
+     let path: String
+     // Used to account between the differences of DIR being defined on Darwin.
+     // Otherwise an OpaquePointer needs to be used to account for the non-defined type in glibc.
+-    #if canImport(Darwin)
++    #if os(Windows)
++    // On Windows the search handle already holds the first entry when it is opened,
++    // so the find data is read before each FindNextFileW call. A nil handle means
++    // the directory is exhausted (or could not be opened at all).
++    private var dir: HANDLE?
++    private var findData = WIN32_FIND_DATAW()
++    #elseif canImport(Darwin)
+     let dir: UnsafeMutablePointer<DIR>
+     #else
+     let dir: OpaquePointer
+@@ -956,24 +973,64 @@ internal class DirectoryContents: Sequence, IteratorProtocol {
+ 
+     init(path: String) {
+         self.path = path
++        #if os(Windows)
++        // The path prefixes each returned entry unchanged (see next()), so it is expected
++        // to end in a path separator, which makes this a search pattern for the
++        // directory's contents.
++        let handle = (path + "*").withCString(encodedAs: UTF16.self) {
++            FindFirstFileW($0, &self.findData)
++        }
++        self.dir = handle == INVALID_HANDLE_VALUE ? nil : handle
++        #else
+         self.dir = opendir(path)!
++        #endif
+     }
+ 
+     func next() -> String? {
+-        if let dirent: UnsafeMutablePointer<dirent> = readdir(self.dir) {
+-            let name = withUnsafePointer(to: &dirent.pointee.d_name) { (ptr) -> String in
+-                // Pointers to homogeneous tuples in Swift are always bound to both the tuple type and the element type,
+-                // so the assumption below is safe.
+-                let elementPointer = UnsafeRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+-                return String(cString: elementPointer)
+-            }
+-            return self.path + name
++        guard let name = self.nextEntryName() else {
++            return nil
+         }
+-        return nil
++        return self.path + name
++    }
++
++    /// Returns the file name of the next directory entry, or nil once all entries were returned.
++    private func nextEntryName() -> String? {
++        #if os(Windows)
++        guard let dir = self.dir else {
++            return nil
++        }
++        let name = withUnsafePointer(to: self.findData.cFileName) { (ptr) -> String in
++            // Pointers to homogeneous tuples in Swift are always bound to both the tuple type and the element type,
++            // so the assumption below is safe.
++            let elementPointer = UnsafeRawPointer(ptr).assumingMemoryBound(to: WCHAR.self)
++            return String(decodingCString: elementPointer, as: UTF16.self)
++        }
++        if !FindNextFileW(dir, &self.findData) {
++            FindClose(dir)
++            self.dir = nil
++        }
++        return name
++        #else
++        guard let dirent: UnsafeMutablePointer<dirent> = readdir(self.dir) else {
++            return nil
++        }
++        return withUnsafePointer(to: &dirent.pointee.d_name) { (ptr) -> String in
++            // Pointers to homogeneous tuples in Swift are always bound to both the tuple type and the element type,
++            // so the assumption below is safe.
++            let elementPointer = UnsafeRawPointer(ptr).assumingMemoryBound(to: CChar.self)
++            return String(cString: elementPointer)
++        }
++        #endif
+     }
+ 
+     deinit {
++        #if os(Windows)
++        if let dir = self.dir {
++            FindClose(dir)
++        }
++        #else
+         closedir(dir)
++        #endif
+     }
+ }
+ 
+diff --git a/Sources/NIOSSL/SSLPKCS12Bundle.swift b/Sources/NIOSSL/SSLPKCS12Bundle.swift
+index ff8c1b3..47f2dfb 100644
+--- a/Sources/NIOSSL/SSLPKCS12Bundle.swift
++++ b/Sources/NIOSSL/SSLPKCS12Bundle.swift
+@@ -245,7 +245,7 @@ extension NIOSSLPKCS12Bundle {
+ 
+         var dataPtr: UnsafeMutablePointer<CChar>? = nil
+         let length = CNIOBoringSSL_BIO_get_mem_data(bio, &dataPtr)
+-        guard let bytes = dataPtr.map({ UnsafeMutableRawBufferPointer(start: $0, count: length) }) else {
++        guard let bytes = dataPtr.map({ UnsafeMutableRawBufferPointer(start: $0, count: Int(length)) }) else {
+             fatalError("Failed to get bytes from private key")
+         }
+ 
+diff --git a/Sources/NIOSSL/SSLPrivateKey.swift b/Sources/NIOSSL/SSLPrivateKey.swift
+index a959943..c397e4d 100644
+--- a/Sources/NIOSSL/SSLPrivateKey.swift
++++ b/Sources/NIOSSL/SSLPrivateKey.swift
+@@ -382,7 +382,7 @@ extension NIOSSLPrivateKey {
+         var dataPtr: UnsafeMutablePointer<CChar>? = nil
+         let length = CNIOBoringSSL_BIO_get_mem_data(bio, &dataPtr)
+ 
+-        guard let bytes = dataPtr.map({ UnsafeRawBufferPointer(start: $0, count: length) }) else {
++        guard let bytes = dataPtr.map({ UnsafeRawBufferPointer(start: $0, count: Int(length)) }) else {
+             fatalError("Failed to map bytes from a private key")
+         }
+ 
+diff --git a/Sources/NIOSSL/SSLPublicKey.swift b/Sources/NIOSSL/SSLPublicKey.swift
+index 86f749c..f1dae0c 100644
+--- a/Sources/NIOSSL/SSLPublicKey.swift
++++ b/Sources/NIOSSL/SSLPublicKey.swift
+@@ -76,7 +76,7 @@ extension NIOSSLPublicKey {
+         var dataPtr: UnsafeMutablePointer<CChar>? = nil
+         let length = CNIOBoringSSL_BIO_get_mem_data(bio, &dataPtr)
+ 
+-        guard let bytes = dataPtr.map({ UnsafeMutableRawBufferPointer(start: $0, count: length) }) else {
++        guard let bytes = dataPtr.map({ UnsafeMutableRawBufferPointer(start: $0, count: Int(length)) }) else {
+             fatalError("Failed to map bytes from a public key")
+         }
+ 
+diff --git a/Sources/NIOSSL/SubjectAlternativeName.swift b/Sources/NIOSSL/SubjectAlternativeName.swift
+index 7f7828d..e814d88 100644
+--- a/Sources/NIOSSL/SubjectAlternativeName.swift
++++ b/Sources/NIOSSL/SubjectAlternativeName.swift
+@@ -24,6 +24,8 @@ import Musl
+ import Glibc
+ #elseif canImport(Android)
+ import Android
++#elseif os(Windows)
++import WinSDK
+ #else
+ #error("unsupported os")
+ #endif
+@@ -223,7 +225,7 @@ extension _SubjectAlternativeName.IPAddress: CustomStringConvertible {
+         var address = address
+         var dest: [CChar] = Array(repeating: 0, count: Self.ipv4AddressLength)
+         dest.withUnsafeMutableBufferPointer { pointer in
+-            let result = inet_ntop(AF_INET, &address, pointer.baseAddress!, socklen_t(pointer.count))
++            let result = inet_ntop(AF_INET, &address, pointer.baseAddress!, Self.bufferSize(pointer.count))
+             precondition(
+                 result != nil,
+                 "The IP address was invalid. This should never happen as we're within the IP address struct."
+@@ -236,7 +238,7 @@ extension _SubjectAlternativeName.IPAddress: CustomStringConvertible {
+         var address = address
+         var dest: [CChar] = Array(repeating: 0, count: Self.ipv6AddressLength)
+         dest.withUnsafeMutableBufferPointer { pointer in
+-            let result = inet_ntop(AF_INET6, &address, pointer.baseAddress!, socklen_t(pointer.count))
++            let result = inet_ntop(AF_INET6, &address, pointer.baseAddress!, Self.bufferSize(pointer.count))
+             precondition(
+                 result != nil,
+                 "The IP address was invalid. This should never happen as we're within the IP address struct."
+@@ -244,4 +246,11 @@ extension _SubjectAlternativeName.IPAddress: CustomStringConvertible {
+         }
+         return String(cString: &dest)
+     }
++
++    #if os(Windows)
++    // inet_ntop takes the buffer size as size_t on Windows and as socklen_t elsewhere.
++    static private func bufferSize(_ count: Int) -> Int { count }
++    #else
++    static private func bufferSize(_ count: Int) -> socklen_t { socklen_t(count) }
++    #endif
+ }
+diff --git a/Sources/NIOSSLHTTP1Client/main.swift b/Sources/NIOSSLHTTP1Client/main.swift
+index df3c9dd..77db200 100644
+--- a/Sources/NIOSSLHTTP1Client/main.swift
++++ b/Sources/NIOSSLHTTP1Client/main.swift
+@@ -106,7 +106,7 @@ tlsConfiguration.renegotiationSupport = .once
+ let sslContext = try! NIOSSLContext(configuration: tlsConfiguration)
+ 
+ let bootstrap = ClientBootstrap(group: eventLoopGroup)
+-    .channelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
++    .channelOption(.socketOption(.so_reuseaddr), value: 1)
+     .channelInitializer { channel in
+         channel.eventLoop.makeCompletedFuture {
+             let openSslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: url.host)
+diff --git a/Sources/NIOTLSServer/main.swift b/Sources/NIOTLSServer/main.swift
+index da1ca6d..753c695 100644
+--- a/Sources/NIOTLSServer/main.swift
++++ b/Sources/NIOTLSServer/main.swift
+@@ -43,7 +43,7 @@ let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+ let bootstrap = ServerBootstrap(group: group)
+     // Specify backlog and enable SO_REUSEADDR for the server itself
+     .serverChannelOption(ChannelOptions.backlog, value: 256)
+-    .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
++    .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+ 
+     // Set the handlers that are applied to the accepted channels.
+     .childChannelInitializer { channel in
+@@ -53,8 +53,8 @@ let bootstrap = ServerBootstrap(group: group)
+     }
+ 
+     // Enable TCP_NODELAY and SO_REUSEADDR for the accepted Channels
+-    .childChannelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
+-    .childChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
++    .childChannelOption(.tcpOption(.tcp_nodelay), value: 1)
++    .childChannelOption(.socketOption(.so_reuseaddr), value: 1)
+ 
+ defer {
+     try! group.syncShutdownGracefully()
+diff --git a/Tests/NIOSSLTests/NIOSSLIntegrationTest.swift b/Tests/NIOSSLTests/NIOSSLIntegrationTest.swift
+index be7a162..8621531 100644
+--- a/Tests/NIOSSLTests/NIOSSLIntegrationTest.swift
++++ b/Tests/NIOSSLTests/NIOSSLIntegrationTest.swift
+@@ -22,6 +22,13 @@ import XCTest
+ 
+ @testable import NIOSSL
+ 
++#if os(Windows)
++import ucrt
++
++// Windows has no O_CLOEXEC; O_NOINHERIT has the same effect for CRT descriptors.
++private let O_CLOEXEC = O_NOINHERIT
++#endif
++
+ public func assertNoThrowWithValue<T>(
+     _ body: @autoclosure () throws -> T,
+     defaultValue: T? = nil,
+@@ -426,7 +433,7 @@ internal func serverTLSChannel(
+ ) throws -> Channel {
+     try assertNoThrowWithValue(
+         ServerBootstrap(group: group)
+-            .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
++            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+             .childChannelInitializer { channel in
+                 channel.eventLoop.makeCompletedFuture {
+                     try channel.pipeline.syncOperations.addHandlers(preHandlers())
+@@ -689,7 +696,7 @@ class NIOSSLIntegrationTest: XCTestCase {
+     static func keyInFile(key: NIOSSLPrivateKey, passphrase: String) throws -> String {
+         let fileName = try makeTemporaryFile(fileExtension: ".pem")
+         let tempFile = open(fileName, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
+-        precondition(tempFile > 1, String(cString: strerror(errno)))
++        precondition(tempFile > 1, errnoDescription(errno))
+         let fileBio = CNIOBoringSSL_BIO_new_fp(fdopen(tempFile, "w+"), BIO_CLOSE)
+         precondition(fileBio != nil)
+ 
+@@ -721,7 +728,7 @@ class NIOSSLIntegrationTest: XCTestCase {
+         let tempFile = fileName.withCString { ptr in
+             open(ptr, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
+         }
+-        precondition(tempFile > 1, String(cString: strerror(errno)))
++        precondition(tempFile > 1, errnoDescription(errno))
+         let fileBio = CNIOBoringSSL_BIO_new_fp(fdopen(tempFile, "w+"), BIO_CLOSE)
+         precondition(fileBio != nil)
+ 
+@@ -883,7 +890,7 @@ class NIOSSLIntegrationTest: XCTestCase {
+ 
+         let serverChannel: Channel = try ServerBootstrap(group: group)
+             .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)  // Important!
+-            .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
++            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+             .childChannelInitializer { channel in
+                 channel.eventLoop.makeCompletedFuture {
+                     try channel.pipeline.syncOperations.addHandlers(
+@@ -934,7 +941,7 @@ class NIOSSLIntegrationTest: XCTestCase {
+ 
+         let serverChannel: Channel = try ServerBootstrap(group: group)
+             .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)  // Important!
+-            .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
++            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+             .childChannelInitializer { channel in
+                 channel.eventLoop.makeCompletedFuture {
+                     try channel.pipeline.syncOperations.addHandlers(
+@@ -1195,7 +1202,7 @@ class NIOSSLIntegrationTest: XCTestCase {
+ 
+         let serverChannel: Channel = try ServerBootstrap(group: group)
+             .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)  // Important!
+-            .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
++            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+             .childChannelInitializer { channel in
+                 channel.eventLoop.makeCompletedFuture {
+                     try channel.pipeline.syncOperations.addHandlers(
+@@ -1245,7 +1252,7 @@ class NIOSSLIntegrationTest: XCTestCase {
+ 
+         let serverChannel: Channel = try ServerBootstrap(group: group)
+             .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)  // Important!
+-            .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
++            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+             .childChannelInitializer { channel in
+                 channel.eventLoop.makeCompletedFuture {
+                     try channel.pipeline.syncOperations.addHandlers(
+diff --git a/Tests/NIOSSLTests/NIOSSLTestHelpers.swift b/Tests/NIOSSLTests/NIOSSLTestHelpers.swift
+index c70d27e..63b1a6e 100644
+--- a/Tests/NIOSSLTests/NIOSSLTestHelpers.swift
++++ b/Tests/NIOSSLTests/NIOSSLTestHelpers.swift
+@@ -22,6 +22,40 @@ import X509
+ 
+ @testable import NIOSSL
+ 
++#if os(Windows)
++import ucrt
++
++// Non-deprecated spellings of the CRT's POSIX-named functions, so that the many
++// call sites in this module compile without deprecation warnings on Windows.
++@discardableResult
++func unlink(_ path: String) -> CInt {
++    path.withCString { _unlink($0) }
++}
++
++@discardableResult
++func unlink(_ path: UnsafePointer<CChar>) -> CInt {
++    _unlink(path)
++}
++
++func fdopen(_ fd: CInt, _ mode: String) -> UnsafeMutablePointer<FILE>? {
++    mode.withCString { _fdopen(fd, $0) }
++}
++#endif
++
++func errnoDescription(_ err: CInt) -> String {
++    #if os(Windows)
++    // strerror is marked deprecated on Windows; strerror_s is the supported spelling.
++    return withUnsafeTemporaryAllocation(of: CChar.self, capacity: 95) { buffer in
++        guard strerror_s(buffer.baseAddress, buffer.count, err) == 0 else {
++            return "Unknown error: \(err)"
++        }
++        return String(cString: buffer.baseAddress!)
++    }
++    #else
++    return String(cString: strerror(err)!)
++    #endif
++}
++
+ let samplePemCert = """
+     -----BEGIN CERTIFICATE-----
+     MIIGGzCCBAOgAwIBAgIJAJ/X0Fo0ynmEMA0GCSqGSIb3DQEBCwUAMIGjMQswCQYD
+@@ -480,24 +514,16 @@ func pemToDer(_ pem: String) -> Data {
+ // This function generates a random number suitable for use in an X509
+ // serial field. This needs to be a positive number less than 2^159
+ // (such that it will fit into 20 ASN.1 bytes).
+-// This also needs to be portable across operating systems, and the easiest
+-// way to do that is to use either getentropy() or read from urandom. Sadly
+-// we need to support old Linuxes which may not possess getentropy as a syscall
+-// (and definitely don't support it in glibc), so we need to read from urandom.
+-// In the future we should just use getentropy and be happy.
++// This also needs to be portable across operating systems, so we simply ask
++// BoringSSL's CSPRNG, which works everywhere (including Windows, which has
++// no /dev/urandom).
+ func randomSerialNumber() -> ASN1_INTEGER {
+     let bytesToRead = 20
+-    let fd = open("/dev/urandom", O_RDONLY)
+-    precondition(fd != -1)
+-    defer {
+-        close(fd)
+-    }
+-
+     var readBytes = Array.init(repeating: UInt8(0), count: bytesToRead)
+-    let readCount = readBytes.withUnsafeMutableBytes {
+-        read(fd, $0.baseAddress, bytesToRead)
++    let rc = readBytes.withUnsafeMutableBytes {
++        CNIOBoringSSL_RAND_bytes($0.baseAddress!.assumingMemoryBound(to: UInt8.self), $0.count)
+     }
+-    precondition(readCount == bytesToRead)
++    precondition(rc == 1)
+ 
+     // Our 20-byte number needs to be converted into an integer. This is
+     // too big for Swift's numbers, but BoringSSL can handle it fine.
+diff --git a/Tests/NIOSSLTests/SSLCertificateTest.swift b/Tests/NIOSSLTests/SSLCertificateTest.swift
+index ff3b7ce..dcad1b5 100644
+--- a/Tests/NIOSSLTests/SSLCertificateTest.swift
++++ b/Tests/NIOSSLTests/SSLCertificateTest.swift
+@@ -18,6 +18,10 @@ import XCTest
+ 
+ @testable import NIOSSL
+ 
++#if os(Windows)
++import WinSDK
++#endif
++
+ let multiSanCert = """
+     -----BEGIN CERTIFICATE-----
+     MIIDEzCCAfugAwIBAgIURiMaUmhI1Xr0mZ4p+JmI0XjZTaIwDQYJKoZIhvcNAQEL
+@@ -164,14 +168,22 @@ let certWithOtherNameSAN = """
+     """
+ 
+ func makeTemporaryFile(fileExtension: String = "", customPath: String = "") throws -> String {
+-    var template = "\(FileManager.default.temporaryDirectory.path)/niotestXXXXXXX\(fileExtension)"
++    var directory = FileManager.default.temporaryDirectory.path
+     // If a custom file path is passed in then a new directory has to also be created.  Then the file can be written to that directory.
+     if !customPath.isEmpty {
+-        let path = "\(FileManager.default.temporaryDirectory.path)/\(customPath)/"
+-        try FileManager.default.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
+-        template = "\(FileManager.default.temporaryDirectory.path)/\(customPath)/niotestXXXXXXX\(fileExtension)"
++        directory = "\(FileManager.default.temporaryDirectory.path)/\(customPath)"
++        try FileManager.default.createDirectory(
++            at: URL(fileURLWithPath: "\(directory)/"),
++            withIntermediateDirectories: true
++        )
+     }
+-    var templateBytes = template.utf8 + [0]
++    #if os(Windows)
++    // Windows has no mkstemps; a random file name does the same job here.
++    let filename = "\(directory)/niotest\(String(UInt64.random(in: .min ... .max), radix: 16))\(fileExtension)"
++    precondition(FileManager.default.createFile(atPath: filename, contents: nil), "could not create \(filename)")
++    return filename
++    #else
++    var templateBytes = "\(directory)/niotestXXXXXXX\(fileExtension)".utf8 + [0]
+     let fd = templateBytes.withUnsafeMutableBufferPointer { ptr in
+         ptr.baseAddress!.withMemoryRebound(to: Int8.self, capacity: ptr.count) { (ptr: UnsafeMutablePointer<Int8>) in
+             mkstemps(ptr, CInt(fileExtension.utf8.count))
+@@ -180,6 +192,7 @@ func makeTemporaryFile(fileExtension: String = "", customPath: String = "") thro
+     close(fd)
+     templateBytes.removeLast()
+     return String(decoding: templateBytes, as: UTF8.self)
++    #endif
+ }
+ 
+ internal func dumpToFile(data: Data, fileExtension: String = "", customPath: String = "") throws -> String {
+diff --git a/Tests/NIOSSLTests/TLSConfigurationTest.swift b/Tests/NIOSSLTests/TLSConfigurationTest.swift
+index e569f44..08b808f 100644
+--- a/Tests/NIOSSLTests/TLSConfigurationTest.swift
++++ b/Tests/NIOSSLTests/TLSConfigurationTest.swift
+@@ -14,6 +14,7 @@
+ 
+ @_implementationOnly import CNIOBoringSSL
+ @preconcurrency import Dispatch
++import Foundation
+ import NIOConcurrencyHelpers
+ import NIOCore
+ import NIOEmbedded
+@@ -1189,7 +1190,7 @@ class TLSConfigurationTest: XCTestCase {
+ 
+         // We now sleep a short time to let everything catch up and the runtime catch any exclusivity violation.
+         // 10ms is fine.
+-        usleep(10_000)
++        Thread.sleep(forTimeInterval: 0.01)
+ 
+         // Great, signal the sempahore twice to un-wedge everything and wait for everything to exit.
+         semaphore.signal()

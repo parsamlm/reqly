@@ -59,6 +59,8 @@ public actor CaptureSession {
     private var assembler = ExchangeAssembler()
     /// Exchanges that changed since the last save.
     private var changed: Set<ExchangeID> = []
+    /// The requests and responses held at breakpoints, by their exchange, until they go on.
+    private var held: [ExchangeID: PausedMessage] = [:]
     /// Body bytes that arrived since the last save, in order.
     private var chunks: [BodyChunk] = []
     /// WebSocket messages that arrived since the last save, in order.
@@ -311,6 +313,12 @@ public actor CaptureSession {
         generation += 1
         assembler.removeUnpinned()
         let kept = Set(assembler.exchanges.keys)
+        // A held request or response loses its row, and with it the only way to decide, so it goes
+        // on as it came, even one held a moment ago, which the interface hasn't shown yet.
+        for (id, message) in held where !kept.contains(id) {
+            server.decide(id, .resume(message))
+        }
+        held = held.filter { kept.contains($0.key) }
         changed.formIntersection(kept)
         chunks.removeAll { !kept.contains($0.exchange) }
         messages.removeAll { !kept.contains($0.exchange) }
@@ -364,11 +372,22 @@ public actor CaptureSession {
             }
             return
         }
-        guard let id = assembler.apply(event) else { return }
+        guard let id = assembler.apply(event) else {
+            // Held for an exchange that's been cleared, such as its response after clearing let the
+            // request go on. No row shows it, so no one can decide, and it goes on as it came.
+            if case .paused(let held, let message, _) = event {
+                server.decide(held, .resume(message))
+            }
+            return
+        }
         changed.insert(id)
         if case .paused(_, let message, let breakpoint) = event {
+            held[id] = message
             // Someone's waiting on it, so it goes out now rather than with the next save.
             continuation.yield(.paused(id, message, breakpoint: breakpoint))
+        } else if held[id] != nil, !Self.isPaused(assembler.exchanges[id]) {
+            // It went on, or stopped, as decided.
+            held[id] = nil
         }
         switch event {
         case .requestBody(_, let data):
@@ -382,6 +401,10 @@ public actor CaptureSession {
             break
         }
         scheduleSave()
+    }
+
+    private static func isPaused(_ exchange: Exchange?) -> Bool {
+        if case .paused = exchange?.state { true } else { false }
     }
 
     /// Starts finding where a connection came from. Its exchanges are credited once that's known.

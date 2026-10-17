@@ -1,0 +1,41 @@
+<UserControl
+    x:Class="Reqly.Settings.ReverseProxySettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Local addresses that send every request on to a server, for apps that can't use a proxy. -->
+  <StackPanel Spacing="4">
+    <TextBlock Text="Reverse proxies" Style="{StaticResource SettingsSectionHeaderStyle}" Margin="1,0,0,6" />
+    <Border Style="{StaticResource SettingsCardStyle}" Padding="0">
+      <StackPanel>
+        <ListView x:Name="ProxyList" SelectionMode="Single" Padding="0,4,0,4" SelectionChanged="OnSelectionChanged"
+                  DoubleTapped="OnListDoubleTapped" KeyDown="OnListKeyDown" ContextRequested="OnContextRequested"
+                  AutomationProperties.Name="Reverse proxies" />
+        <TextBlock x:Name="NoProxies" Margin="16,16,16,8" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                   Text="No reverse proxies yet. Add one here." />
+        <Grid Padding="10,8,12,8" ColumnSpacing="4" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Button Style="{StaticResource SubtleButtonStyle}" Click="OnAddClicked">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE710;" FontSize="12" />
+              <TextBlock Text="Add reverse proxy" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="RemoveButton" Grid.Column="1" Style="{StaticResource SubtleButtonStyle}" Click="OnRemoveClicked" IsEnabled="False">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <FontIcon Glyph="&#xE738;" FontSize="12" />
+              <TextBlock Text="Remove" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="EditButton" Grid.Column="3" Content="Edit…" Click="OnEditClicked" IsEnabled="False" />
+        </Grid>
+      </StackPanel>
+    </Border>
+    <TextBlock Margin="1,4,0,0" Style="{StaticResource SettingsDescriptionStyle}"
+               Text="Point an app that can't use a proxy at a local address, such as http://localhost:8080. Reqly sends its requests on to the server and records them. Reverse proxies listen while Reqly captures, and only this PC can reach them." />
+  </StackPanel>
+</UserControl>

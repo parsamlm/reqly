@@ -149,7 +149,7 @@ import Testing
                 try await app.send(.GET, "/", headers: ["Host": "<script>alert(1)</script>"])
             }
             #expect(!response.body.contains("<script>"))
-            #expect(response.body.contains("this Mac's address"))
+            #expect(response.body.contains("this \(ThisComputer.name)'s address"))
         }
     }
 

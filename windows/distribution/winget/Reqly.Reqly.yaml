@@ -1,0 +1,7 @@
+# winget's manifest for one version of Reqly for Windows, which windows/scripts/package.ps1 fills
+# in. Submitting it to github.com/microsoft/winget-pkgs is a public pull request.
+PackageIdentifier: Reqly.Reqly
+PackageVersion: {version}
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.10.0
