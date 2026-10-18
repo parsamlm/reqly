@@ -47,7 +47,7 @@ const features = [
 ];
 
 const next = [
-	{ title: 'Windows', text: 'Everything from the Mac app.' },
+	{ title: 'Windows', text: 'Everything from the Mac app, in beta now.' },
 	{
 		title: 'iPhone and iPad',
 		text: "A companion app that sends a device's traffic to Reqly in a few taps.",
@@ -76,6 +76,7 @@ const next = [
 				<a class="button secondary" href={links.github}>View on GitHub</a>
 			</div>
 			<p class="fine-print">Free and open source · macOS 26 or later · Signed and notarized</p>
+			<p class="fine-print">On Windows 11? <a href={links.windows}>Try the beta</a>.</p>
 			<div class="reel">
 				<video
 					controls
@@ -168,6 +169,9 @@ const next = [
 			<p class="or">or, with Homebrew:</p>
 			<code class="command">{links.homebrew}</code>
 			<p class="fine-print">macOS 26 or later. Reqly keeps itself up to date.</p>
+			<p class="fine-print">
+				Reqly for Windows 11 is in beta: <a href={links.windows}>download it from GitHub</a>.
+			</p>
 		</div>
 	</section>
 </Site>

@@ -1,6 +1,6 @@
 # Reqly for Windows
 
-The Windows app, [Phase 2](../ROADMAP.md#phase-2--reqly-for-windows) of the roadmap: everything from the Mac app, on Windows 11. It's in progress, and not ready to use yet.
+The Windows app, [Phase 2](../ROADMAP.md#phase-2--reqly-for-windows) of the roadmap: everything from the Mac app, on Windows 11. It's in beta, on [GitHub Releases](https://github.com/parsamlm/reqly/releases), as Reqly for Windows.
 
 Its screens are WinUI 3, in C#. Everything else is the same Swift core as the Mac app's, in [core](../core), which the app runs in its own process as `ReqlyCore.dll`.
 
