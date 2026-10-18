@@ -1,0 +1,224 @@
+name: Windows release
+
+# When a tag such as windows-v1.0.0 is pushed, this makes Reqly for Windows' installer and its
+# update packages, and puts them on GitHub Releases as a draft to check before publishing: never
+# the latest release, which the Mac's updates read, and a prerelease for a beta. Once SignPath is
+# set up, as private/releasing.md says, SignPath signs Reqly's own files, then the installer, each
+# after you approve it there. Until then, everything is unsigned.
+on:
+  push:
+    tags: ['windows-v*']
+
+permissions:
+  contents: write
+  # SignPath fetches the files to sign from the run.
+  actions: read
+
+defaults:
+  run:
+    # Windows PowerShell, as on a PC, which the scripts are written for.
+    shell: powershell
+
+jobs:
+  release:
+    runs-on: windows-2025
+    # Each signing request waits up to an hour for your approval.
+    timeout-minutes: 240
+    env:
+      SIGNS: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+      SIGNING_POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+    steps:
+      # The patches, and the files tests compare byte for byte, keep the repository's line endings.
+      - name: Keep line endings as they are
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+
+      - name: Check the tag against Reqly's version
+        id: version
+        run: |
+          [xml]$project = Get-Content windows\Reqly\Reqly.csproj -Encoding UTF8
+          $version = @($project.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ })[0]
+          if ($env:GITHUB_REF_NAME -ne "windows-v$version") {
+            throw "The tag is $env:GITHUB_REF_NAME, but Reqly.csproj's version is $version, whose tag is windows-v$version."
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "prerelease=$(if ($version -match '-') { 'true' } else { 'false' })"
+
+      - name: Install Swift and NASM
+        run: windows\scripts\ci-tools.ps1
+
+      # The SDK whose .NET the licenses list has, and only it: package.ps1 checks the .NET Reqly carries.
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.401
+
+      - name: Use that SDK alone
+        run: dotnet new globaljson --sdk-version 10.0.401 --roll-forward disable --force
+
+      # vpk makes an update smaller than the whole app from the Windows release before this one,
+      # the last beta's for a beta. The first Windows release has none.
+      - name: Download the release before
+        working-directory: windows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          dotnet tool restore | Out-Null
+          $pre = if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { @('--pre') } else { @() }
+          dotnet tool run vpk -- download github --repoUrl "https://github.com/$env:GITHUB_REPOSITORY" `
+            --token $env:GH_TOKEN --outputDir .build\releases @pre
+          if ($LASTEXITCODE) { "::notice::No Windows release before this one, so no smaller update from it." }
+          exit 0
+
+      - name: Build the app
+        timeout-minutes: 75
+        run: windows\scripts\package.ps1 -Stage App
+
+      # Only what Reqly builds itself: the libraries it carries from others ship as they come.
+      - name: Gather Reqly's own files for signing
+        if: env.SIGNS == 'true'
+        run: |
+          $files = "$env:RUNNER_TEMP\unsigned-app"
+          New-Item -ItemType Directory -Force -Path $files | Out-Null
+          foreach ($name in 'Reqly.exe', 'Reqly.dll', 'ReqlyCore.dll') {
+            Copy-Item "windows\.build\publish\x64\$name" $files
+          }
+
+      - name: Upload them for SignPath
+        id: unsigned-app
+        if: env.SIGNS == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-app
+          path: ${{ runner.temp }}/unsigned-app/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign them
+        if: env.SIGNS == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'reqly' }}
+          signing-policy-slug: ${{ env.SIGNING_POLICY }}
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ runner.temp }}/signed-app
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+
+      - name: Put the signed files in the app
+        if: env.SIGNS == 'true'
+        run: Copy-Item "$env:RUNNER_TEMP\signed-app\*" windows\.build\publish\x64 -Force
+
+      - name: Make the installer and the packages
+        timeout-minutes: 30
+        run: windows\scripts\package.ps1 -Stage Pack
+
+      # The installer carries the package, so it's signed once Velopack has made it.
+      - name: Upload the installer for SignPath
+        id: unsigned-setup
+        if: env.SIGNS == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          path: windows/.build/releases/Reqly.App-win-Setup.exe
+          archive: false
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign it
+        if: env.SIGNS == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'reqly' }}
+          signing-policy-slug: ${{ env.SIGNING_POLICY }}
+          artifact-configuration-slug: setup
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          skip-decompress: true
+          wait-for-completion-timeout-in-seconds: 3600
+          # It's over 100 MB.
+          download-signed-artifact-timeout-in-seconds: 900
+          output-artifact-directory: ${{ runner.temp }}/signed-setup
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+
+      - name: Put the signed installer in place
+        if: env.SIGNS == 'true'
+        run: Copy-Item "$env:RUNNER_TEMP\signed-setup\Reqly.App-win-Setup.exe" windows\.build\releases -Force
+
+      # Some of SignPath's errors don't fail its step, so the files themselves say whether they're
+      # signed: Reqly's own, as the package has them, and the installer.
+      - name: Check the signatures
+        if: env.SIGNS == 'true'
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $check = "$env:RUNNER_TEMP\check"
+          New-Item -ItemType Directory -Force -Path $check | Out-Null
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $package = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path "windows\.build\releases\Reqly.App-$version-full.nupkg"))
+          try {
+            foreach ($name in 'Reqly.exe', 'Reqly.dll', 'ReqlyCore.dll') {
+              $entry = $package.GetEntry("lib/app/$name")
+              if (-not $entry) { throw "The package has no lib/app/$name." }
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $check $name), $true)
+            }
+          }
+          finally {
+            $package.Dispose()
+          }
+          $files = @(Get-ChildItem $check -File) + @(Get-Item 'windows\.build\releases\Reqly.App-win-Setup.exe')
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            $signer = if ($signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { 'no one' }
+            "$($file.Name): $($signature.Status), signed by $signer"
+            if (-not $signature.SignerCertificate) { throw "$($file.Name) isn't signed." }
+            # SignPath's test policy signs with a certificate of its own, which Windows doesn't trust.
+            if ($env:SIGNING_POLICY -eq 'release-signing' -and ($signature.Status -ne 'Valid' -or $signer -notmatch 'CN=SignPath Foundation')) {
+              throw "$($file.Name) isn't signed by SignPath Foundation."
+            }
+          }
+
+      - name: Write winget's manifests
+        run: windows\scripts\package.ps1 -Stage Winget
+
+      # For reading crash reports from this version, with windows\scripts\symbolicate.ps1: keep a
+      # copy in windows\.build\symbols for as long as the version is out.
+      - name: Keep the debug information
+        uses: actions/upload-artifact@v7
+        with:
+          name: reqly-windows-${{ steps.version.outputs.version }}-symbols
+          path: windows/.build/symbols/
+          if-no-files-found: error
+          retention-days: 90
+
+      # For winget-pkgs, once the release is out; winget has no betas.
+      - name: Keep winget's manifests
+        uses: actions/upload-artifact@v7
+        with:
+          name: reqly-windows-${{ steps.version.outputs.version }}-winget
+          path: windows/.build/releases/winget/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $version = '${{ steps.version.outputs.version }}'
+          $releases = 'windows\.build\releases'
+          $files = @("$releases\Reqly.App-win-Setup.exe", "$releases\Reqly.App-$version-full.nupkg", "$releases\releases.win.json")
+          if (Test-Path "$releases\Reqly.App-$version-delta.nupkg") { $files += "$releases\Reqly.App-$version-delta.nupkg" }
+          $options = @('--draft', '--latest=false', '--title', "Reqly for Windows $version", '--generate-notes')
+          if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { $options += '--prerelease' }
+          # SignPath Foundation asks that each signed release say who signs it, and link the policy.
+          if ($env:SIGNS -eq 'true' -and $env:SIGNING_POLICY -eq 'release-signing') {
+            $options += '--notes', 'Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). [Code signing policy](https://reqly.net/code-signing)'
+          }
+          gh release create $env:GITHUB_REF_NAME @files @options
+          exit $LASTEXITCODE

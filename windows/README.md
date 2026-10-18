@@ -10,6 +10,7 @@ Its screens are WinUI 3, in C#. Everything else is the same Swift core as the Ma
 | `ReqlyCore/` | A Swift package that builds `ReqlyCore.dll`: the core, with a small C interface that carries JSON messages (`ReqlyCore.h`), and the pieces that reach Windows' own services: your proxy setting, your certificate store, the connection table, this PC's network addresses and its neighbors' hardware addresses, and the data protection that keeps secrets for your user. Its tests also run on the Mac and Linux, with `swift test --package-path windows/ReqlyCore`. |
 | `scripts/` | `app.ps1` builds the app, and `core.ps1` builds and tests the core on Windows, first running `build-sqlite.ps1`, which builds SQLite, `patch-packages.ps1`, which applies `patches/`, and `build-boringssl-asm.ps1`, which assembles BoringSSL's assembly. `package.ps1` makes the installer. |
 | `distribution/` | The templates for Reqly's listing in winget, Windows' package manager, which `package.ps1` fills in for each version. |
+| `signing/` | SignPath's artifact configurations, which say what it signs for a release: Reqly's own files, then the installer. |
 | `patches/` | Fixes for Windows to SwiftNIO and swift-nio-ssl that their releases don't have yet, which every build applies by itself. |
 | `third-party/` | SQLite, which Reqly brings on Windows, since Windows has none to build against, and BoringSSL's assembly for x86-64 Windows, which SwiftPM can't build. |
 
@@ -34,6 +35,6 @@ The installer comes from [Velopack](https://velopack.io), whose `vpk` tool is pi
 
 It builds Reqly for release with .NET and the Windows App SDK inside it, and the Swift runtime's DLLs beside it, so a PC needs none of them installed. In `windows\.build\releases` it leaves `Reqly.App-win-Setup.exe`, which installs Reqly for your user alone, without asking for administrator rights; the package and `releases.win.json`, from which installed copies update themselves; and winget's manifests for the version. The version is the `<Version>` in `Reqly/Reqly.csproj`. To package a version again, add `-Replace`.
 
-The script stops if Reqly needs a runtime DLL whose license isn't in the app's list of open-source licenses, or a runtime of a different version than the list has, or a part of the Visual C++ runtime that isn't beside it. Builds aren't signed yet.
+The script stops if Reqly needs a runtime DLL whose license isn't in the app's list of open-source licenses, or a runtime of a different version than the list has, or a part of the Visual C++ runtime that isn't beside it. It signs nothing. Releases come from GitHub's Windows release workflow, which runs it in stages, `-Stage App`, `Pack` and `Winget`, so SignPath can sign Reqly's own files before they're packaged and the installer after.
 
 [ARCHITECTURE.md](../ARCHITECTURE.md) explains how the parts fit together.

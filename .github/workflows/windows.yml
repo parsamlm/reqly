@@ -62,9 +62,17 @@ jobs:
       - name: Use that SDK alone
         run: dotnet new globaljson --sdk-version 10.0.401 --roll-forward disable --force
 
-      - name: Make the installer
+      # In the stages windows-release.yml signs between, so they're checked with every change.
+      - name: Build the app
         timeout-minutes: 75
-        run: windows\scripts\package.ps1
+        run: windows\scripts\package.ps1 -Stage App
+
+      - name: Make the installer and the packages
+        timeout-minutes: 30
+        run: windows\scripts\package.ps1 -Stage Pack
+
+      - name: Write winget's manifests
+        run: windows\scripts\package.ps1 -Stage Winget
 
       - name: Keep the installer and its packages
         uses: actions/upload-artifact@v7
