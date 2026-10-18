@@ -5,10 +5,10 @@
   </picture>
 </p>
 
-Reqly is an open-source network traffic inspector. It shows what your apps send and receive, clearly laid out, in a native app. It starts on the Mac and then comes to Windows. Companion apps for iPhone, iPad and Android will send a phone's traffic to it.
+Reqly is an open-source network traffic inspector. It shows what your apps send and receive, clearly laid out, in a native app. It's on the Mac, and in beta on Windows. Companion apps for iPhone, iPad and Android will send a phone's traffic to it.
 
 > [!NOTE]
-> Reqly 1.0 for Mac is out, and Phase 1 is done. Windows comes next; see the [roadmap](ROADMAP.md).
+> Reqly 1.0 for Mac is out, and Phase 1 is done. Reqly for Windows is in beta, on [GitHub Releases](https://github.com/parsamlm/reqly/releases). See the [roadmap](ROADMAP.md) for what comes next.
 
 ## Features
 
@@ -64,9 +64,9 @@ Each platform has a folder of its own, and the code they share sits beside them:
 
 | Folder | What's in it |
 |---|---|
-| [core](core) | ReqlyKit, the Swift package with the engine, certificates, rules, scripts, storage and file formats. The Mac app uses it now, and the Windows app will share it. |
+| [core](core) | ReqlyKit, the Swift package with the engine, certificates, rules, scripts, storage and file formats. The Mac app and the Windows app share it. |
 | [mac](mac) | Reqly for Mac: the Xcode project, the app, its helper, ReqlyMacKit with the modules that reach the Mac's own services, and the Homebrew cask. |
-| [windows](windows) | Reqly for Windows, which comes in Phase 2. |
+| [windows](windows) | Reqly for Windows, in beta, from Phase 2. |
 | [ios](ios) | The companion app for iPhone and iPad, which comes in Phase 3. |
 | [android](android) | The companion app for Android, which comes in Phase 4. |
 | [design](design) | The logo and the design guidelines, for every platform. |

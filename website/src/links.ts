@@ -5,6 +5,9 @@ const repo = 'https://github.com/parsamlm/reqly';
 export const links = {
 	github: repo,
 	download: `${repo}/releases/latest/download/Reqly.zip`,
+	// Windows releases are never the latest release, which the Mac's updates read, so this names
+	// the newest: change it with each Windows release.
+	windows: `${repo}/releases/tag/windows-v1.0.0-beta.1`,
 	releases: `${repo}/releases`,
 	issues: `${repo}/issues`,
 	roadmap: `${repo}/blob/main/ROADMAP.md`,
