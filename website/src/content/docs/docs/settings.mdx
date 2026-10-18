@@ -1,0 +1,78 @@
+---
+title: Settings
+description: What each part of Reqly's settings does.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+Open **Reqly › Settings…** (⌘,).
+
+</TabItem>
+<TabItem label="Windows">
+
+Click the gear button at the right end of the title bar, or press Ctrl+,. You can also click Reqly's icon in the notification area, and choose **Settings…**.
+
+</TabItem>
+</Tabs>
+
+## General
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+**Capturing**
+
+- **Proxy port:** the port Reqly listens on, 9090 to begin with. Change it if another app uses that port. It takes a number from 1024 to 65535, and applies the next time you start capturing. Click **Restart Capturing** to apply it now.
+- **Start capturing when Reqly opens.**
+- **Show Reqly in the menu bar:** a menu-bar item with a switch to start and stop capturing, the newest request, and switches for breakpoints and slow network.
+
+**Your network settings**
+
+- **Always restored:** Reqly puts your proxy settings back when you stop capturing, even if it quits unexpectedly.
+- **Reqly's helper:** sets your proxy while Reqly captures. **Remove Helper…** removes it from your Mac, and Reqly sets it up again the next time you start capturing. Stop capturing first.
+
+**Updates**
+
+- **Check for updates automatically:** once a day. **Check Now** checks right away.
+
+</TabItem>
+<TabItem label="Windows">
+
+**Capturing**
+
+- **Proxy port:** the port Reqly listens on, 9090 to begin with. Change it if another app uses that port. It takes a number from 1024 to 65535, and applies the next time you start capturing. Click **Restart capturing** to apply it now.
+- **Start capturing when Reqly opens.**
+- **Show Reqly in the notification area:** an icon at the end of the taskbar, on to begin with. At first, Windows may keep it under **Show hidden icons**. Click the icon for a panel with a switch to start and stop capturing, the newest request, and switches for breakpoints and slow network. Double-click it to open Reqly's window.
+
+  While the icon shows, closing the window leaves Reqly running, and capturing if it was. To quit, choose **File › Quit Reqly** (Ctrl+Q), or **Quit Reqly** in the panel.
+
+**Your network settings**
+
+- **Always restored:** Reqly puts your proxy settings back when you stop capturing, even if it quits unexpectedly. It changes them itself, so there's no helper to set up.
+
+**Updates**
+
+- **Check for updates automatically:** half a minute after Reqly opens, then once a day. An update downloads in the background, and installs when Reqly quits. **Check now** checks right away. Once an update is ready, the button reads **Restart to update…**, which opens a dialog to restart Reqly and install it.
+
+</TabItem>
+</Tabs>
+
+## HTTPS
+
+Reqly's certificate, and the hosts it decrypts. See [Decrypt HTTPS](/docs/https/).
+
+## Upstream proxy, reverse proxy and client certificates
+
+See [Connections](/docs/connections/).
+
+## Protobuf
+
+Your `.proto` files. See [Protocols](/docs/protocols/#grpc-and-protobuf).
+
+## Elsewhere
+
+- Whether phones and tablets can connect is in the Devices window: **Capture › Devices…**. See [Phones and tablets](/docs/phones/).
+- Rules are in the Rules window: **Rules › Show Rules** on the Mac, **Rules › Show rules** on Windows. See [Rules](/docs/rules/).

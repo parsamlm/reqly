@@ -3,20 +3,36 @@ title: Scripts
 description: Write JavaScript that changes requests and responses as they pass, or answers requests itself.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 A script is a rule with JavaScript in it. It can change matching requests before they go to the server, change responses before they go back to the app, or answer requests itself.
 
 ## Add a script
 
-1. Open **Rules › Show Rules** (⌥⌘R), select **Scripts**, and click **+**. Or right-click a request, and choose **Add Rule › Script…**.
-2. Enter the **Host**, **Path** and **Method** to match, as for any [rule](/docs/rules/#which-requests-a-rule-matches).
-3. Write the script, or start from one in **Examples**.
-4. Click **Save**.
+<Tabs syncKey="os">
+<TabItem label="Mac">
 
-Reqly checks the script as you type, and takes you to the line with a problem. The ⓘ button shows a short reference.
+Open **Rules › Show Rules** (⌥⌘R), select **Scripts**, and click **+**. Or right-click a request, and choose **Add Rule › Script…**.
+
+</TabItem>
+<TabItem label="Windows">
+
+Open **Rules › Show rules** (Ctrl+Alt+R), select **Scripts**, and click **Add rule**. Or right-click a request, and choose **Add rule › Script…**.
+
+</TabItem>
+</Tabs>
+
+Then:
+
+1. Enter the **Host**, **Path** and **Method** to match, as for any [rule](/docs/rules/#which-requests-a-rule-matches).
+2. Write the script, or start from one in **Examples**.
+3. Click **Save**.
+
+Reqly checks the script as you type. On the Mac, it takes you to the line with a problem. On Windows, click **Show the line** to go there. The question-mark button shows a short reference.
 
 ## Try it first
 
-Under **Try it on**, pick a request captured earlier, and click **Try It**. Reqly runs the script on it, and shows what it would change and what it logs. Nothing is sent.
+Under **Try it on**, pick a request captured earlier, and click **Try It** on the Mac, or **Try it** on Windows. Reqly runs the script on it, and shows what it would change and what it logs. Nothing is sent.
 
 ## Write a script
 

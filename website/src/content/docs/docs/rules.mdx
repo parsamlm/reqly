@@ -3,20 +3,45 @@ title: Rules
 description: Pause, answer, redirect, rewrite, block and slow down traffic as it passes.
 ---
 
-Rules change matching traffic as it passes through Reqly. Open them with **Rules › Show Rules** (⌥⌘R).
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-The Rules window's sidebar lists the kinds of rules: **Breakpoints**, **Map Local**, **Map Remote**, **Rewrite**, **Block**, **Scripts** and **Slow Network**. Each kind has a switch at the top of its pane and in the **Rules** menu, and each rule has a switch of its own. A rule acts only when both are on. A green dot in the sidebar shows the kinds that are on.
+Rules change matching traffic as it passes through Reqly. Open them with **Rules › Show Rules** (⌥⌘R) on the Mac, or **Rules › Show rules** (Ctrl+Alt+R) on Windows.
+
+The Rules window's sidebar lists the kinds of rules: **Breakpoints**, **Map Local**, **Map Remote**, **Rewrite**, **Block**, **Scripts** and **Slow Network**. Each kind has a switch at the top of its pane and in the **Rules** menu, and each rule has a switch of its own. A rule acts only when both are on. A dot in the sidebar shows the kinds that are on.
 
 Rules act on requests that start after you change them.
 
 ## Add a rule
 
-- In the Rules window, select a kind and click **+**.
-- Or right-click a request in the list, and choose **Add Rule**, then a kind. The rule starts out with the request's host, path and method.
+<Tabs syncKey="os">
+<TabItem label="Mac">
 
-Saving a new rule turns its kind on. As you edit a rule, it says how many of the requests captured so far it matches.
+- In the Rules window, select a kind and click **+**.
+- Or right-click a request in the list, and choose **Add Rule**, then a kind.
+
+</TabItem>
+<TabItem label="Windows">
+
+- In the Rules window, select a kind and click **Add rule**.
+- Or right-click a request in the list, and choose **Add rule**, then a kind. **Request › Add rule** does the same for the selected request.
+
+</TabItem>
+</Tabs>
+
+A rule you add from a request starts out with the request's host, path and method. Saving a new rule turns its kind on. As you edit a rule, it says how many of the requests captured so far it matches.
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
 
 Double-click a rule to edit it. Right-click it to **Duplicate**, **Move Up**, **Move Down** or **Delete** it. To remove a rule, you can also select it and press Delete.
+
+</TabItem>
+<TabItem label="Windows">
+
+Double-click a rule to edit it, or select it and press Enter. Right-click it to **Duplicate**, **Move up**, **Move down** or **Delete** it, or drag it to a new place in the list. To remove a rule, you can also select it and press Delete, or click **Remove**.
+
+</TabItem>
+</Tabs>
 
 ## Which requests a rule matches
 
@@ -33,26 +58,39 @@ Rules match the request as the app sent it. They act on requests you [send from 
 
 ## Breakpoints
 
-A breakpoint pauses a matching request, its response, or both, so you can change it before it goes on. Turn breakpoints on with the **Breakpoints** switch in the toolbar, or with **Rules › Breakpoints** (⇧⌘B).
+A breakpoint pauses a matching request, its response, or both, so you can change it before it goes on. Turn breakpoints on from the toolbar, or with **Rules › Breakpoints** (⇧⌘B on the Mac, Ctrl+Shift+B on Windows).
 
 Something that's paused shows as **Paused** in the list, and its details become an editor:
 
 - **A request:** its method, URL, headers and body.
 - **A response:** its status, reason, headers and body.
 
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
 Then click **Continue** (⌘↩) to send it on, or **Cancel Request** (**Cancel Response** for a response) to stop it, and the app gets a 502 error. **Rules › Continue All Paused Requests** (⌥⌘↩) sends everything that's paused on, unchanged.
+
+</TabItem>
+<TabItem label="Windows">
+
+Then click **Continue** (Ctrl+Enter) to send it on, or **Cancel request** (**Cancel response** for a response) to stop it, and the app gets a 502 error. **Rules › Continue all paused requests** (Ctrl+Alt+Enter) sends everything that's paused on, unchanged.
+
+When something pauses, Reqly's taskbar button flashes. If you closed Reqly's window, it comes back, behind the window you're in.
+
+</TabItem>
+</Tabs>
 
 A pause lasts until you decide. Reqly lays out JSON bodies for editing, and sets Content-Length from the body.
 
 ## Map Local
 
-Answers matching requests with a file on your Mac. The server never sees them.
+Answers matching requests with a file on your computer. The server never sees them.
 
 - **File:** click **Choose…** to pick it. Reqly reads it for every request, so changing the file changes the answer.
 - **Status:** 200 to begin with.
 - **Content type:** from the file's extension, unless you enter one.
 
-When you add the rule from a request, **Save the Response as a File…** saves that request's response, ready to edit.
+When you add the rule from a request, **Save the Response as a File…** on the Mac, or **Save the response as a file…** on Windows, saves that request's response, ready to edit.
 
 ## Map Remote
 
@@ -62,12 +100,32 @@ The request in the list stays the way the app sent it. Its Overview says where i
 
 ## Rewrite
 
-Changes matching traffic as it passes. Click **Add Change** for each change:
+Changes matching traffic as it passes.
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+Click **Add Change** for each change:
 
 - **Set Header** and **Remove Header**, in the request or the response.
 - **Set Query Parameter** and **Remove Query Parameter**, in the request.
-- **Replace Body Text**, in the request or the response. It replaces every match, and matches case exactly.
+- **Replace Body Text**, in the request or the response.
 - **Set Status**, in the response.
+
+</TabItem>
+<TabItem label="Windows">
+
+Click **Add change** for each change:
+
+- **Set header** and **Remove header**, in the request or the response.
+- **Set query parameter** and **Remove query parameter**, in the request.
+- **Replace body text**, in the request or the response.
+- **Set status**, in the response.
+
+</TabItem>
+</Tabs>
+
+Replacing body text replaces every match, and matches case exactly.
 
 ## Block
 
@@ -79,7 +137,7 @@ JavaScript that changes requests and responses as they pass, or answers requests
 
 ## Slow network
 
-Slows traffic down to the speed of a slower network, to see how apps cope. Turn it on with the **Slow Network** switch in the toolbar, or with **Rules › Slow Network** (⇧⌘T).
+Slows traffic down to the speed of a slower network, to see how apps cope. Turn it on from the toolbar, or with **Rules › Slow Network** (⇧⌘T on the Mac, Ctrl+Shift+T on Windows).
 
 Choose a **Profile**:
 

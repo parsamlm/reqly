@@ -1,0 +1,73 @@
+---
+title: Uninstall Reqly
+description: Remove Reqly, its certificate and its data from your Mac or PC, and from your devices.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## On your computer
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+1. Stop capturing.
+2. Remove the helper: in **Reqly › Settings… › General**, click **Remove Helper…**, then **Remove Helper**.
+3. Remove the certificate: in **Settings › HTTPS**, click **Remove Certificate…**, then **Remove Certificate**, and enter your password.
+4. Quit Reqly, and drag it from **Applications** to the Trash.
+
+If you installed Reqly with Homebrew, remove the helper and the certificate first, then run:
+
+```bash
+brew uninstall --zap --cask reqly
+```
+
+</TabItem>
+<TabItem label="Windows">
+
+1. Quit Reqly: choose **File › Quit Reqly** (Ctrl+Q), or **Quit Reqly** in its panel in the notification area. Closing its window can leave it running there.
+2. In Windows' **Settings › Apps › Installed apps**, find Reqly, and uninstall it.
+3. If you installed Reqly's certificate, Windows asks you to confirm removing it. Confirm, so Windows stops trusting it. If you say no, the certificate stays.
+
+Uninstalling also puts your proxy settings back if they still point at Reqly, and removes Reqly from File Explorer's choices for `.reqly` and `.har` files. There's no helper to remove.
+
+To remove only the certificate, and keep Reqly: in **Settings › HTTPS**, click **Remove…**, then **Remove certificate**, and confirm when Windows asks.
+
+</TabItem>
+</Tabs>
+
+### Reqly's data
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+These stay on your Mac until you delete them:
+
+- `~/Library/Application Support/Reqly`: your rules, connections, devices and the list of `.proto` files.
+- `~/Library/Preferences/net.reqly.Reqly.plist`: your settings.
+- In your keychain, if you used them: **Reqly Upstream Proxy**, the upstream proxy's password, and one **Reqly Client Certificate** item for each client certificate. Delete them in Keychain Access.
+
+Homebrew's `--zap` deletes the folder and the settings, but not the keychain items.
+
+</TabItem>
+<TabItem label="Windows">
+
+These stay on your PC until you delete them, in `%LOCALAPPDATA%\Reqly`:
+
+- `Settings.json`: your settings.
+- `Rules.json`, `Connections.json`, `Devices.json` and `Protobuf.json`: your rules, connections, devices and the list of `.proto` files.
+- `Secrets.dat`, if you used them: the upstream proxy's password and the client certificates' keys, encrypted for your Windows account.
+- `Certificate.dat`, if you kept Reqly's certificate: the certificate and its key.
+- `Reqly.log` and the `Crashes` folder: what Reqly did, and its crash reports.
+
+To delete them all, type `%LOCALAPPDATA%\Reqly` in File Explorer's address bar, and delete that folder.
+
+If you kept the certificate, it's still among the ones Windows trusts for you. To remove it, open the certificate manager, `certmgr.msc`, and look for **Reqly CA** under **Trusted Root Certification Authorities**, then **Certificates**.
+
+</TabItem>
+</Tabs>
+
+## On your devices
+
+- **iPhone and iPad:** remove Reqly's profile in **Settings › General › VPN & Device Management**, and set the Wi-Fi network's proxy back to **Off**.
+- **Android:** remove Reqly's certificate in its security settings, and set the Wi-Fi network's proxy back to **None**.
+- **Android emulators:** in the Devices window, click **Stop Using Reqly** on the Mac, or **Stop using Reqly** on Windows, before you remove Reqly.

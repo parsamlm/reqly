@@ -1,0 +1,87 @@
+---
+title: Decrypt HTTPS
+description: Install Reqly's certificate, and choose the hosts Reqly decrypts.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Most traffic is HTTPS, which is encrypted. To show what's inside, Reqly creates its own certificate on your computer, and macOS or Windows trusts it for your user account. Reqly then decrypts only the hosts you choose. Everything else passes through untouched.
+
+## Install the certificate
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+1. Choose **Capture › Decrypt HTTPS…**. Settings opens on **HTTPS**.
+2. Click **Install Certificate…**.
+3. Enter your password when macOS asks.
+
+If you cancel the password prompt, the certificate is made but not trusted, and Reqly decrypts nothing. Click **Trust Certificate…** to try again.
+
+</TabItem>
+<TabItem label="Windows">
+
+1. Choose **Capture › Decrypt HTTPS…**. Settings opens on **HTTPS**.
+2. Click **Install certificate…**.
+3. Windows shows a security warning of its own about the certificate, and asks you to confirm. Confirm it.
+
+There's no password to enter. If you say no, the certificate is made but not trusted, and Reqly decrypts nothing: Settings says **Windows doesn't trust the Reqly certificate**. Click **Trust certificate…** to try again.
+
+</TabItem>
+</Tabs>
+
+Once it's trusted, Settings says **The Reqly certificate is installed and trusted**. Its name is **Reqly CA**, followed by the date and time it was made, and it never leaves your computer. To find it on the Mac, click **Show in Keychain Access**. On Windows, click **Open certificate manager**, and look under **Trusted Root Certification Authorities**, then **Certificates**.
+
+## Choose the hosts to decrypt
+
+In **Settings › HTTPS**, under **Decrypt HTTPS for these hosts**:
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+1. Click **+**.
+2. Type a host, such as `api.example.com`, or `*.example.com` for its subdomains.
+3. Press Return.
+
+</TabItem>
+<TabItem label="Windows">
+
+1. Type a host in the box, such as `api.example.com`, or `*.example.com` for its subdomains.
+2. Click **Add host**, or press Enter.
+
+</TabItem>
+</Tabs>
+
+Each host has a switch of its own, so you can stop decrypting it without removing it. To remove a host on the Mac, select it and press Delete, or click **−**. On Windows, click the trash button beside it.
+
+You can also decide from the request list. Right-click an encrypted request, and choose **Decrypt** followed by its host. Its next requests show up decrypted. To undo it, choose **Stop Decrypting** on the Mac, or **Stop decrypting** on Windows.
+
+### How hosts match
+
+- `*.example.com` matches the subdomains of example.com, such as `api.example.com`, but not `example.com` itself. Add both if you need both.
+- The most specific entry wins. An exact host beats a wildcard, and a longer wildcard beats a shorter one. So you can decrypt `*.example.com` but switch off `ads.example.com`.
+
+## Decrypt all hosts
+
+**Decrypt all hosts** decrypts every host except the ones you switch off in the list. It isn't recommended: some apps stop working when their traffic is decrypted.
+
+## Apps that accept only their own certificate
+
+Some apps accept only their own certificate, and their requests fail when Reqly decrypts them. Such a request shows as **Failed**, and its details say the app didn't accept Reqly's certificate. Stop decrypting the host, and its traffic passes through encrypted again.
+
+## Remove the certificate
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+In **Settings › HTTPS**, click **Remove Certificate…**, then **Remove Certificate**, and enter your password. Reqly stops decrypting, and removes its certificates from your keychain, older ones included.
+
+</TabItem>
+<TabItem label="Windows">
+
+In **Settings › HTTPS**, under **Remove certificate**, click **Remove…**, then **Remove certificate**, and confirm when Windows asks. Reqly stops decrypting, and removes its certificate and key from your PC.
+
+</TabItem>
+</Tabs>
+
+You can set up HTTPS again at any time. Reqly then makes a new certificate, which phones, tablets, simulators and emulators need to install again.

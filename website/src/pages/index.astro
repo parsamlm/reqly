@@ -6,7 +6,7 @@ import { links } from '../links';
 const features = [
 	{
 		title: 'Capture with one switch.',
-		text: "Start capturing, and Reqly becomes your Mac's proxy. Stop, quit or even crash, and your network settings come back.",
+		text: "Start capturing, and Reqly becomes your computer's proxy. Stop, quit or even crash, and your network settings come back.",
 	},
 	{
 		title: 'Decrypt only what you choose.',
@@ -29,8 +29,8 @@ const features = [
 		text: "Write JavaScript that rewrites requests and responses, or answers them itself. Scripts can't reach your files or the network.",
 	},
 	{
-		title: 'Phones, Simulators and emulators.',
-		text: 'Connect a phone on the same Wi-Fi with a QR code. iOS Simulators and Android emulators are set up for you.',
+		title: 'Phones and emulators.',
+		text: 'Connect a phone or tablet on the same Wi-Fi with a QR code. Android emulators are set up for you, and on the Mac, iOS Simulators too.',
 	},
 	{
 		title: 'Modern protocols.',
@@ -38,19 +38,22 @@ const features = [
 	},
 	{
 		title: 'Save and share.',
-		text: 'Save sessions and export HAR files with secrets hidden, open them again, and copy any request as cURL.',
+		text: 'Save a session and open it on a Mac or a PC. Export HAR files with secrets hidden, and copy any request as cURL.',
 	},
 	{
-		title: 'Made for the Mac.',
-		text: 'Native controls, light and dark mode, keyboard shortcuts and VoiceOver throughout.',
+		title: 'Made for the Mac and Windows.',
+		text: "Each app uses its system's own controls, follows light and dark mode, and has keyboard shortcuts. On the Mac, VoiceOver works throughout.",
 	},
 ];
 
 const next = [
-	{ title: 'Windows', text: 'Everything from the Mac app, in beta now.' },
+	{
+		title: 'Windows 1.0',
+		text: "Out of beta, with a signed installer, and in winget, Windows' package manager.",
+	},
 	{
 		title: 'iPhone and iPad',
-		text: "A companion app that sends a device's traffic to Reqly in a few taps.",
+		text: "A companion app that sends a device's traffic to Reqly on a Mac or a PC in a few taps.",
 	},
 	{
 		title: 'Android',
@@ -61,22 +64,41 @@ const next = [
 
 <Site
 	title="Reqly: see what your apps send and receive"
-	description="Reqly is a free, open-source traffic inspector for the Mac. Every request your apps make, clearly laid out, in a native app."
+	description="Reqly is a free, open-source traffic inspector for the Mac and Windows. Every request your apps make, clearly laid out, in a native app."
 >
 	<section class="hero">
 		<div class="container">
 			<img class="hero-icon" src={icon} alt="" width="112" height="112" />
 			<h1>See what your apps send and receive.</h1>
 			<p class="lead">
-				Reqly is a free, open-source traffic inspector for the Mac. Every request your apps make,
-				clearly laid out, in a native app.
+				Reqly is a free, open-source traffic inspector for the Mac and Windows. Every request your
+				apps make, clearly laid out, in a native app.
 			</p>
+			{/* The download for the visitor's system, as Site.astro's head script works it out, and
+			    both for anyone else. site.css hides what isn't for the visitor. */}
 			<div class="buttons">
-				<a class="button primary" href={links.download}>Download for Mac</a>
+				<a class="button primary" href={links.mac} data-for="mac other">Download for Mac</a>
+				<a
+					class="button primary"
+					href={links.windowsSetup}
+					data-for="windows other"
+					aria-describedby="hero-windows-note">Download the Windows beta</a
+				>
 				<a class="button secondary" href={links.github}>View on GitHub</a>
 			</div>
-			<p class="fine-print">Free and open source · macOS 26 or later · Signed and notarized</p>
-			<p class="fine-print">On Windows 11? <a href={links.windows}>Try the beta</a>.</p>
+			<p class="fine-print" data-for="mac">Free and open source&nbsp;· macOS&nbsp;26 or later&nbsp;· Signed and notarized</p>
+			<p class="fine-print" data-for="windows">
+				Free and open source&nbsp;· Windows&nbsp;11&nbsp;· <a href={links.windows}>What's in the beta</a>
+			</p>
+			<p class="fine-print" data-for="other">Free and open source&nbsp;· macOS&nbsp;26 or later&nbsp;· Windows&nbsp;11, in beta</p>
+			<p class="fine-print" id="hero-windows-note" data-for="windows">
+				The installer isn't signed yet, so Windows may warn you about it: click More info, then Run anyway.
+			</p>
+			<p class="fine-print" data-for="mac">On Windows 11? <a href="#get-reqly">Try the beta</a>.</p>
+			<p class="fine-print" data-for="windows">On a Mac? <a href="#get-reqly">Get Reqly for Mac</a>.</p>
+			<p class="fine-print" data-for="other">
+				Reqly runs on a Mac or a Windows PC. Phones and tablets connect to it over Wi-Fi.
+			</p>
 			<div class="reel">
 				<video
 					controls
@@ -85,7 +107,7 @@ const next = [
 					poster="/video/showreel-poster.webp"
 					width="1280"
 					height="720"
-					aria-label="Reqly in one minute: a narrated tour of the app"
+					aria-label="Reqly in one minute: a narrated tour of the Mac app"
 				>
 					<source src="/video/showreel.mp4" type="video/mp4" />
 					<track kind="captions" src="/video/showreel.en.vtt" srclang="en" label="English" />
@@ -121,10 +143,10 @@ const next = [
 	<section aria-labelledby="privacy">
 		<div class="container">
 			<div class="panel">
-				<h2 id="privacy" class="section-title">Your traffic stays on your Mac.</h2>
+				<h2 id="privacy" class="section-title">Your traffic stays on your computer.</h2>
 				<p class="section-text">
 					No account, no analytics, and Reqly never sends your traffic anywhere. On its own, it
-					only checks GitHub once a day for a newer version, and you can turn that off.
+					only checks GitHub for a newer version, and you can turn that off.
 				</p>
 			</div>
 		</div>
@@ -160,18 +182,38 @@ const next = [
 		</div>
 	</section>
 
+	{/* Both systems for everyone. Only the buttons' emphasis follows the visitor's system: the
+	    other one's button is a quiet one (site.css, data-quiet-on). */}
 	<section class="get center" aria-labelledby="get-reqly">
 		<div class="container">
 			<h2 id="get-reqly" class="section-title">Get Reqly</h2>
-			<div class="buttons">
-				<a class="button primary" href={links.download}>Download for Mac</a>
+			<div class="get-cards">
+				<article class="get-card" aria-labelledby="get-mac">
+					<h3 id="get-mac">Mac</h3>
+					<a class="button primary" href={links.mac} data-quiet-on="windows">Download for Mac</a>
+					<p class="or">or, with Homebrew:</p>
+					<code class="command">{links.homebrew}</code>
+					<p class="fine-print">macOS 26 or later. Signed and notarized. Reqly keeps itself up to date.</p>
+				</article>
+				<article class="get-card" aria-labelledby="get-windows">
+					<h3 id="get-windows">Windows <span class="tag">Beta</span></h3>
+					<a
+						class="button primary"
+						href={links.windowsSetup}
+						data-quiet-on="mac"
+						aria-describedby="get-windows-note">Download the Windows beta</a
+					>
+					<p class="fine-print">
+						Windows 11. Installs for your account only, without administrator rights. Reqly keeps
+						itself up to date.
+					</p>
+					<p class="fine-print" id="get-windows-note">
+						The installer isn't signed yet, so Windows may warn you about it: click More info, then
+						Run anyway.
+					</p>
+					<p class="fine-print"><a href={links.windows}>What's in the beta</a></p>
+				</article>
 			</div>
-			<p class="or">or, with Homebrew:</p>
-			<code class="command">{links.homebrew}</code>
-			<p class="fine-print">macOS 26 or later. Reqly keeps itself up to date.</p>
-			<p class="fine-print">
-				Reqly for Windows 11 is in beta: <a href={links.windows}>download it from GitHub</a>.
-			</p>
 		</div>
 	</section>
 </Site>

@@ -34,7 +34,8 @@ Everything from Phase 1 on Windows 11, built on the same core. A session saved o
 - [x] Capture Windows apps' traffic, with HTTPS decryption.
 - [x] The request list, details, search and filters.
 - [x] Sending and saving, rules and scripts, devices, protocols and connections.
-- [ ] An icon in the notification area, a signed installer, winget and automatic updates.
+- [x] An icon in the notification area, and automatic updates.
+- [ ] A signed installer and winget.
 
 ## Phase 3 — Reqly for iPhone and iPad
 

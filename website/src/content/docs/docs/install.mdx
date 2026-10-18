@@ -1,0 +1,92 @@
+---
+title: Install Reqly
+description: Download Reqly for Mac or Windows, or install it with Homebrew on the Mac, and open it for the first time.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { links } from '../../../links';
+
+Reqly runs on macOS 26 or later, and on Windows 11. Reqly for Windows is in beta.
+
+## Download it
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+1. Download Reqly from [reqly.net](https://reqly.net), or from its [releases on GitHub](https://github.com/parsamlm/reqly/releases).
+2. Open the zip file, and drag **Reqly** to your **Applications** folder.
+3. Open Reqly.
+
+Reqly is signed and notarized, so macOS opens it like any other app.
+
+</TabItem>
+<TabItem label="Windows">
+
+1. Download **Reqly.App-win-Setup.exe** from [reqly.net](https://reqly.net), or from <a href={links.windows}>its release on GitHub</a>.
+2. Open **Reqly.App-win-Setup.exe**. The installer isn't signed yet, so Windows may warn you about it. Click **More info**, then **Run anyway**.
+3. Setup installs Reqly and adds it to the Start menu. Open Reqly from there, if it hasn't opened already.
+
+Reqly is installed for your account only, so Setup doesn't ask for administrator rights. Everything Reqly needs comes with it, so there's nothing else to install. It's built for PCs with an Intel or AMD processor, and hasn't been tried on Arm PCs yet.
+
+</TabItem>
+</Tabs>
+
+## Or install it with Homebrew
+
+On the Mac only, you can install Reqly with Homebrew instead:
+
+```bash
+brew install --cask parsamlm/reqly/reqly
+```
+
+## The first time Reqly opens
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+The **Welcome to Reqly** guide walks you through three steps:
+
+1. **Capture your Mac's traffic.** Click **Start Capturing**. See [Capture your first request](/docs/first-capture/).
+2. **Install the Reqly certificate.** Click **Install Certificate…**, so Reqly can read HTTPS traffic. See [Decrypt HTTPS](/docs/https/).
+3. **Choose hosts to decrypt.** Click **Choose Hosts…** to pick the hosts Reqly decrypts.
+
+Click **Skip for Now** to do the rest later.
+
+</TabItem>
+<TabItem label="Windows">
+
+Before anything else, a window titled **Welcome to Reqly**, with **Before you start** under the title, lists the software from Microsoft that comes with Reqly, each linked to Microsoft's terms for it. Click **Agree** to start using Reqly. It asks again only if those terms change.
+
+Then the **Welcome to Reqly** guide walks you through three steps:
+
+1. **Capture your PC's traffic.** Click **Start capturing**. See [Capture your first request](/docs/first-capture/).
+2. **Install the Reqly certificate.** Click **Install certificate…**, so Reqly can read HTTPS traffic. See [Decrypt HTTPS](/docs/https/).
+3. **Choose hosts to decrypt.** Click **Choose hosts…** to pick the hosts Reqly decrypts.
+
+Click **Skip for now** to do the rest later.
+
+</TabItem>
+</Tabs>
+
+You can do the first two in either order. Choosing hosts waits until the certificate is installed. Each step shows a check mark once it's done. To open the guide again, choose **Help › Welcome to Reqly**.
+
+## Updates
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+Reqly looks for a newer version once a day, and installs it when you agree. To check yourself, choose **Reqly › Check for Updates…**.
+
+</TabItem>
+<TabItem label="Windows">
+
+Reqly looks for a newer version half a minute after it opens, then once a day. When it finds one, it downloads it in the background and installs it when you quit Reqly. To check yourself, choose **Help › Check for updates…**.
+
+To install a downloaded update right away, choose **Help › Check for updates…**, then **Restart to update**. Reqly quits and opens again, and the traffic you've captured is cleared, so [save it as a session](/docs/sessions/) first if you want to keep it.
+
+While Reqly for Windows is in beta, it updates to newer betas as well as to releases.
+
+</TabItem>
+</Tabs>
+
+To stop checking for updates, open Settings, with **Reqly › Settings…** (⌘,) on the Mac, or the gear button at the right end of the title bar (Ctrl+,) on Windows. In **General**, turn off **Check for updates automatically**.

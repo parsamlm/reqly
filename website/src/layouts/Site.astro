@@ -20,6 +20,25 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script is:inline>
+			// Which download the page offers, decided before it draws, so nothing moves: data-os is
+			// mac, windows or other, and site.css shows what's for it. iPads ask for desktop pages as
+			// Macs do, so a "Mac" with a touch screen is an iPad. Anything else, or no script at all,
+			// gets both downloads. astro.config.mjs tells the systems apart the same way for the docs.
+			(function () {
+				var os = 'other';
+				try {
+					var n = navigator;
+					var ua = n.userAgent || '';
+					var platform = (n.userAgentData && n.userAgentData.platform) || n.platform || '';
+					if (/Xbox/.test(ua)) os = 'other';
+					else if (/^Win/i.test(platform) || (!platform && /Windows NT/.test(ua))) os = 'windows';
+					else if ((/^Mac/i.test(platform) || (!platform && /Macintosh/.test(ua))) && !(n.maxTouchPoints > 1))
+						os = 'mac';
+				} catch (e) {}
+				document.documentElement.setAttribute('data-os', os);
+			})();
+		</script>
 		<title>{title}</title>
 		<meta name="description" content={description} />
 		<link rel="canonical" href={canonical} />
@@ -29,6 +48,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
 		<meta name="theme-color" content="#f6f7f6" media="(prefers-color-scheme: light)" />
 		<meta name="theme-color" content="#121615" media="(prefers-color-scheme: dark)" />
 		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="Reqly" />
 		<meta property="og:title" content={title} />
 		<meta property="og:description" content={description} />
 		<meta property="og:url" content={canonical} />
@@ -45,8 +65,15 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
 				</a>
 				<nav aria-label="Main">
 					<a href={links.docs}>Docs</a>
-					<a href={links.github}>GitHub</a>
-					<a class="button small primary" href={links.download}>Download</a>
+					<a class="nav-github" href={links.github}>GitHub</a>
+					{/* One download for the visitor's system, and for everyone else the way to both. */}
+					<a class="button small primary" href={links.mac} data-for="mac">
+						<span>Download<span class="more"> for Mac</span></span>
+					</a>
+					<a class="button small primary" href={links.windowsSetup} data-for="windows">
+						<span>Download<span class="more"> the Windows beta</span></span>
+					</a>
+					<a class="button small primary" href="/#get-reqly" data-for="other">Download</a>
 				</nav>
 			</div>
 		</header>

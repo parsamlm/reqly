@@ -1,0 +1,105 @@
+---
+title: Phones and tablets
+description: Send an iPhone's, iPad's or Android device's traffic through Reqly over Wi-Fi.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A phone or tablet on the same Wi-Fi as your computer can send its traffic through Reqly. Its requests show up next to your computer's, each labeled with the device.
+
+## Let devices connect
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+1. Choose **Capture › Devices…** (⇧⌘D). The Devices window opens on **Phones and Tablets**.
+2. Turn on **Allow Devices on This Network**.
+
+</TabItem>
+<TabItem label="Windows">
+
+1. Choose **Capture › Devices…** (Ctrl+Shift+D). Or click Reqly's icon in the notification area, and choose **Devices…**. The Devices window opens on **Phones and tablets**.
+2. Turn on **Allow devices on this network**.
+
+</TabItem>
+</Tabs>
+
+Then start capturing, if Reqly isn't already. Devices can connect only while Reqly captures.
+
+When you turn the switch off again, devices that are connected are disconnected.
+
+:::note
+The first time devices connect, macOS or Windows may ask whether Reqly can accept incoming connections from your network. Choose **Allow**, or devices can't reach Reqly.
+:::
+
+On Windows, the firewall remembers your answer. If it blocks Reqly, the Devices window says **Windows Firewall is blocking Reqly**, and on which kinds of network. Click **Open firewall settings**, and in the list of allowed apps, allow Reqly for private networks, such as your home Wi-Fi.
+
+## Set up the device
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+Under **Set Up a Device**, Reqly shows a QR code and an address, such as `http://192.168.1.125:9090/`. Under **Proxy Settings**, it shows the server and port to enter on the device.
+
+</TabItem>
+<TabItem label="Windows">
+
+Under **Set up a device**, Reqly shows a QR code and an address, such as `http://192.168.1.125:9090/`. The button next to the address copies it. Under **Proxy settings**, it shows the server and port to enter on the device.
+
+</TabItem>
+</Tabs>
+
+On the device, scan the code with the camera, or open the address in its browser. The page that opens has Reqly's certificate and the steps for the device. To see HTTPS traffic, [set up HTTPS](/docs/https/) on your computer first.
+
+### iPhone and iPad
+
+1. Tap **Download the Certificate**, then **Allow**.
+2. In Settings, tap **Profile Downloaded**, then **Install**.
+3. In **Settings › General › About › Certificate Trust Settings**, turn on Reqly's certificate. Its name starts with **Reqly CA**.
+4. In **Settings › Wi-Fi**, tap ⓘ next to your network, then **Configure Proxy › Manual**. Enter the server and port that Reqly shows.
+
+### Android
+
+1. Tap **Download the Certificate**.
+2. In Settings, search for **CA certificate**, and install the file you downloaded.
+3. In your Wi-Fi network's settings, set **Proxy** to **Manual**, with the host and port that Reqly shows.
+
+:::caution[Android apps and certificates]
+On Android 7 and later, apps trust a certificate you install only if they opt in. Debug builds of your own apps can. Other apps' HTTPS requests fail while Reqly decrypts their hosts.
+:::
+
+When you're done, set the device's proxy back to **Off**.
+
+## Let a device in
+
+Reqly asks before it lets a new device in. The first time a device connects, Reqly asks **Let this device use Reqly?**, with the device's address. Give it a name if you like, then choose **Allow**.
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+If the device isn't yours, choose **Don't Allow**.
+
+While a device waits, Reqly's Dock icon shows how many are waiting, and the Devices window lists them under **Waiting for You**.
+
+</TabItem>
+<TabItem label="Windows">
+
+If the device isn't yours, choose **Don't allow**.
+
+While a device waits, Reqly's taskbar button flashes, and the Devices window lists it under **Waiting for you**. If you closed Reqly's window, it comes back, behind the window you're in.
+
+</TabItem>
+</Tabs>
+
+Reqly remembers the devices you let in, and lets them in again on their own, even when their address changes. They're listed under **Devices You Let In** on the Mac, and **Devices you let in** on Windows. **Forget** stops letting a device in: Reqly asks again the next time it connects. A device you don't allow is asked about again after Reqly restarts.
+
+## See a device's traffic
+
+- In the sidebar, **Devices** lists your computer, as **This Mac** or **This PC**, and each device, with its apps and hosts under it. To rename a device, right-click it and choose **Rename…**.
+- In the request list, the **App** column shows the device when Reqly can't tell the app.
+- In **Filters**, choose a device under **Device**.
+- A request's **Overview** has a **Device** row.
+
+## After you make a new certificate
+
+A device that trusted an earlier Reqly certificate rejects the new one, and its HTTPS requests fail. Open the setup page on the device again, install the new certificate, and trust it. On iPhone and iPad, remove the earlier profile in **Settings › General › VPN & Device Management**.

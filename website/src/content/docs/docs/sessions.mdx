@@ -1,0 +1,82 @@
+---
+title: Sessions and sharing
+description: Save a session and open it later, export and open HAR files, and copy requests as cURL.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Reqly keeps captured traffic only while it runs: quitting deletes it. To keep it, save it as a session.
+
+## Save a session
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+Choose **File › Save Session…** (⌘S).
+
+</TabItem>
+<TabItem label="Windows">
+
+Choose **File › Save session…** (Ctrl+S), click **Save…**, and choose where to save the file.
+
+</TabItem>
+</Tabs>
+
+Reqly saves everything in the window, not only what the filters show, into one `.reqly` file, with every body and your pins, colors and comments. Capturing goes on while it saves.
+
+A session saved on a Mac opens in Reqly for Windows, and one saved on a PC opens in Reqly for Mac.
+
+Before you share a session, turn on **Hide authorization headers and cookies**. Their values are then saved as "(hidden)". Bodies aren't changed, so they can still hold personal data.
+
+## Open a session or a HAR file
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+Choose **File › Open…** (⌘O), or double-click the file in Finder.
+
+</TabItem>
+<TabItem label="Windows">
+
+Choose **File › Open…** (Ctrl+O), or double-click a `.reqly` file in File Explorer. A `.har` file may open in another app, so right-click it, choose **Open with**, then Reqly.
+
+If Reqly isn't running when you open a file from File Explorer, it shows only the file's window. To get the main window and capture, open Reqly from the Start menu.
+
+</TabItem>
+</Tabs>
+
+Each file opens in a window of its own, with the same tools as the main window, apart from capturing and rules. Reqly works on a copy, so the file itself doesn't change.
+
+## Export as HAR
+
+HAR files open in browsers' developer tools, and in many other tools.
+
+1. Select a request if you want only that one, and choose **File › Export as HAR…** (⇧⌘E on the Mac, Ctrl+Shift+E on Windows). On the Mac, you can also right-click the request and choose **Export as HAR…**.
+2. Choose **Selected request**, or **All requests in this list**, as filtered and searched.
+3. Choose whether to **Include response bodies**, and whether to **Hide authorization headers and cookies**. Hiding them is on to begin with.
+4. Click **Export…**.
+
+Encrypted connections are left out, since their requests can't be read. WebSocket messages are included.
+
+## Copy a request
+
+From the **Request** menu, or a request's right-click menu:
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+- **Copy URL** (⇧⌘C).
+- **Copy as cURL** (⌥⌘C): a `curl` command that sends the same request. It includes authorization headers and cookies as they are, so check it before you share it.
+- **Copy Response Body**, unpacked. Images copy as images.
+
+</TabItem>
+<TabItem label="Windows">
+
+- **Copy URL** (Ctrl+Shift+C).
+- **Copy as cURL** (Ctrl+Alt+C): a `curl` command that sends the same request. It includes authorization headers and cookies as they are, so check it before you share it. It's written for bash and shells like it, so run it in Git Bash or WSL rather than PowerShell or Command Prompt.
+- **Copy response body**, unpacked. Images copy as images.
+
+</TabItem>
+</Tabs>
+
+In a request's details, you can also copy its headers, its body, the raw request or response, and a single value from the tree view.
