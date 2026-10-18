@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath's artifact configuration "setup": the installer, which the Windows release workflow
+     uploads as it is, once Velopack has made it from the signed files. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <pe-file path="Reqly.App-win-Setup.exe" product-name="Reqly" product-version="${version}">
+    <authenticode-sign />
+  </pe-file>
+</artifact-configuration>

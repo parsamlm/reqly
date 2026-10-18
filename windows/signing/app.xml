@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath's artifact configuration "app": a zip of the files Reqly builds itself, which the
+     Windows release workflow uploads before Velopack packages them. Only those are signed: the
+     libraries Reqly carries from others ship as they come, Microsoft's signed by Microsoft. Each
+     must name Reqly and the release's version, which the workflow passes. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file-set product-name="Reqly" product-version="${version}">
+      <include path="Reqly.exe" />
+      <include path="Reqly.dll" />
+      <include path="ReqlyCore.dll" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
+  </zip-file>
+</artifact-configuration>
