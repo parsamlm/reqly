@@ -1,0 +1,6 @@
+# Blank issues stay on: after a crash, Reqly opens one with its crash report filled in.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/parsamlm/reqly/security/advisories/new
+    about: Privately, so it can be fixed before anyone else hears of it.

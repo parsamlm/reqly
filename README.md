@@ -78,6 +78,9 @@ Each platform has a folder of its own, and the code they share sits beside them:
 - [Roadmap](ROADMAP.md): what Reqly does, phase by phase.
 - [Architecture](ARCHITECTURE.md): how it's built.
 - [Design guidelines](design/GUIDELINES.md): its logo, colors, type and icons.
+- [Contributing](CONTRIBUTING.md): reporting problems, suggesting features and sending changes, under the [code of conduct](CODE_OF_CONDUCT.md).
+- [Security](SECURITY.md): reporting a security problem privately.
+- [Accessibility](ACCESSIBILITY.md): how Reqly works with VoiceOver, Narrator and the keyboard, and reporting a barrier.
 
 ## License
 

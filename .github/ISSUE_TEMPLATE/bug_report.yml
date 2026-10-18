@@ -1,0 +1,50 @@
+name: Report a problem
+description: Something in Reqly doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. After a crash, Reqly offers to open an issue with the crash report filled in, which is the quickest way to report one.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. Start capturing.
+        2. Open …
+        3. …
+  - type: input
+    id: version
+    attributes:
+      label: Reqly's version
+      description: In Reqly › About Reqly on the Mac, or Help › About Reqly on Windows.
+      placeholder: "1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options:
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: system-version
+    attributes:
+      label: System version
+      placeholder: macOS 26.1, or Windows 11 25H2
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, logs, or a saved session or HAR file that shows the problem. Take out anything private first.
