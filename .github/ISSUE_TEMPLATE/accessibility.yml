@@ -1,0 +1,23 @@
+name: Report an accessibility barrier
+description: Something in Reqly is hard or impossible to use the way you work.
+labels: [accessibility]
+body:
+  - type: textarea
+    id: barrier
+    attributes:
+      label: What got in the way
+      description: What you were trying to do, and what happened.
+    validations:
+      required: true
+  - type: input
+    id: technology
+    attributes:
+      label: How you use your computer
+      description: The assistive technology or setting you use, such as VoiceOver, Narrator, the keyboard alone, zoom or high contrast.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Reqly's version and system
+      placeholder: Reqly 1.0 on macOS 26.1

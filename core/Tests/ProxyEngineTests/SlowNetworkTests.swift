@@ -28,11 +28,16 @@ import Testing
                 let (first, opening) = try await timed { try await app.send(.GET, "\(harness.originURL)/hello") }
                 #expect(first.body == "hello")
                 #expect(opening >= .milliseconds(580))
+                // The connection is reused, so only the request takes a round trip.
                 let (second, reusing) = try await timed { try await app.send(.GET, "\(harness.originURL)/hello") }
                 #expect(second.body == "hello")
                 #expect(reusing >= .milliseconds(280))
-                #expect(reusing < opening)
             }
+            // A busy machine can hold either request up for longer than the latency, so the
+            // engine's events, not the clock, say that the second didn't open a connection.
+            let events = try await harness.log.wait { $0.filter(\.isResponseEnd).count == 2 }
+            #expect(events.filter { $0.name == "serverConnecting" }.count == 1)
+            #expect(events.contains { $0.name == "serverReused" })
         }
     }
 

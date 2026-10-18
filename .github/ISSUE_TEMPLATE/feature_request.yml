@@ -1,0 +1,28 @@
+name: Suggest a feature
+description: Something Reqly could do, or do better.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The [roadmap](https://github.com/parsamlm/reqly/blob/main/ROADMAP.md) says what's planned, phase by phase.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What you're trying to do
+      description: The job you're doing, and where Reqly gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you picture it working, if you have an idea.
+  - type: dropdown
+    id: apps
+    attributes:
+      label: Which app
+      multiple: true
+      options:
+        - Reqly for Mac
+        - Reqly for Windows
