@@ -146,7 +146,7 @@ The app uses **SF Pro**, Apple's system font, through the built-in text styles. 
 - Use text styles, not fixed point sizes, so text respects the user's settings.
 - Numbers in columns (timings, sizes, counts) use monospaced digits, such as `.monospacedDigit()` in SwiftUI, so they line up.
 - Don't use SF Pro Rounded or custom fonts in the interface. The friendly, rounded voice lives in the wordmark and the icon.
-- The website and docs use the system font stack (`-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`) and `ui-monospace` for code.
+- The website and docs use the system font stack (`-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`) and `ui-monospace` for code. Only Safari knows `ui-monospace`, so code falls back to Menlo on the Mac in other browsers, and to Cascadia Mono or Consolas on Windows.
 
 ## 4. Icons
 

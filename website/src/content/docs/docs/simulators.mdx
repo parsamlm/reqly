@@ -1,0 +1,80 @@
+---
+title: Simulators and emulators
+description: Capture Android emulators and, on the Mac, iOS Simulators, HTTPS included.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Reqly captures Android emulators on the Mac and on Windows, and iOS Simulators on the Mac.
+
+## Android emulators
+
+Reqly points emulators at itself with adb, which comes with Android Studio or the Android SDK Platform Tools.
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+1. Start the emulator, from Android Studio's Device Manager.
+2. Start capturing.
+3. Choose **Capture › Devices…** (⇧⌘D), select **Android Emulators**, and click **Use Reqly** next to the emulator.
+
+To see its HTTPS traffic:
+
+1. Click **Copy Certificate**. Reqly copies **Reqly CA.crt** to the emulator's Downloads, and opens its security settings.
+2. There, choose **Encryption & credentials › Install a certificate › CA certificate**, then pick **Reqly CA**. On recent versions of Android, that page is called **Security & privacy**, and **Encryption & credentials** is under **More security & privacy**.
+
+When you're done, click **Stop Using Reqly**.
+
+</TabItem>
+<TabItem label="Windows">
+
+1. Start the emulator, from Android Studio's Device Manager.
+2. Start capturing.
+3. Choose **Capture › Devices…** (Ctrl+Shift+D), select **Android emulators**, and click **Use Reqly** next to the emulator. If it isn't listed yet, click **Refresh**.
+
+To see its HTTPS traffic:
+
+1. Click **Copy certificate**. Reqly copies **Reqly CA.crt** to the emulator's Downloads, and opens its security settings.
+2. There, choose **Encryption & credentials › Install a certificate › CA certificate**, then pick **Reqly CA**. On recent versions of Android, that page is called **Security & privacy**, and **Encryption & credentials** is under **More security & privacy**.
+
+When you're done, click **Stop using Reqly**.
+
+</TabItem>
+</Tabs>
+
+:::caution[Android apps and certificates]
+On Android 7 and later, apps trust a certificate you install only if they opt in. Debug builds of your own apps can.
+:::
+
+Reqly doesn't change the emulator's proxy back on its own, so an emulator left pointing at Reqly can't reach the internet while Reqly isn't capturing.
+
+An emulator's requests are labeled with its name. While more than one emulator is running, the requests they send over Wi-Fi are labeled **Android Emulator** instead.
+
+### If Reqly can't find adb
+
+<Tabs syncKey="os">
+<TabItem label="Mac">
+
+Reqly looks for adb in your Android SDK, at `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` or `~/Library/Android/sdk`, and then in Homebrew's folders. Install Android Studio, or the Android SDK Platform Tools, then reopen Reqly.
+
+</TabItem>
+<TabItem label="Windows">
+
+Reqly looks for adb in your Android SDK, at `%ANDROID_HOME%`, `%ANDROID_SDK_ROOT%` or `%LOCALAPPDATA%\Android\Sdk`, where Android Studio puts it. Install Android Studio, or the Android SDK Platform Tools. While the **Android emulators** page is open, Reqly looks again every 10 seconds. If you set `%ANDROID_HOME%` or `%ANDROID_SDK_ROOT%` yourself, quit Reqly with **File › Quit Reqly** and open it again.
+
+</TabItem>
+</Tabs>
+
+## iOS Simulators
+
+On the Mac only: simulators use your Mac's network settings, so their traffic shows up while Reqly captures. To see their HTTPS traffic, install Reqly's certificate in each one:
+
+1. Start the simulator, from Xcode or the Simulator app.
+2. Choose **Capture › Devices…** (⇧⌘D), and select **Simulators**.
+3. Next to the simulator, click **Install Certificate**.
+
+Reqly needs Xcode for this, and HTTPS has to be [set up](/docs/https/) first. After you make a new certificate, install it again.
+
+A simulator's requests are labeled with its name, and with the apps inside it that sent them.
+
+Phones and tablets connected by USB aren't listed here. Connect them over [Wi-Fi](/docs/phones/) instead.

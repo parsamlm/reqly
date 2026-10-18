@@ -13,5 +13,7 @@
 	--reqly-icon-top: #30d3b5;
 	--reqly-icon-bottom: #0a9882;
 	--reqly-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-	--reqly-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+	/* Only Safari knows ui-monospace, so Menlo stands in for it in other browsers on the Mac, and
+	   Cascadia Mono or Consolas on Windows, in place of the browser's own monospace. */
+	--reqly-mono: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
 }
