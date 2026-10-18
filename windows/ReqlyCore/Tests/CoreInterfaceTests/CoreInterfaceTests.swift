@@ -91,6 +91,16 @@ func call(_ host: SessionHost, _ json: String) async -> Data {
     await host.reply(to: Data(json.utf8))
 }
 
+/// Runs `work`, which blocks while it waits, on a thread of its own, as the app calls the core from
+/// threads of its own. Swift's tasks share as many threads as the computer has cores, four on
+/// GitHub's, and work that blocks one holds up every test's tasks, and the core's.
+func onOwnThread<T: Sendable, E: Error>(_ work: @escaping @Sendable () throws(E) -> T) async throws(E) -> T {
+    let result = await withCheckedContinuation { (done: CheckedContinuation<Result<T, E>, Never>) in
+        Thread.detachNewThread { done.resume(returning: Result(catching: work)) }
+    }
+    return try result.get()
+}
+
 @Suite struct CallTests {
     func parse(_ json: String) -> Result<Call, Problem> {
         Result { () throws(Problem) in try Call(json: Data(json.utf8)) }
@@ -1278,10 +1288,9 @@ func call(_ host: SessionHost, _ fields: [String: Any]) async -> Data {
         let context = Unmanaged.passRetained(inbox)
         defer { context.release() }
         let options = #"{"sessionsFolder":"\#(folder.appending(path: "Sessions").path)","file":"\#(file.path)"}"#
-        // reqly_open waits for the core, so it runs away from the test's own thread, as the app
-        // runs it away from its UI thread. The handle crosses between tasks as its address.
-        let address = await Task.detached { UInt(bitPattern: reqlyOpen(options, Self.onEvent, context.toOpaque())) }
-            .value
+        // reqly_open waits for the core, so it runs on a thread of its own, as the app runs it away
+        // from its UI thread. The handle crosses between threads as its address.
+        let address = await onOwnThread { UInt(bitPattern: reqlyOpen(options, Self.onEvent, context.toOpaque())) }
         let handle = try #require(UnsafeMutableRawPointer(bitPattern: address))
         #expect(await inbox.events.wait { $0["event"] as? String == "rows" } != nil)
 
@@ -1289,16 +1298,16 @@ func call(_ host: SessionHost, _ fields: [String: Any]) async -> Data {
         let reply = try #require(await inbox.replies.wait { $0["result"] != nil })
         #expect((reply["result"] as? [String: Any])?["version"] as? Int == interfaceVersion)
 
-        let body = await Task.detached { () -> Data? in
+        let body = await onOwnThread { () -> Data? in
             var length: Int64 = 0
             let handle = UnsafeMutableRawPointer(bitPattern: address)
             guard let bytes = reqlyBody(handle, 2, 1, 0, 1000, &length) else { return nil }
             defer { reqlyFree(bytes) }
             return Data(bytes: bytes, count: Int(length))
-        }.value
+        }
         #expect(body == Data(#"["Tehran","Lisbon"]"#.utf8))
 
-        await Task.detached { reqlyClose(UnsafeMutableRawPointer(bitPattern: address)) }.value
+        await onOwnThread { reqlyClose(UnsafeMutableRawPointer(bitPattern: address)) }
     }
 
     @Test func saysWhyASessionDidntOpen() async {
@@ -1308,8 +1317,7 @@ func call(_ host: SessionHost, _ fields: [String: Any]) async -> Data {
         let missing = URL.temporaryDirectory.appending(path: "ReqlyCoreTests-\(UUID().uuidString)/Gone.reqly").path
         let sessions = URL.temporaryDirectory.appending(path: "ReqlyCoreTests-x").path
         let options = #"{"sessionsFolder":"\#(sessions)","file":"\#(missing)"}"#
-        let address = await Task.detached { UInt(bitPattern: reqlyOpen(options, Self.onEvent, context.toOpaque())) }
-            .value
+        let address = await onOwnThread { UInt(bitPattern: reqlyOpen(options, Self.onEvent, context.toOpaque())) }
         #expect(address == 0)
         let failed = inbox.events.all.first { $0["event"] as? String == "openFailed" }
         #expect((failed?["problem"] as? [String: Any])?["code"] as? String == "failed")

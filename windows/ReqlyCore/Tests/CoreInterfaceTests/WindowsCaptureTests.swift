@@ -8,51 +8,41 @@
 
     @Suite struct WindowsCaptureTests {
         /// Sends a request through the proxy on `port`, as an app would, and reads the answer.
-        static func sendRequest(throughProxyAt port: Int) throws {
-            _ = try send("http://127.0.0.1:9/", host: "127.0.0.1:9", throughProxyAt: port)
+        static func sendRequest(throughProxyAt port: Int) async throws {
+            _ = try await send("http://127.0.0.1:9/", host: "127.0.0.1:9", throughProxyAt: port)
         }
 
         /// Sends a GET for `url` through the proxy on `port`, as an app would, and returns the answer,
-        /// or what came of it in five seconds.
-        static func send(_ url: String, host: String, throughProxyAt port: Int) throws -> String {
-            var data = WSADATA()
-            #expect(WSAStartup(0x0202, &data) == 0)
-            defer { WSACleanup() }
-            let client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP.rawValue)
-            defer { closesocket(client) }
-            var address = sockaddr_in()
-            address.sin_family = ADDRESS_FAMILY(AF_INET)
-            address.sin_addr.S_un.S_addr = UInt32(0x7F00_0001).bigEndian
-            address.sin_port = UInt16(port).bigEndian
-            let connected = withUnsafePointer(to: &address) {
-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    connect(client, $0, Int32(MemoryLayout<sockaddr_in>.size))
+        /// or what came of it in five seconds. It waits on a thread of its own.
+        static func send(_ url: String, host: String, throughProxyAt port: Int) async throws -> String {
+            try await onOwnThread {
+                let client = try Self.openConnection(toProxyAt: port)
+                defer {
+                    closesocket(client)
+                    WSACleanup()
                 }
-            }
-            try #require(connected == 0)
-            var timeout: DWORD = 5000
-            _ = withUnsafeBytes(of: &timeout) { value in
-                let bytes = value.baseAddress?.assumingMemoryBound(to: CChar.self)
-                return setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, bytes, Int32(value.count))
-            }
-            // With no server there, Reqly answers itself, and the exchange is recorded all the same.
-            let request = Array("GET \(url) HTTP/1.1\r\nHost: \(host)\r\nConnection: close\r\n\r\n".utf8)
-            _ = request.withUnsafeBufferPointer { bytes in
-                bytes.withMemoryRebound(to: CChar.self) { WinSDK.send(client, $0.baseAddress, Int32($0.count), 0) }
-            }
-            var answer: [UInt8] = []
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = buffer.withUnsafeMutableBufferPointer { bytes in
-                    bytes.withMemoryRebound(to: CChar.self) { recv(client, $0.baseAddress, Int32($0.count), 0) }
+                var timeout: DWORD = 5000
+                _ = withUnsafeBytes(of: &timeout) { value in
+                    let bytes = value.baseAddress?.assumingMemoryBound(to: CChar.self)
+                    return setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, bytes, Int32(value.count))
                 }
-                guard count > 0 else { break }
-                answer += buffer[..<Int(count)]
+                // With no server there, Reqly answers itself, and the exchange is recorded all the same.
+                Self.write("GET \(url) HTTP/1.1\r\nHost: \(host)\r\nConnection: close\r\n\r\n", to: client)
+                var answer: [UInt8] = []
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while true {
+                    let count = buffer.withUnsafeMutableBufferPointer { bytes in
+                        bytes.withMemoryRebound(to: CChar.self) { recv(client, $0.baseAddress, Int32($0.count), 0) }
+                    }
+                    guard count > 0 else { break }
+                    answer += buffer[..<Int(count)]
+                }
+                return String(decoding: answer, as: UTF8.self)
             }
-            return String(decoding: answer, as: UTF8.self)
         }
 
-        /// A connection that stays open, as a browser keeps one to its proxy.
+        /// A connection that stays open, as a browser keeps one to its proxy. Close it, then call
+        /// WSACleanup.
         static func openConnection(toProxyAt port: Int) throws -> SOCKET {
             var data = WSADATA()
             #expect(WSAStartup(0x0202, &data) == 0)
@@ -70,14 +60,21 @@
             return client
         }
 
+        /// Sends `text` on a connection.
+        static func write(_ text: String, to client: SOCKET) {
+            _ = Array(text.utf8).withUnsafeBufferPointer { bytes in
+                bytes.withMemoryRebound(to: CChar.self) { WinSDK.send(client, $0.baseAddress, Int32($0.count), 0) }
+            }
+        }
+
         @Test func capturesAgainOnTheSamePort() async throws {
             let folder = URL.temporaryDirectory.appending(path: "ReqlyCoreTests-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: folder) }
             let host = try await SessionHost.open(OpenOptions(sessionsFolder: folder.path), send: { _ in })
             let start = #"{"call":"startCapturing","port":9193}"#
             #expect(try result(await call(host, start))["port"] as? Int == 9193)
-            try await Task.detached { try Self.sendRequest(throughProxyAt: 9193) }.value
-            let open = try await Task.detached { try Self.openConnection(toProxyAt: 9193) }.value
+            try await Self.sendRequest(throughProxyAt: 9193)
+            let open = try await onOwnThread { try Self.openConnection(toProxyAt: 9193) }
             defer {
                 closesocket(open)
                 WSACleanup()
@@ -98,7 +95,15 @@
             let host = try await SessionHost.open(OpenOptions(sessionsFolder: folder.path), send: log.record)
             let started = try result(await call(host, #"{"call":"startCapturing","port":0}"#))
             let port = try #require(started["port"] as? Int)
-            try await Task.detached { try Self.sendRequest(throughProxyAt: port) }.value
+            // Windows' table of connections names the app only while its connection is open, so
+            // this one stays open, as an app's to its proxy does, until the app shows.
+            let client = try await onOwnThread { try Self.openConnection(toProxyAt: port) }
+            defer {
+                closesocket(client)
+                WSACleanup()
+            }
+            // With no server there, Reqly answers itself, and the exchange is recorded all the same.
+            Self.write("GET http://127.0.0.1:9/ HTTP/1.1\r\nHost: 127.0.0.1:9\r\n\r\n", to: client)
 
             let id = try #require(
                 await log.wait { event in
@@ -140,8 +145,8 @@
             let started = try result(await call(host, #"{"call":"startCapturing","port":0}"#))
             let port = try #require(started["port"] as? Int)
             // .invalid never resolves, so nothing leaves the computer.
-            let sending = Task.detached {
-                try Self.send("http://weather.invalid/v2/held", host: "weather.invalid", throughProxyAt: port)
+            let sending = Task {
+                try await Self.send("http://weather.invalid/v2/held", host: "weather.invalid", throughProxyAt: port)
             }
             #expect(await log.wait { $0["event"] as? String == "paused" } != nil)
             // Clearing takes the request's row away, and with it the only way to decide, so it goes
@@ -218,8 +223,8 @@
             let started = try result(await call(host, #"{"call":"startCapturing","port":0}"#))
             let port = try #require(started["port"] as? Int)
             let origin = "127.0.0.1:\(server.port)"
-            let sending = Task.detached {
-                try Self.send("http://\(origin)/held", host: origin, throughProxyAt: port)
+            let sending = Task {
+                try await Self.send("http://\(origin)/held", host: origin, throughProxyAt: port)
             }
             #expect(await log.wait { $0["event"] as? String == "paused" } != nil)
             // Clearing lets the request go on. Its response would be held next, with no row to show

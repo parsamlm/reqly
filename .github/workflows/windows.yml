@@ -1,0 +1,84 @@
+name: Windows
+
+# Reqly for Windows, on Windows, when the core or the Windows app changes: the core's and the
+# Windows interface's tests, with the patches in windows/patches, and the installer, as
+# windows/scripts/package.ps1 makes it, kept with the run. ci.yml runs the macOS and Linux jobs.
+on:
+  push:
+    branches: [main]
+    paths: [core/**, windows/**, .github/workflows/windows.yml]
+  pull_request:
+    paths: [core/**, windows/**, .github/workflows/windows.yml]
+
+# A newer push to the same branch makes an older run's results moot.
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Windows PowerShell, as on a PC, which the scripts are written for.
+    shell: powershell
+
+jobs:
+  tests:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      # The patches, and the files tests compare byte for byte, keep the repository's line endings.
+      - name: Keep line endings as they are
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+
+      - name: Install Swift and NASM
+        run: windows\scripts\ci-tools.ps1
+
+      - name: Test the core
+        timeout-minutes: 60
+        run: windows\scripts\core.ps1 test
+
+      - name: Test the Windows app's core interface
+        timeout-minutes: 40
+        run: windows\scripts\core.ps1 test -Package ReqlyCore
+
+  installer:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - name: Keep line endings as they are
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+
+      - name: Install Swift and NASM
+        run: windows\scripts\ci-tools.ps1
+
+      # The SDK whose .NET the licenses list has, and only it: package.ps1 checks the .NET Reqly carries.
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.401
+
+      - name: Use that SDK alone
+        run: dotnet new globaljson --sdk-version 10.0.401 --roll-forward disable --force
+
+      - name: Make the installer
+        timeout-minutes: 75
+        run: windows\scripts\package.ps1
+
+      - name: Keep the installer and its packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: reqly-windows
+          path: windows/.build/releases/
+          if-no-files-found: error
+          retention-days: 14
+
+      # ReqlyCore.dll with its debug information, and Reqly.pdb, to read this build's crash reports.
+      - name: Keep the debug information
+        uses: actions/upload-artifact@v7
+        with:
+          name: reqly-windows-symbols
+          path: windows/.build/symbols/
+          if-no-files-found: error
+          retention-days: 14

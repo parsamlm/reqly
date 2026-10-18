@@ -380,7 +380,7 @@ Reqly/
 - **The app:**
   - Feature models are tested with fake services.
   - A few UI tests cover starting and stopping capture, and the certificate setup.
-- **CI** on GitHub Actions builds the app, runs the tests and checks formatting with `swift format`. A second job builds and tests the core on Linux, to catch Apple-only code and what behaves differently there. A version tag starts the release workflow, which builds, signs and notarizes Reqly, and drafts a GitHub release.
+- **CI** on GitHub Actions builds the app, runs the tests and checks formatting with `swift format`. A second job builds and tests the core on Linux, to catch Apple-only code and what behaves differently there. A third workflow, Windows (`.github/workflows/windows.yml`), runs on Windows when the core or the Windows app changes: the core's and the Windows interface's tests, with the patches in `windows/patches`, and the installer, as `windows/scripts/package.ps1` makes it, kept with the run for two weeks with its debug information. `windows/scripts/ci-tools.ps1` installs what GitHub's Windows machines lack: Swift 6.4.0 and NASM, each checked against its hash. A version tag starts the release workflow, which builds, signs and notarizes Reqly, and drafts a GitHub release.
 
 ## Devices
 
@@ -468,7 +468,7 @@ BodyKit reads protobuf's wire format itself, so Reqly needs no code generated fr
 The Windows app in Phase 2 shares the core, and the phone companion apps in Phases 3 and 4 send their traffic to the desktop apps. The core is ready for that:
 
 - The core modules don't import Apple-only frameworks such as Security or ServiceManagement. Platform code lives in its own modules, which `Package.swift` lists only on the Mac. Brotli is the exception: the Mac unpacks it with Apple's Compression framework, and Windows and Linux with Brotli's decoder, built from source.
-- CI builds and tests the core on Linux for every change. It's the cheapest way to catch Apple-only code slipping in.
+- CI builds and tests the core on Linux for every change. It's the cheapest way to catch Apple-only code slipping in. It builds and tests it on Windows too, with the Windows app, when either changes.
 - Session files are SQLite databases that hold everything, bodies included, in one file, so the Windows app can open them as they are. The core's tests open a session that Reqly for Mac 1.0 saved and one the Windows app saved, on every system, and check that both read as they were saved.
 - The Windows app runs the core in its own process, as `ReqlyCore.dll`. Requests and events cross between C# and Swift as small JSON messages, and bodies as bytes. The request list engine and body presentation live in the core's Presentation module, so both apps filter, search and show bodies the same way, and the Windows list asks only for the rows it shows.
 - The Windows app keeps the same settings files as the Mac, under `%LOCALAPPDATA%\Reqly`: `Rules.json`, `Connections.json`, `Protobuf.json` and `Devices.json`, which the core reads and writes for it. The upstream proxy's password and the client certificates' keys go in `Secrets.dat`, which Windows encrypts for your user account (DPAPI), as the Mac keeps them in the Keychain. The app's own preferences, such as the port and the window's place, are in `Settings.json`.

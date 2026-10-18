@@ -326,9 +326,16 @@ struct Fixtures {
         third.discard()
         #expect(!FileManager.default.fileExists(atPath: third.directory.path(percentEncoded: false)))
     }
+}
 
-    /// The speed check from ARCHITECTURE.md: a session of 100,000 requests stays quick to save,
-    /// search and read.
+/// The speed check from ARCHITECTURE.md, with time of its own: writing 100,000 requests takes most
+/// of a minute in a debug build on a slow Windows machine, where the bar is 500 ms per 1,000, and
+/// the minute the other suites get, which only guards against a hang, would stop it before it says
+/// how fast it was.
+@Suite(.timeLimit(.minutes(3))) struct TrafficStoreSpeedTests {
+    typealias F = Fixtures
+
+    /// A session of 100,000 requests stays quick to save, search and read.
     @Test func keepsUpWithAHundredThousandExchanges() async throws {
         let store = try F.store()
         defer { store.discard() }
