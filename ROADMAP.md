@@ -1,13 +1,14 @@
 # Reqly roadmap
 
-Reqly comes in four phases, one platform at a time. Each phase ships when it's ready.
+Reqly comes in five phases, one platform at a time. Each phase ships when it's ready.
 
 | Phase | Platform | Status |
 |---|---|---|
 | [1](#phase-1--reqly-for-mac) | Mac | Done |
 | [2](#phase-2--reqly-for-windows) | Windows | In progress |
-| [3](#phase-3--reqly-for-iphone-and-ipad) | iPhone and iPad | Planned |
-| [4](#phase-4--reqly-for-android) | Android | Planned |
+| [3](#phase-3--reqly-for-linux) | Linux | Planned |
+| [4](#phase-4--reqly-for-iphone-and-ipad) | iPhone and iPad | Planned |
+| [5](#phase-5--reqly-for-android) | Android | Planned |
 
 ## Phase 1 — Reqly for Mac
 
@@ -37,7 +38,19 @@ Everything from Phase 1 on Windows 11, built on the same core. A session saved o
 - [x] An icon in the notification area, and automatic updates.
 - [ ] A signed installer and winget.
 
-## Phase 3 — Reqly for iPhone and iPad
+## Phase 3 — Reqly for Linux
+
+Everything from Phase 1 on Debian, Ubuntu and the systems based on them, such as Linux Mint, built on the same core. A session saved on a Mac or a Windows PC opens on Linux, and the other way around.
+
+- [ ] Capture Linux apps' traffic on GNOME and KDE with one switch. Reqly sets your desktop's proxy and always puts it back.
+- [ ] HTTPS decryption, set up for your browsers and command-line tools, and removable at any time.
+- [ ] A terminal set up for Reqly, so curl, git and other tools are captured too.
+- [ ] The request list, details, search and filters.
+- [ ] Sending and saving, rules and scripts, devices, protocols and connections.
+- [ ] An icon in the notification area, on desktops that show one.
+- [ ] A `.deb` package and an apt repository, which keep Reqly up to date.
+
+## Phase 4 — Reqly for iPhone and iPad
 
 A companion app that connects an iPhone or iPad to Reqly on a Mac or Windows PC in a few taps. The desktop app shows the traffic.
 
@@ -47,7 +60,7 @@ A companion app that connects an iPhone or iPad to Reqly on a Mac or Windows PC 
 - [ ] Start and stop from the app or from Control Center.
 - [ ] On the App Store.
 
-## Phase 4 — Reqly for Android
+## Phase 5 — Reqly for Android
 
 The same companion app for Android phones and tablets.
 

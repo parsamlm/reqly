@@ -54,7 +54,8 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
 
   # The core: the engine, certificates, rules, scripts, storage and file formats, which the
-  # Windows app will share. The Mac-only modules are in mac/ReqlyMacKit, so they stay out.
+  # Windows app shares, and the Linux app will. The Mac-only modules are in mac/ReqlyMacKit,
+  # so they stay out.
   core-on-linux:
     runs-on: ubuntu-24.04
     container: swift:6.2-noble

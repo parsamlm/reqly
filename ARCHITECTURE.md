@@ -1,6 +1,6 @@
 # Reqly architecture
 
-This document explains how Reqly is built: the Mac app today, the core it will share with the Windows app, and the phone companion apps that send traffic to them. It covers:
+This document explains how Reqly is built: the Mac and Windows apps today, the core they share, which the Linux app will share too, and the phone companion apps that send traffic to them. It covers:
 
 - the stack
 - the processes
@@ -19,7 +19,7 @@ To change one of these choices, open a pull request that explains why.
 |---|---|
 | Language | Swift 6, with complete data-race checking |
 | Interface | SwiftUI, with AppKit for the request list and the code and hex viewers |
-| Platform | macOS 26 and later. Windows in Phase 2; companion apps for iPhone, iPad and Android in Phases 3 and 4 |
+| Platform | macOS 26 and later. Windows in Phase 2; Linux in Phase 3; companion apps for iPhone, iPad and Android in Phases 4 and 5 |
 | Proxy engine | SwiftNIO: NIOHTTP1, NIOHTTP2 and NIOSSL |
 | Certificates | swift-certificates and swift-crypto; the root key lives in the Keychain |
 | Storage | SQLite, through GRDB |
@@ -353,8 +353,9 @@ Reqly/
 │   ├── patches/            fixes to SwiftNIO and swift-nio-ssl for Windows, until their releases
 │   │                       have them
 │   └── scripts/            builds the core, SQLite and the app on Windows, and the installer
-├── ios/                    the companion app for iPhone and iPad, in Phase 3
-├── android/                the companion app for Android, in Phase 4
+├── linux/                  Reqly for Linux, in Phase 3
+├── ios/                    the companion app for iPhone and iPad, in Phase 4
+├── android/                the companion app for Android, in Phase 5
 ├── design/                 logo and design guidelines
 ├── website/                reqly.net: the home page, the docs and the privacy page
 ├── tools/                  acknowledgements.py, which collects both apps' open-source licenses,
@@ -380,7 +381,7 @@ Reqly/
 - **The app:**
   - Feature models are tested with fake services.
   - A few UI tests cover starting and stopping capture, and the certificate setup.
-- **CI** on GitHub Actions builds the app, runs the tests and checks formatting with `swift format`. A second job builds and tests the core on Linux, to catch Apple-only code and what behaves differently there. A third workflow, Windows (`.github/workflows/windows.yml`), runs on Windows when the core or the Windows app changes: the core's and the Windows interface's tests, with the patches in `windows/patches`, and the installer, as `windows/scripts/package.ps1` makes it, kept with the run for two weeks with its debug information. `windows/scripts/ci-tools.ps1` installs what GitHub's Windows machines lack: Swift 6.4.0 and NASM, each checked against its hash. A version tag starts the release workflow, which builds, signs and notarizes Reqly, and drafts a GitHub release. A `windows-v` tag starts the Windows one (`.github/workflows/windows-release.yml`), which makes the installer in `package.ps1`'s three stages and drafts a release too. Once SignPath is set up, it signs Reqly's own files between the first two stages, and the installer after the second, each after a maintainer approves it there. Only what Reqly builds is signed, as SignPath Foundation's terms ask; the libraries it carries from others ship as they come, Microsoft's signed by Microsoft.
+- **CI** on GitHub Actions builds the app, runs the tests and checks formatting with `swift format`. A second job builds and tests the core, and the Windows app's core interface, on Linux, to catch Apple-only code and what behaves differently there. A third workflow, Windows (`.github/workflows/windows.yml`), runs on Windows when the core or the Windows app changes: the core's and the Windows interface's tests, with the patches in `windows/patches`, and the installer, as `windows/scripts/package.ps1` makes it, kept with the run for two weeks with its debug information. `windows/scripts/ci-tools.ps1` installs what GitHub's Windows machines lack: Swift 6.4.0 and NASM, each checked against its hash. A version tag starts the release workflow, which builds, signs and notarizes Reqly, and drafts a GitHub release. A `windows-v` tag starts the Windows one (`.github/workflows/windows-release.yml`), which makes the installer in `package.ps1`'s three stages and drafts a release too. Once SignPath is set up, it signs Reqly's own files between the first two stages, and the installer after the second, each after a maintainer approves it there. Only what Reqly builds is signed, as SignPath Foundation's terms ask; the libraries it carries from others ship as they come, Microsoft's signed by Microsoft.
 
 ## Devices
 
@@ -465,7 +466,7 @@ BodyKit reads protobuf's wire format itself, so Reqly needs no code generated fr
 
 ## Other platforms
 
-The Windows app in Phase 2 shares the core, and the phone companion apps in Phases 3 and 4 send their traffic to the desktop apps. The core is ready for that:
+The Windows app in Phase 2 shares the core, and so will the Linux app in Phase 3. The phone companion apps in Phases 4 and 5 send their traffic to the desktop apps. The core is ready for that:
 
 - The core modules don't import Apple-only frameworks such as Security or ServiceManagement. Platform code lives in its own modules, which `Package.swift` lists only on the Mac. Brotli is the exception: the Mac unpacks it with Apple's Compression framework, and Windows and Linux with Brotli's decoder, built from source.
 - CI builds and tests the core on Linux for every change. It's the cheapest way to catch Apple-only code slipping in. It builds and tests it on Windows too, with the Windows app, when either changes.
