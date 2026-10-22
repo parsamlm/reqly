@@ -4,7 +4,7 @@ const repo = 'https://github.com/parsamlm/reqly';
 
 // Windows releases are never the latest release, which the Mac's updates read, so the site names
 // the newest. Change it with each Windows release: both Windows links below follow it.
-const windowsTag = 'windows-v1.0.0-beta.1';
+const windowsTag = 'windows-v1.0.0-beta.2';
 
 export const links = {
 	github: repo,
