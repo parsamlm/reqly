@@ -18,7 +18,7 @@
     },
     {
       "name": "Brotli",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "url": "https://github.com/google/brotli",
       "license": "MIT License",
       "notices": [
