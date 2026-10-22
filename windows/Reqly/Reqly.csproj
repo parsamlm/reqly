@@ -12,7 +12,7 @@
     <Copyright>Copyright © 2026 The Reqly Authors</Copyright>
     <Company>The Reqly Authors</Company>
     <!-- Reqly for Windows' version, which About, HAR files, the installer and updates use. -->
-    <Version>1.0.0-beta.1</Version>
+    <Version>1.0.0-beta.2</Version>
     <!-- The version alone, without the commit .NET adds to it in a clone: signing checks that each
          file it signs carries this version, as ReqlyCore.dll and the installer do. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
