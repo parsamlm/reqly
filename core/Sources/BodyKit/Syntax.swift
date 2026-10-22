@@ -1,9 +1,5 @@
 import Foundation
 
-#if canImport(FoundationXML)
-    import FoundationXML
-#endif
-
 /// What a stretch of code is, for coloring it.
 public enum SyntaxKind: Hashable, Sendable {
     /// An object's key in JSON.
@@ -292,47 +288,11 @@ public enum MarkupSyntax {
         return tokens
     }
 
-    /// XML laid out with one element per line. Text that isn't well-formed XML comes back as it was.
+    /// XML laid out with one element per line, by Reqly's own reader rather than Foundation's
+    /// XMLDocument, for the reasons XMLLayout gives. Text that isn't well-formed XML comes back as
+    /// it was.
     public static func formattedXML(_ text: String) -> String {
-        guard isWellFormedXML(text),
-            let document = try? XMLDocument(xmlString: text, options: [.nodePreserveWhitespace])
-        else {
-            return text
-        }
-        return document.xmlString(options: [.nodePrettyPrint])
-    }
-
-    /// Whether `text` is well-formed XML. On Linux, XMLDocument repairs broken XML rather than
-    /// refusing it, and XMLParser carries on past some mistakes and misses an element that's never
-    /// closed, so this checks the parser's error and that every element it opened was closed.
-    static func isWellFormedXML(_ text: String) -> Bool {
-        let parser = XMLParser(data: Data(text.utf8))
-        let elements = ElementBalance()
-        parser.delegate = elements
-        return parser.parse() && parser.parserError == nil && elements.isBalanced
-    }
-}
-
-/// Counts the elements an XML parser opens and closes.
-private final class ElementBalance: NSObject, XMLParserDelegate {
-    private var depth = 0
-    private var sawElement = false
-
-    /// Whether there was an element, and every element was closed.
-    var isBalanced: Bool { sawElement && depth == 0 }
-
-    func parser(
-        _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
-        qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]
-    ) {
-        depth += 1
-        sawElement = true
-    }
-
-    func parser(
-        _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?
-    ) {
-        depth -= 1
+        XMLLayout.formatted(text) ?? text
     }
 }
 
