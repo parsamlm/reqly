@@ -132,12 +132,12 @@ END
     "Swift runtime: $($copied.Count) DLLs from $runtime"
     if ($copied -notcontains 'swiftCore.dll') { throw "ReqlyCore.dll doesn't import swiftCore.dll from $runtime." }
     # The ones whose licenses Reqly's list has, as tools/acknowledgements.py writes it: Swift's, with
-    # ICU in _FoundationICU.dll and libxml2 in FoundationXML.dll, and the Visual C++ runtime, under
-    # Microsoft's terms, which Reqly asks you to agree to. Another may carry code under a license of
-    # its own, as FoundationNetworking.dll carries curl.
+    # ICU in _FoundationICU.dll, and the Visual C++ runtime, under Microsoft's terms, which Reqly asks
+    # you to agree to. Another may carry code under a license of its own, as FoundationNetworking.dll
+    # carries curl, and FoundationXML.dll libxml2: Reqly reads XML with its own code instead.
     $licensed = 'BlocksRuntime.dll', 'dispatch.dll', 'Foundation.dll', 'FoundationEssentials.dll',
-        'FoundationInternationalization.dll', 'FoundationXML.dll', '_FoundationICU.dll', 'swiftCore.dll',
-        'swiftCRT.dll', 'swiftDispatch.dll', 'swiftObservation.dll', 'swiftSynchronization.dll', 'swiftWinSDK.dll',
+        'FoundationInternationalization.dll', '_FoundationICU.dll', 'swiftCore.dll', 'swiftCRT.dll',
+        'swiftDispatch.dll', 'swiftObservation.dll', 'swiftSynchronization.dll', 'swiftWinSDK.dll',
         'swift_Concurrency.dll', 'swift_RegexParser.dll', 'swift_StringProcessing.dll',
         'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'
     $unlisted = @($copied | Where-Object { $licensed -notcontains $_ })

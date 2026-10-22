@@ -6,7 +6,7 @@ Reqly comes in five phases, one platform at a time. Each phase ships when it's r
 |---|---|---|
 | [1](#phase-1--reqly-for-mac) | Mac | Done |
 | [2](#phase-2--reqly-for-windows) | Windows | In progress |
-| [3](#phase-3--reqly-for-linux) | Linux | Planned |
+| [3](#phase-3--reqly-for-linux) | Linux | In progress |
 | [4](#phase-4--reqly-for-iphone-and-ipad) | iPhone and iPad | Planned |
 | [5](#phase-5--reqly-for-android) | Android | Planned |
 

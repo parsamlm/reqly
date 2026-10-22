@@ -57,26 +57,6 @@
       ]
     },
     {
-      "name": "libxml2",
-      "version": "2.11.5",
-      "url": "https://gitlab.gnome.org/GNOME/libxml2",
-      "license": "MIT License",
-      "notices": [
-        {
-          "title": "Copyright",
-          "text": "Except where otherwise noted in the source code (e.g. the files hash.c,\nlist.c and the trio files, which are covered by a similar licence but\nwith different Copyright notices) all the files are:\n\n Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is fur-\nnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-\nNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE."
-        },
-        {
-          "title": "hash.c",
-          "text": "Copyright (C) 2000,2012 Bjorn Reese and Daniel Veillard.\n\nPermission to use, copy, modify, and distribute this software for any\npurpose with or without fee is hereby granted, provided that the above\ncopyright notice and this permission notice appear in all copies.\n\nTHIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED\nWARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF\nMERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE AUTHORS AND\nCONTRIBUTORS ACCEPT NO RESPONSIBILITY IN ANY CONCEIVABLE MANNER."
-        },
-        {
-          "title": "list.c",
-          "text": "Copyright (C) 2000 Gary Pennington and Daniel Veillard.\n\nPermission to use, copy, modify, and distribute this software for any\npurpose with or without fee is hereby granted, provided that the above\ncopyright notice and this permission notice appear in all copies.\n\nTHIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED\nWARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF\nMERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE AUTHORS AND\nCONTRIBUTORS ACCEPT NO RESPONSIBILITY IN ANY CONCEIVABLE MANNER."
-        }
-      ]
-    },
-    {
       "name": "QuickJS-ng",
       "version": "0.17.0",
       "url": "https://github.com/quickjs-ng/quickjs",
@@ -116,7 +96,7 @@
       "notices": [
         {
           "title": "Swift's runtime",
-          "text": "Reqly for Windows carries Swift's runtime, from the Swift project: the standard library, from swift and swift-experimental-string-processing, Dispatch, from swift-corelibs-libdispatch, and Foundation, from swift-corelibs-foundation, swift-foundation and swift-foundation-icu. Each is under the license in LICENSE.txt. Foundation also carries ICU and libxml2, which this list has on their own."
+          "text": "Reqly for Windows carries Swift's runtime, from the Swift project: the standard library, from swift and swift-experimental-string-processing, Dispatch, from swift-corelibs-libdispatch, and Foundation, from swift-corelibs-foundation, swift-foundation and swift-foundation-icu. Each is under the license in LICENSE.txt. Foundation also carries ICU, which this list has on its own."
         },
         {
           "title": "LICENSE.txt",

@@ -185,13 +185,13 @@ NUGET_LEFT_OUT = {
 }
 
 # The runtimes that Reqly for Windows' installer puts beside Reqly.exe, at the versions that
-# windows/scripts/package.ps1 checks it carries. Swift's Foundation carries ICU in _FoundationICU.dll,
-# and libxml2 in FoundationXML.dll: at the Swift release's tag, swift-foundation-icu's
-# icuSources/include/_foundation_unicode/uvernum.h and swift's utils/build.ps1 say which versions.
+# windows/scripts/package.ps1 checks it carries. Swift's Foundation carries ICU in _FoundationICU.dll:
+# at the Swift release's tag, swift-foundation-icu's icuSources/include/_foundation_unicode/uvernum.h
+# says which version. Reqly reads XML with its own code, so it doesn't carry FoundationXML.dll, or the
+# libxml2 inside it.
 DOTNET = "10.0.12"
 SWIFT = "6.4.0"
 ICU = "76.1"
-LIBXML2 = "2.11.5"
 # Each runtime's license and notices, saved in tools/licenses, and where they come from.
 RUNTIMES = [
     {
@@ -219,8 +219,7 @@ RUNTIMES = [
             "Reqly for Windows carries Swift's runtime, from the Swift project: the standard library, from"
             " swift and swift-experimental-string-processing, Dispatch, from swift-corelibs-libdispatch, and"
             " Foundation, from swift-corelibs-foundation, swift-foundation and swift-foundation-icu. Each is"
-            " under the license in LICENSE.txt. Foundation also carries ICU and libxml2, which this list has"
-            " on their own.",
+            " under the license in LICENSE.txt. Foundation also carries ICU, which this list has on its own.",
         ),
         "texts": [
             {
@@ -246,28 +245,6 @@ RUNTIMES = [
                 "file": f"icu-{ICU}-LICENSE.txt",
                 "source": f"https://github.com/unicode-org/icu/blob/release-{ICU.replace('.', '-')}/LICENSE",
             }
-        ],
-    },
-    {
-        "name": "libxml2",
-        "version": LIBXML2,
-        "url": "https://gitlab.gnome.org/GNOME/libxml2",
-        "license": MIT,
-        # Copyright names hash.c and list.c, which have notices of their own. Its trio files aren't built.
-        "texts": [
-            {
-                "title": "Copyright",
-                "file": f"libxml2-{LIBXML2}-Copyright.txt",
-                "source": f"https://gitlab.gnome.org/GNOME/libxml2/-/blob/v{LIBXML2}/Copyright",
-            }
-        ]
-        + [
-            {
-                "title": name,
-                "file": f"libxml2-{LIBXML2}-{name}.txt",
-                "source": f"the comment at the top of https://gitlab.gnome.org/GNOME/libxml2/-/blob/v{LIBXML2}/{name}",
-            }
-            for name in ("hash.c", "list.c")
         ],
     },
 ]
@@ -674,7 +651,7 @@ def nuget_packages(warnings):
 
 
 def runtimes(warnings):
-    """The runtimes that Reqly for Windows' installer puts beside it: .NET, and Swift's, with ICU and libxml2."""
+    """The runtimes that Reqly for Windows' installer puts beside it: .NET, and Swift's, with ICU."""
     listed = []
     for spec in RUNTIMES:
         notices = [{"title": spec["about"][0], "text": spec["about"][1]}] if "about" in spec else []

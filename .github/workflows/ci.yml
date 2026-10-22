@@ -55,10 +55,20 @@ jobs:
 
   # The core: the engine, certificates, rules, scripts, storage and file formats, which the
   # Windows app shares, and the Linux app will. The Mac-only modules are in mac/ReqlyMacKit,
-  # so they stay out.
+  # so they stay out. On x64 and arm64, with the Swift that Reqly for Linux is built with.
   core-on-linux:
-    runs-on: ubuntu-24.04
-    container: swift:6.2-noble
+    name: Core on Linux (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: swift:6.4.1-noble
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -66,10 +76,101 @@ jobs:
         run: apt-get update && apt-get install -y libsqlite3-dev zlib1g-dev
 
       - name: Build the core
-        run: swift build --package-path core
+        run: linux/scripts/core.sh build
 
       - name: Test the core
-        run: swift test --package-path core
+        run: linux/scripts/core.sh test
 
       - name: Test the Windows app's core interface
-        run: swift test --package-path windows/ReqlyCore
+        run: linux/scripts/core.sh test --package ReqlyCore
+
+  # libReqlyCore.so for release, as Reqly for Linux will ship it: with the parts of Swift's
+  # runtime it needs, and its debug information apart (linux/scripts/stage-core.sh). A release
+  # build shares nothing with the tests' builds, so it runs beside them, and the checks below
+  # don't wait for the tests. Kept with the run for two weeks.
+  core-release-on-linux:
+    name: Core's release build on Linux (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: swift:6.4.1-noble
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install SQLite and zlib
+        run: apt-get update && apt-get install -y libsqlite3-dev zlib1g-dev
+
+      - name: Build libReqlyCore.so
+        run: linux/scripts/core.sh build --package ReqlyCore -c release --product ReqlyCore
+
+      - name: Gather it with Swift's runtime
+        run: linux/scripts/stage-core.sh linux/.build/core
+
+      # Artifacts don't keep files' modes, so the files go in a tar.
+      - name: Pack it
+        run: tar -C linux/.build -cf linux/.build/core-${{ matrix.arch }}.tar core
+
+      - name: Keep it with the run
+        uses: actions/upload-artifact@v7
+        with:
+          name: reqly-linux-core-${{ matrix.arch }}
+          path: linux/.build/core-${{ matrix.arch }}.tar
+          if-no-files-found: error
+          retention-days: 14
+
+      # Swift's image has a toolchain under /usr, as a developer's computer may, and the core
+      # has to load its own runtime even so.
+      - name: Check that it uses its own Swift runtime
+        run: linux/scripts/check-core.sh linux/.build/core
+
+  # The release build on each system Reqly for Linux supports, with only SQLite, zlib and
+  # libstdc++ added and no Swift (linux/scripts/check-core.sh): it finds every library it needs,
+  # sends a request through itself, and writes a report when it crashes.
+  core-starts-on-linux:
+    name: Core starts on ${{ matrix.system.name }} (${{ matrix.arch }})
+    needs: core-release-on-linux
+    strategy:
+      fail-fast: false
+      matrix:
+        system:
+          - { name: Ubuntu 24.04, image: 'ubuntu:24.04' }
+          - { name: Ubuntu 26.04, image: 'ubuntu:26.04' }
+          - { name: Debian 13, image: 'debian:13' }
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.system.image }}
+    timeout-minutes: 15
+    steps:
+      # The images have no git, so checkout downloads the files instead. Actions run in them on
+      # the runner's own Node, which works on arm64 too, as these images use glibc; in Alpine's,
+      # it works only on x64.
+      - uses: actions/checkout@v5
+
+      - name: Install SQLite, zlib and libstdc++
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: apt-get update && apt-get install -y --no-install-recommends libsqlite3-0 zlib1g libstdc++6
+
+      - name: Get the release build
+        uses: actions/download-artifact@v8
+        with:
+          name: reqly-linux-core-${{ matrix.arch }}
+          path: linux/.build
+
+      - name: Unpack it
+        run: tar -C linux/.build -xf linux/.build/core-${{ matrix.arch }}.tar
+
+      - name: Check that it starts
+        run: linux/scripts/check-core.sh linux/.build/core
