@@ -29,6 +29,16 @@ jobs:
             exit 1
           }
 
+      # The XML reader's tests again, optimized as the release builds it, with the same Xcode.
+      - name: Test the XML reader for release
+        run: |
+          set -o pipefail
+          swift test -c release -Xswiftc -enable-testing --package-path core \
+            --filter 'XMLLayout|BodyViewer' 2>&1 | tee "$RUNNER_TEMP/xml.log" || {
+            grep "recorded an issue" "$RUNNER_TEMP/xml.log" | sed 's/^/::error::/'
+            exit 1
+          }
+
       - name: Test the Mac modules
         run: |
           set -o pipefail
@@ -41,6 +51,12 @@ jobs:
         run: >
           xcodebuild build -project mac/Reqly.xcodeproj -scheme Reqly -configuration Debug
           CODE_SIGNING_ALLOWED=NO
+
+      # Optimized, as the release builds it, with the same Xcode, for Apple silicon and Intel.
+      - name: Build the app for release
+        run: >
+          xcodebuild build -project mac/Reqly.xcodeproj -scheme Reqly -configuration Release
+          -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO
 
   # The core: the engine, certificates, rules, scripts, storage and file formats, which the
   # Windows app will share. The Mac-only modules are in mac/ReqlyMacKit, so they stay out.
