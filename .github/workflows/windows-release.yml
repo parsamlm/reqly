@@ -65,7 +65,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           dotnet tool restore | Out-Null
-          $pre = if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { @('--pre') } else { @() }
+          # @(...) keeps it a list: PowerShell turns a one-item list an if returns into the item
+          # itself, and splatting a string passes its letters one by one.
+          $pre = @(if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { '--pre' })
           dotnet tool run vpk -- download github --repoUrl "https://github.com/$env:GITHUB_REPOSITORY" `
             --token $env:GH_TOKEN --outputDir .build\releases @pre
           if ($LASTEXITCODE) { "::notice::No Windows release before this one, so no smaller update from it." }
