@@ -555,7 +555,8 @@ private struct MessageTab: View {
 
     private static func parameters(in query: String) -> [(name: String, value: String)] {
         query.split(separator: "&").map { pair in
-            let parts = pair.split(separator: "=", maxSplits: 1).map {
+            // Empty halves count, so "=x" has an empty name, and a lone "=" has neither.
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).map {
                 String($0).removingPercentEncoding ?? String($0)
             }
             return (parts[0], parts.count > 1 ? parts[1] : "")
