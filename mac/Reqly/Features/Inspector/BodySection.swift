@@ -99,6 +99,12 @@ nonisolated struct BodyPresentation: Sendable {
         init(_ highlighted: HighlightedText) {
             self.init(highlighted.text, tokens: highlighted.tokens)
         }
+
+        /// Code colored by `tokenize`, unless it's past the coloring limit, since finding its
+        /// tokens would take long too.
+        init(_ text: String, tokenizedBy tokenize: (String) -> [SyntaxToken]) {
+            self.init(text, tokens: text.utf16.count <= HighlightedText.highlightLimit ? tokenize(text) : [])
+        }
     }
 
     init(data: Data, headers: Headers, rootLabel: String, protobuf: ProtobufReading? = nil) {
@@ -135,7 +141,7 @@ nonisolated struct BodyPresentation: Sendable {
         let canFormat = content.count <= Self.formatLimit
         switch kind {
         case .json:
-            raw = Code(text, tokens: JSONSyntax.tokens(in: text))
+            raw = Code(text, tokenizedBy: JSONSyntax.tokens(in:))
             if canFormat {
                 do {
                     let value = try JSONValue.parse(content)
@@ -152,16 +158,16 @@ nonisolated struct BodyPresentation: Sendable {
                 modes = [.raw, .hex]
             }
         case .xml:
-            raw = Code(text, tokens: MarkupSyntax.tokens(in: text))
+            raw = Code(text, tokenizedBy: MarkupSyntax.tokens(in:))
             if canFormat {
                 let laidOut = MarkupSyntax.formattedXML(text)
-                formatted = Code(laidOut, tokens: MarkupSyntax.tokens(in: laidOut))
+                formatted = Code(laidOut, tokenizedBy: MarkupSyntax.tokens(in:))
                 modes = [.formatted, .raw, .hex]
             } else {
                 modes = [.raw, .hex]
             }
         case .html:
-            raw = Code(text, tokens: MarkupSyntax.tokens(in: text))
+            raw = Code(text, tokenizedBy: MarkupSyntax.tokens(in:))
             modes = [.raw, .hex]
         case .form:
             raw = Code(text, isCode: false)
