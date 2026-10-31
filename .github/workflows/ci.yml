@@ -97,12 +97,15 @@ jobs:
       - name: Test the Windows app's C interface
         run: linux/scripts/core.sh test --package ReqlyCore
 
-  # Reqly for Linux's own parts (linux/), which the app hands the core: your desktop's proxy
-  # setting, the certificate's key in your keyring and the places apps trust it, and which app
-  # sent each request. Built against Ubuntu 24.04's development packages, the oldest Reqly
+  # Reqly for Linux (linux/): the app, and its own parts, which it hands the core: your desktop's
+  # proxy setting, the certificate's key in your keyring and the places apps trust it, and which
+  # app sent each request. Built against Ubuntu 24.04's development packages, the oldest Reqly
   # supports, as linux/docker/Dockerfile installs them. The tests run as root in the container, so
   # the root helper's tests change the container's own list of certificates; they start a
-  # Secret Service of their own under dbus-run-session, and never need a desktop.
+  # Secret Service of their own under dbus-run-session, and never need a desktop. The app's
+  # self-check then runs headless, with stand-ins for everything it could change, as the image's
+  # ordinary account, ubuntu, as it does in Docker: one of its parts takes a folder's write
+  # permission away, which root ignores.
   linux-app:
     name: Linux app (${{ matrix.arch }})
     strategy:
@@ -127,17 +130,29 @@ jobs:
           libsqlite3-dev zlib1g-dev pkg-config
           libgtk-4-dev libadwaita-1-dev libgtksourceview-5-dev libsecret-1-dev
           libnss3-tools gsettings-desktop-schemas dbus gnome-keyring ca-certificates
+          libgtk-4-bin xvfb xauth at-spi2-core libglib2.0-bin
+          fonts-cantarell fonts-dejavu-core adwaita-icon-theme librsvg2-common
+          libgl1-mesa-dri libegl1 x11-utils
 
-      - name: Build the Linux app's parts
+      - name: Build the Linux app
         run: linux/scripts/app.sh build
 
-      - name: Test the Linux app's parts
+      - name: Test the Linux app
         run: |
           set -o pipefail
           linux/scripts/app.sh test 2>&1 | tee "$RUNNER_TEMP/linux.log" || {
             grep "recorded an issue" "$RUNNER_TEMP/linux.log" | sed 's/^/::error::/'
             exit 1
           }
+
+      # The checkout and its build go to ubuntu, whose build of the program then has nothing to do.
+      # It gets a temporary folder of its own, since SwiftPM keeps its locks there, and root's are
+      # left behind.
+      - name: Run the app's self-check
+        run: |
+          chown -R ubuntu: .
+          install -d -o ubuntu -g ubuntu /tmp/ubuntu
+          runuser -u ubuntu -- env TMPDIR=/tmp/ubuntu linux/scripts/app.sh self-check
 
   # libReqlyCore.so for release, as Reqly for Linux will ship it: with the parts of Swift's
   # runtime it needs, and its debug information apart (linux/scripts/stage-core.sh). A release

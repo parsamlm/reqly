@@ -339,12 +339,3 @@ private struct Failure: Error {
         reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }
-
-/// Runs `work` on a thread of its own, and waits for it: each call to Linux's store may wait for
-/// a password dialog, the keyring or certutil, and none of Swift's shared threads should wait
-/// with it.
-private func onOwnThread<Value: Sendable>(_ work: @escaping @Sendable () -> Value) async -> Value {
-    await withCheckedContinuation { continuation in
-        Thread { continuation.resume(returning: work()) }.start()
-    }
-}

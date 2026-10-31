@@ -382,7 +382,7 @@ extension SelfCheck {
     /// variables. With no terminal, it says which ones Reqly looks for.
     func checkTerminal() async throws {
         let port = model.port
-        let setup = TerminalSetup(port: port, certificates: model.terminalCertificates())
+        let setup = TerminalSetup(port: port, certificates: terminalCertificates())
         window.copyTerminalSetup(shell: "/bin/bash")
         let bash = await clipboardText()
         try require(bash == setup.text(for: .posix), "bash's lines are \(bash)")

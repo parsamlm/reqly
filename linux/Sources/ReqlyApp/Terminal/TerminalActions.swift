@@ -46,7 +46,7 @@ extension MainWindow {
     /// The variables for the port Reqly captures on, or will, with the certificate's once HTTPS is
     /// set up.
     private var terminalSetup: TerminalSetup {
-        TerminalSetup(port: model.port, certificates: model.terminalCertificates())
+        TerminalSetup(port: model.port, certificates: terminalCertificates())
     }
 }
 
