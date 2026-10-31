@@ -21,8 +21,8 @@ actor HTTPSHost {
 
     func load() async {
         let store = self.store
-        root = await Self.offThread { try? store.load() }
-        refresh()
+        root = await offThread { try? store.load() }
+        await refresh()
     }
 
     /// Makes the certificate if there isn't one, then asks the system to trust it, which on
@@ -30,7 +30,7 @@ actor HTTPSHost {
     func setUp() async throws(Problem) -> HTTPSState {
         let store = self.store
         let existing = root
-        let result = await Self.offThread { () -> Result<RootIdentity, any Error> in
+        let result = await offThread { () -> Result<RootIdentity, any Error> in
             Result {
                 let root = try existing ?? store.load() ?? RootIdentity.create()
                 try store.save(root)
@@ -42,13 +42,13 @@ actor HTTPSHost {
         case .success(let made):
             root = made
         case .failure(let error) where (error as? CertificateStoreError) == .cancelled:
-            root = await Self.offThread { try? store.load() }
+            root = await offThread { try? store.load() }
         case .failure(let error):
-            root = await Self.offThread { try? store.load() }
-            refresh()
+            root = await offThread { try? store.load() }
+            await refresh()
             throw Problem(.failed, "Reqly couldn't set up HTTPS. \(Self.explain(error))")
         }
-        refresh()
+        await refresh()
         return state
     }
 
@@ -57,17 +57,17 @@ actor HTTPSHost {
     func remove() async throws(Problem) -> HTTPSState {
         guard let root else { return state }
         let store = self.store
-        let result = await Self.offThread { Result { try store.remove(root) } }
+        let result = await offThread { Result { try store.remove(root) } }
         switch result {
         case .success:
             self.root = nil
         case .failure(let error) where (error as? CertificateStoreError) == .cancelled:
             break
         case .failure(let error):
-            refresh()
+            await refresh()
             throw Problem(.failed, "Reqly couldn't remove its certificate. \(Self.explain(error))")
         }
-        refresh()
+        await refresh()
         return state
     }
 
@@ -96,15 +96,20 @@ actor HTTPSHost {
             certificate: status == .trusted ? (try? root?.certificateDER).map { Data($0) } : nil, hosts: hosts)
     }
 
-    /// Reads whether the system trusts the certificate, and decrypts only if it does.
-    private func refresh() {
+    /// Reads whether the system trusts the certificate, and decrypts only if it does. On Linux
+    /// that runs certutil, so it's read on a thread of its own.
+    private func refresh() async {
         guard let root else {
             status = .notSetUp
             authority = nil
             apply()
             return
         }
-        status = store.isTrusted(root) ? .trusted : .notTrusted
+        let store = self.store
+        let trusted = await offThread { store.isTrusted(root) }
+        // The certificate changed meanwhile, and the refresh that came with it reads it.
+        guard let current = self.root, (try? current.certificateDER) == (try? root.certificateDER) else { return }
+        status = trusted ? .trusted : .notTrusted
         if status == .trusted, authority == nil {
             authority = try? CertificateAuthority(root: root)
         } else if status != .trusted {
@@ -121,14 +126,14 @@ actor HTTPSHost {
         if case CertificateStoreError.failed(let message) = error { return message }
         return error.localizedDescription
     }
+}
 
-    /// Runs work that may wait a long time, such as for you to answer the system's question, on a
-    /// thread of its own, so none of Swift's shared threads waits with it.
-    private static func offThread<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
-        await withCheckedContinuation { continuation in
-            let thread = Thread { continuation.resume(returning: work()) }
-            thread.start()
-        }
+/// Runs work that may wait a long time, such as for you to answer the system's question or unlock
+/// your keyring, on a thread of its own, so none of Swift's shared threads waits with it.
+func offThread<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { continuation in
+        let thread = Thread { continuation.resume(returning: work()) }
+        thread.start()
     }
 }
 

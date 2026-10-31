@@ -807,7 +807,10 @@ public actor SessionHost {
     /// certificates' keys go in the secrets file, which the system keeps for your user unless
     /// `protectsSecrets` is false, as for a test run.
     public func openConnections(_ file: URL, secrets: URL, protectsSecrets: Bool = true) async -> ConnectionsState {
-        connectionsBook.open(file, secrets: system.secrets(secrets, protectsSecrets))
+        // Reading the secrets may wait for you to unlock your keyring.
+        let storage = system.secrets(secrets, protectsSecrets)
+        let loaded = await offThread { Result { try storage.load() } }
+        connectionsBook.open(file, secrets: storage, loaded: loaded)
         capture.setUpstreamProxy(connectionsBook.activeUpstreamProxy)
         capture.setClientIdentities(connectionsBook.activeIdentities)
         await applyReverseProxies()

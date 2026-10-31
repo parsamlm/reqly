@@ -781,6 +781,25 @@ func call(_ host: SessionHost, _ fields: [String: Any]) async -> Data {
         await host.close()
     }
 
+    /// A key whose certificate is no longer listed, as when it was removed while the secrets
+    /// couldn't be read, goes with the next save.
+    @Test func dropsKeysOfCertificatesNoLongerListed() async throws {
+        let (host, folder, file, secrets) = try await Self.open()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let orphan = "Reqly Client Certificate/\(UUID().uuidString)"
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try JSONEncoder().encode([orphan: Data("key".utf8).base64EncodedString()]).write(to: secrets)
+        _ = try await Self.openConnections(host, file, secrets)
+        let proxy: [String: Any] = [
+            "isOn": true, "host": "proxy.example.com", "port": "8080", "username": "parsa", "password": "hunter2",
+            "bypass": "", "bypassesLocalAddresses": true,
+        ]
+        _ = try result(await call(host, ["call": "setUpstreamProxy", "proxy": proxy, "proxyPort": 9090]))
+        let kept = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: secrets))
+        #expect(Array(kept.keys) == ["Reqly Upstream Proxy/password"])
+        await host.close()
+    }
+
     /// A self-signed client certificate, "Reqly Test Client", as ProxyEngine's tests have it.
     static let certificate = """
         -----BEGIN CERTIFICATE-----

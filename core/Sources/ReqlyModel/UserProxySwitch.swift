@@ -11,6 +11,19 @@ public protocol UserProxySettings: Codable, Sendable {
 
     /// Whether these are Reqly's settings for `port`.
     func pointsAtReqly(port: Int) -> Bool
+
+    /// What to write to put `yours` back, when these are the settings in place and Reqly pointed
+    /// yours at itself on `port`, or `nil` to leave these as they are. Settings made of parts that
+    /// apps read apart, such as GNOME's and KDE's on Linux, can put back only the parts still
+    /// pointing at Reqly. Others put back all or nothing, as ``pointsAtReqly(port:)`` says.
+    func restoring(_ yours: Self, port: Int) -> Self?
+}
+
+extension UserProxySettings {
+    /// Yours, while these are still Reqly's settings for `port`; otherwise `nil`.
+    public func restoring(_ yours: Self, port: Int) -> Self? {
+        pointsAtReqly(port: port) ? yours : nil
+    }
 }
 
 /// Where proxy settings live: the system's own, or a stand-in in the tests.
@@ -53,18 +66,17 @@ public actor UserProxySwitch<Store: ProxySettingsStore>: SystemProxySwitch {
         _ = try Self.restoreLeftBehind(settings: settings, restoreFile: restoreFile)
     }
 
-    /// Puts your settings back if the ones in place are still Reqly's, then forgets them.
-    /// Returns whether it put them back.
+    /// Puts your settings back if the ones in place are still Reqly's, or the parts of them that
+    /// are, then forgets them. Returns whether it put any back.
     public static func restoreLeftBehind(settings: Store, restoreFile: URL) throws -> Bool {
         guard let data = try? Data(contentsOf: restoreFile), let kept = try? JSONDecoder().decode(Kept.self, from: data)
         else { return false }
-        var restored = false
-        if try settings.read().pointsAtReqly(port: kept.port) {
-            try settings.write(kept.yours)
-            restored = true
+        let restored = try settings.read().restoring(kept.yours, port: kept.port)
+        if let restored {
+            try settings.write(restored)
         }
         try? FileManager.default.removeItem(at: restoreFile)
-        return restored
+        return restored != nil
     }
 
     /// What the restore file holds: your settings, and the port Reqly pointed them at. A file

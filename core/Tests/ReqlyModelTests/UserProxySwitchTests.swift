@@ -53,6 +53,52 @@ final class StandInSettings: ProxySettingsStore {
     }
 }
 
+/// Made-up settings in two parts that apps read apart, as GNOME's and KDE's are on Linux: each
+/// part goes back on its own.
+struct TwoPartSettings: UserProxySettings, Equatable {
+    var first: MadeUpProxySettings
+    var second: MadeUpProxySettings
+
+    static let noProxy = TwoPartSettings(first: .noProxy, second: .noProxy)
+
+    func capturing(port: Int) -> TwoPartSettings {
+        TwoPartSettings(first: first.capturing(port: port), second: second.capturing(port: port))
+    }
+
+    func pointsAtReqly(port: Int) -> Bool {
+        first.pointsAtReqly(port: port) || second.pointsAtReqly(port: port)
+    }
+
+    func restoring(_ yours: TwoPartSettings, port: Int) -> TwoPartSettings? {
+        guard pointsAtReqly(port: port) else { return nil }
+        return TwoPartSettings(
+            first: first.restoring(yours.first, port: port) ?? first,
+            second: second.restoring(yours.second, port: port) ?? second)
+    }
+}
+
+/// Two-part settings kept in memory.
+final class TwoPartStandIn: ProxySettingsStore {
+    private let state: Mutex<TwoPartSettings>
+
+    init(_ settings: TwoPartSettings) {
+        state = Mutex(settings)
+    }
+
+    var settings: TwoPartSettings {
+        get { state.withLock { $0 } }
+        set { state.withLock { $0 = newValue } }
+    }
+
+    func read() throws -> TwoPartSettings {
+        settings
+    }
+
+    func write(_ settings: TwoPartSettings) throws {
+        self.settings = settings
+    }
+}
+
 @Suite struct UserProxySwitchTests {
     /// Settings someone might have: a company proxy and its bypass list.
     static let yours = MadeUpProxySettings(proxy: "proxy.corp:8080", bypass: "<local>;*.corp")
@@ -114,6 +160,34 @@ final class StandInSettings: ProxySettingsStore {
         #expect(try UserProxySwitch.restoreLeftBehind(settings: settings, restoreFile: file))
         #expect(settings.settings == Self.yours)
         #expect(try !UserProxySwitch.restoreLeftBehind(settings: settings, restoreFile: file))
+    }
+
+    /// Settings that don't say how to put themselves back go back all or nothing, as before
+    /// `restoring` came: yours while Reqly's are in place, and nothing otherwise.
+    @Test func putsBackAllOrNothingByDefault() {
+        let reqlys = Self.yours.capturing(port: 9090)
+        #expect(reqlys.restoring(Self.yours, port: 9090) == Self.yours)
+        #expect(reqlys.restoring(Self.yours, port: 9091) == nil)
+        #expect(MadeUpProxySettings.noProxy.restoring(Self.yours, port: 9090) == nil)
+        let changed = MadeUpProxySettings(proxy: "other:3128", bypass: Self.yours.bypass)
+        #expect(changed.restoring(Self.yours, port: 9090) == nil)
+    }
+
+    @Test func putsBackOnlyThePartsStillPointingAtReqly() async throws {
+        let yours = TwoPartSettings(first: Self.yours, second: .noProxy)
+        let settings = TwoPartStandIn(yours)
+        let file = Self.restoreFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let proxy = UserProxySwitch(settings: settings, restoreFile: file)
+        try await proxy.enable(port: 9090)
+        #expect(settings.settings == yours.capturing(port: 9090))
+        // You change the second part meanwhile.
+        let changed = MadeUpProxySettings(proxy: "other:3128")
+        settings.settings.second = changed
+
+        try await proxy.disable()
+        #expect(settings.settings == TwoPartSettings(first: Self.yours, second: changed))
+        #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
     @Test func keepsYourSettingsWhenCapturingStartsAgain() async throws {
