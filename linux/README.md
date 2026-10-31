@@ -6,10 +6,10 @@ The app is Swift, with GTK 4 and libadwaita, and links the core and the [core in
 
 | Folder | What's in it |
 |---|---|
-| `Package.swift`, `Sources/`, `Tests/` | The `ReqlyLinux` package: what only Linux has, which the app hands the core as its `SystemParts`, as `WindowsSystem` does on Windows. `LinuxDesktop` sets your desktop's proxy, `LinuxTrust` keeps and trusts Reqly's certificate, `LinuxApps` finds which app opened a connection, and `LinuxSystem` puts them together. `CGio`, `CSecret` and `CLinux` reach GIO, libsecret and the kernel. |
+| `Package.swift`, `Sources/`, `Tests/` | The `ReqlyLinux` package: the app, the program `reqly` (`ReqlyApp`, with `AppSetup` for its command line, settings and folders), on GTK 4 and libadwaita through `CGtk`, `CGtkShim` and `GtkBinding`; and what only Linux has, which the app hands the core as its `SystemParts`, as `WindowsSystem` does on Windows. `LinuxDesktop` sets your desktop's proxy, `LinuxTrust` keeps and trusts Reqly's certificate, `LinuxApps` finds which app opened a connection, and `LinuxSystem` puts them together. `CGio`, `CSecret` and `CLinux` reach GIO, libsecret and the kernel. |
 | `packaging/` | `reqly-trust`, the helper that adds Reqly's root to the computer's list as root, and its polkit action, `net.reqly.trust.policy`. |
 | `docker/` | The image the package is built and tested in, `reqly-linux-dev:noble`: Ubuntu 24.04 with Swift 6.4.1 and the development packages. |
-| `scripts/` | `app.sh` builds and tests the package. `core.sh` builds and tests the core, or `libReqlyCore.so`. `stage-core.sh` gathers a release build of `libReqlyCore.so` with the parts of Swift's runtime it needs, and `check-core.sh` checks that they start on a system without Swift, with `smoke.c`, a small program that loads the library and sends a request through it. |
+| `scripts/` | `app.sh` builds and tests the package, and runs the app's self-check through `self-check.sh`. `core.sh` builds and tests the core, or `libReqlyCore.so`. `stage-core.sh` gathers a release build of `libReqlyCore.so` with the parts of Swift's runtime it needs, and `check-core.sh` checks that they start on a system without Swift, with `smoke.c`, a small program that loads the library and sends a request through it. |
 
 ## Building the package
 
@@ -22,6 +22,29 @@ linux/scripts/app.sh test
 linux/scripts/app.sh build --target LinuxDesktop      # one module and what it uses
 linux/scripts/app.sh test --filter LinuxDesktopTests  # one module's tests
 ```
+
+## The app
+
+`reqly` is Swift calling GTK 4 and libadwaita's C API directly, built against Ubuntu 24.04's headers: GTK 4.14 and libadwaita 1.5. Anything newer is looked up as it runs, after a version check, with `GtkBinding`'s `Newer`, and has a fallback. `CGtkShim` is the little C that Swift can't write: GObject's macros as functions, one marshaller for every signal, and a GLib source that runs Swift's main queue, so the main actor, and the session's events, run inside GTK's main loop.
+
+A real run is the only Reqly: a second launch brings back the first one's window and quits, through GApplication's name on the session bus, `net.reqly.Reqly`. SIGTERM, SIGINT and SIGHUP quit it as the menu does, so capturing stops and your desktop's proxy goes back first. A run given a stand-in, its own settings file or `--smoke` is a test run: it runs beside the Reqly that's open, and changes your desktop's own proxy only when told to. `reqly --help` lists the options, with the Windows app's names.
+
+| Where | What |
+|---|---|
+| `~/.config/reqly` | `Settings.json`, `Rules.json`, `Connections.json`, `Protobuf.json` and `Devices.json`, in the same JSON as Windows' |
+| `~/.local/state/reqly` | `Sessions`, the live sessions, which only you can open and which go when Reqly quits; `ProxyRestore.json`, your proxy settings while Reqly captures |
+| `~/.local/share/reqly` | Reqly's certificate, and its key and the other secrets when there's no keyring |
+
+`Sources/ReqlyApp` keeps each feature in a folder of its own: `Capture`, `HTTPS`, `Terminal` and `Traffic`. Capturing and HTTPS list their parts of the self-check in `SelfCheck/CaptureChecks.swift` and `SelfCheck/HTTPSChecks.swift`. The window, the model, Settings and the menu's actions are shared, in `MainWindow.swift`, `AppModel.swift`, `SettingsDialog.swift` and `App.swift`.
+
+The self-check runs the app headless, under Xvfb on a session bus of its own, with a scratch home, GSettings in memory and stand-ins for your proxy settings, certificate and secrets, and prints a report with PASS or FAIL for each part:
+
+```bash
+linux/scripts/app.sh self-check                         # every part
+linux/scripts/app.sh self-check --smoke-parts window    # one part
+```
+
+Where Docker is, it runs in a container of its own, as an ordinary account, with no network but its own 127.0.0.1.
 
 ## Building the core
 

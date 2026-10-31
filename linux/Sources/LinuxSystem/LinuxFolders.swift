@@ -1,8 +1,12 @@
 import Foundation
 
-/// Where Reqly for Linux keeps its files, as the XDG base directories say: what it keeps while it
-/// runs in your state folder, and its certificate in your data folder.
+/// Where Reqly for Linux keeps its files, as the XDG base directories say: your settings in your
+/// config folder, what it keeps while it runs in your state folder, and its certificate in your
+/// data folder.
 public struct LinuxFolders: Sendable {
+    /// `~/.config/reqly`: the settings, the rules and the other files Reqly keeps as Windows does,
+    /// in the same JSON.
+    public var config: URL
     /// `~/.local/state/reqly`: live sessions, crash files and the proxy restore file.
     public var state: URL
     /// `~/.local/share/reqly`: the certificate, and its key and the other secrets when there's
@@ -19,6 +23,7 @@ public struct LinuxFolders: Sendable {
             }
             return home.appending(path: fallback, directoryHint: .isDirectory)
         }
+        config = base("XDG_CONFIG_HOME", ".config").appending(path: "reqly", directoryHint: .isDirectory)
         state = base("XDG_STATE_HOME", ".local/state").appending(path: "reqly", directoryHint: .isDirectory)
         data = base("XDG_DATA_HOME", ".local/share").appending(path: "reqly", directoryHint: .isDirectory)
     }

@@ -1,14 +1,19 @@
 #!/bin/bash
-# Builds or tests Reqly for Linux's package (linux/), with the core and the core interface, in
-# reqly-linux-dev:noble (linux/docker/Dockerfile): Ubuntu 24.04, the oldest system Reqly supports,
-# with Swift 6.4.1 and the development packages it builds against.
+# Builds or tests Reqly for Linux's package (linux/), with the core and the core interface, or runs
+# the app's self-check, in reqly-linux-dev:noble (linux/docker/Dockerfile): Ubuntu 24.04, the
+# oldest system Reqly supports, with Swift 6.4.1 and the development packages it builds against.
 #   linux/scripts/app.sh [options] build|test [more swift options]
+#   linux/scripts/app.sh [options] self-check [reqly options]
 # Where Docker is, such as on the Mac, the repository is mounted read-only in the image, the three
 # packages are copied into the container, and the build stays in a Docker volume, so a later build
 # only redoes what changed. Without Docker, such as in CI's container of the same image, it builds
 # in place, in linux/.build.
 #   linux/scripts/app.sh build --target LinuxDesktop     one module and what it uses
 #   linux/scripts/app.sh test --filter LinuxDesktopTests one test target's tests
+#   linux/scripts/app.sh self-check --smoke-parts window  one part of the self-check
+# self-check builds the program, reqly, then runs its self-check headless, with stand-ins for your
+# settings (linux/scripts/self-check.sh), and prints the report. Where Docker is, the self-check
+# runs in a container of its own, as an ordinary account, with no network but its own 127.0.0.1.
 # Options:
 #   --volume NAME       the build volume (default reqly-linux-build). One build at a time uses it:
 #                       the container is named after it, so a second one is refused.
@@ -18,9 +23,10 @@
 #   --time-limit MIN    stop the build after this many minutes (default 60)
 #   --in-place          build in this checkout with this computer's Swift, even where Docker is
 # The build uses 6 jobs unless the swift options say otherwise. If this script is stopped, its
-# container stops too; if it's killed, `docker kill <volume>-run` stops the container. Tests run
-# on a session bus of their own that starts no services (linux/scripts/test-bus.conf), with
-# GSettings in memory, so they never reach a desktop's settings or keyring.
+# container stops too; if it's killed, `docker kill <volume>-run` stops the container, and
+# `docker kill <volume>-self-check` the self-check's. Tests run on a session bus of their own that
+# starts no services (linux/scripts/test-bus.conf), with GSettings in memory, so they never reach
+# a desktop's settings or keyring.
 set -euo pipefail
 
 usage() {
@@ -43,7 +49,7 @@ while [[ $# -gt 0 ]]; do
         *) break ;;
     esac
 done
-[[ $# -ge 1 && ($1 == build || $1 == test) ]] || usage
+[[ $# -ge 1 && ($1 == build || $1 == test || $1 == self-check) ]] || usage
 command=$1
 shift
 rest=("$@")
@@ -51,6 +57,12 @@ rest=("$@")
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
 if $inPlace || ! command -v docker >/dev/null; then
+    if [[ $command == self-check ]]; then
+        timeout --kill-after=30s "${minutes}m" swift build --package-path "$root/linux" --product reqly
+        program=$(swift build --package-path "$root/linux" --show-bin-path)/reqly
+        exec timeout --kill-after=30s "${minutes}m" "$root/linux/scripts/self-check.sh" "$program" \
+            ${rest[@]+"${rest[@]}"}
+    fi
     # The tests' bus, then swift with GSettings in memory, as TestEnvironment expects.
     before=()
     if [[ $command == test ]]; then
@@ -90,7 +102,8 @@ done
 
 # In the container: the packages are copied with their files' times, to the nanosecond in tar's
 # POSIX format, so a build in a volume that built them before only redoes what changed. Build
-# products and the Mac's litter stay behind.
+# products and the Mac's litter stay behind. For the self-check, the build leaves the volume's
+# `reqly` linking to the program.
 read -r -d '' inside <<'EOF' || true
 set -euo pipefail
 mkdir -p /work
@@ -101,6 +114,12 @@ done
 cd /work/linux
 minutes=$1
 shift
+if [[ $1 == self-check ]]; then
+    shift
+    timeout --kill-after=30s "$minutes" swift build --product reqly "$@"
+    ln -sfn "$(swift build --show-bin-path "$@")/reqly" /build/reqly
+    exit
+fi
 before=()
 if [[ $1 == test ]]; then
     before=(dbus-run-session --config-file=/work/linux/scripts/test-bus.conf --
@@ -111,6 +130,15 @@ EOF
 
 tty=()
 [[ ! -t 0 || ! -t 1 ]] || tty=(-it)
+if [[ $command == self-check ]]; then
+    docker run --rm --init "${tty[@]+"${tty[@]}"}" --name "$volume-run" \
+        -v "$root:/src:ro" -v "$volume:/build" "$image" \
+        bash -c "$inside" app.sh "${minutes}m" self-check --scratch-path /build ${jobs[@]+"${jobs[@]}"}
+    exec docker run --rm --init "${tty[@]+"${tty[@]}"}" --name "$volume-self-check" \
+        --network none --user 1000:1000 \
+        -v "$root/linux/scripts:/scripts:ro" -v "$volume:/build:ro" "$image" \
+        timeout --kill-after=30s "${minutes}m" /scripts/self-check.sh /build/reqly ${rest[@]+"${rest[@]}"}
+fi
 exec docker run --rm --init "${tty[@]+"${tty[@]}"}" --name "$volume-run" \
     -v "$root:/src:ro" -v "$volume:/build" "$image" \
     bash -c "$inside" app.sh "${minutes}m" "$command" --scratch-path /build \
