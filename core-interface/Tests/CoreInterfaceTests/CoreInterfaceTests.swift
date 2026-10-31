@@ -2,12 +2,10 @@ import Capture
 import Foundation
 import Presentation
 import ProxyEngine
-import ReqlyCore
 import ReqlyModel
 import Synchronization
 import Testing
 import TrafficStore
-import WindowsSystem
 
 @testable import CoreInterface
 
@@ -1148,24 +1146,24 @@ func call(_ host: SessionHost, _ fields: [String: Any]) async -> Data {
 }
 
 @Suite struct ProxySwitchTests {
-    /// The whole switch, from the session down, on a stand-in for Windows' proxy settings.
+    /// The whole switch, from the session down, on a stand-in for the system's proxy settings.
     @Test func switchesTheProxyEachTimeCapturingStarts() async throws {
         let folder = URL.temporaryDirectory.appending(path: "ReqlyCoreTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
-        let standIn = folder.appending(path: "Windows proxy settings.json")
+        let standIn = folder.appending(path: "Proxy settings.json")
         let restore = folder.appending(path: "ProxyRestore.json")
         let options = OpenOptions(
             sessionsFolder: folder.appending(path: "Sessions").path, setsSystemProxy: true,
             proxyRestoreFile: restore.path, proxySettingsStandIn: standIn.path, findsApps: false)
         let host = try await SessionHost.open(options, send: { _ in })
-        let windows = FileProxySettings(file: standIn)
+        let settings = FileProxySettings<StandInProxySettings>(file: standIn)
         for round in 0..<3 {
             let started = try result(await call(host, #"{"call":"startCapturing","port":0}"#))
             let port = try #require(started["port"] as? Int, "round \(round)")
-            #expect(try windows.read().pointsAtReqly(port: port))
+            #expect(try settings.read().pointsAtReqly(port: port))
             #expect(FileManager.default.fileExists(atPath: restore.path))
             _ = try result(await call(host, #"{"call":"stopCapturing"}"#))
-            #expect(try windows.read() == ProxySettings())
+            #expect(try settings.read() == .noProxy)
             #expect(!FileManager.default.fileExists(atPath: restore.path))
         }
         await host.close()
@@ -1260,68 +1258,5 @@ func call(_ host: SessionHost, _ fields: [String: Any]) async -> Data {
             send: { _ in })
         #expect(try problem(await call(host, #"{"call":"https"}"#)) == "notAvailable")
         await host.close()
-    }
-}
-
-/// The C functions, called as the app calls them.
-@Suite struct ExportTests {
-    /// Where a C callback puts what it gets: the context pointer leads back here.
-    final class Inbox: Sendable {
-        let events = EventLog()
-        let replies = EventLog()
-    }
-
-    static let onEvent: ReqlyCallback = { json, context in
-        guard let json, let context else { return }
-        Unmanaged<Inbox>.fromOpaque(context).takeUnretainedValue().events.record(Data(String(cString: json).utf8))
-    }
-
-    static let onReply: ReqlyCallback = { json, context in
-        guard let json, let context else { return }
-        Unmanaged<Inbox>.fromOpaque(context).takeUnretainedValue().replies.record(Data(String(cString: json).utf8))
-    }
-
-    @Test func worksThroughTheCFunctions() async throws {
-        let (folder, file) = try await Saved.file()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let inbox = Inbox()
-        let context = Unmanaged.passRetained(inbox)
-        defer { context.release() }
-        let options = #"{"sessionsFolder":"\#(folder.appending(path: "Sessions").path)","file":"\#(file.path)"}"#
-        // reqly_open waits for the core, so it runs on a thread of its own, as the app runs it away
-        // from its UI thread. The handle crosses between threads as its address.
-        let address = await onOwnThread { UInt(bitPattern: reqlyOpen(options, Self.onEvent, context.toOpaque())) }
-        let handle = try #require(UnsafeMutableRawPointer(bitPattern: address))
-        #expect(await inbox.events.wait { $0["event"] as? String == "rows" } != nil)
-
-        reqlyCall(handle, #"{"call":"version"}"#, Self.onReply, context.toOpaque())
-        let reply = try #require(await inbox.replies.wait { $0["result"] != nil })
-        #expect((reply["result"] as? [String: Any])?["version"] as? Int == interfaceVersion)
-
-        let body = await onOwnThread { () -> Data? in
-            var length: Int64 = 0
-            let handle = UnsafeMutableRawPointer(bitPattern: address)
-            guard let bytes = reqlyBody(handle, 2, 1, 0, 1000, &length) else { return nil }
-            defer { reqlyFree(bytes) }
-            return Data(bytes: bytes, count: Int(length))
-        }
-        #expect(body == Data(#"["Tehran","Lisbon"]"#.utf8))
-
-        await onOwnThread { reqlyClose(UnsafeMutableRawPointer(bitPattern: address)) }
-    }
-
-    @Test func saysWhyASessionDidntOpen() async {
-        let inbox = Inbox()
-        let context = Unmanaged.passRetained(inbox)
-        defer { context.release() }
-        let missing = URL.temporaryDirectory.appending(path: "ReqlyCoreTests-\(UUID().uuidString)/Gone.reqly").path
-        let sessions = URL.temporaryDirectory.appending(path: "ReqlyCoreTests-x").path
-        let options = #"{"sessionsFolder":"\#(sessions)","file":"\#(missing)"}"#
-        let address = await onOwnThread { UInt(bitPattern: reqlyOpen(options, Self.onEvent, context.toOpaque())) }
-        #expect(address == 0)
-        let failed = inbox.events.all.first { $0["event"] as? String == "openFailed" }
-        #expect((failed?["problem"] as? [String: Any])?["code"] as? String == "failed")
-        #expect(reqlyOpen("not json", Self.onEvent, context.toOpaque()) == nil)
-        try? FileManager.default.removeItem(at: URL.temporaryDirectory.appending(path: "ReqlyCoreTests-x"))
     }
 }

@@ -1,14 +1,14 @@
 name: Windows
 
-# Reqly for Windows, on Windows, when the core or the Windows app changes: the core's and the
-# Windows interface's tests, with the patches in windows/patches, and the installer, as
-# windows/scripts/package.ps1 makes it, kept with the run. ci.yml runs the macOS and Linux jobs.
+# Reqly for Windows, on Windows, when the core, the core interface or the Windows app changes: their
+# tests, with the patches in windows/patches, and the installer, as windows/scripts/package.ps1
+# makes it, kept with the run. ci.yml runs the macOS and Linux jobs.
 on:
   push:
     branches: [main]
-    paths: [core/**, windows/**, .github/workflows/windows.yml]
+    paths: [core/**, core-interface/**, windows/**, .github/workflows/windows.yml]
   pull_request:
-    paths: [core/**, windows/**, .github/workflows/windows.yml]
+    paths: [core/**, core-interface/**, windows/**, .github/workflows/windows.yml]
 
 # A newer push to the same branch makes an older run's results moot.
 concurrency:
@@ -38,7 +38,11 @@ jobs:
         timeout-minutes: 60
         run: windows\scripts\core.ps1 test
 
-      - name: Test the Windows app's core interface
+      - name: Test the core interface
+        timeout-minutes: 40
+        run: windows\scripts\core.ps1 test -Package core-interface
+
+      - name: Test the Windows app's C interface
         timeout-minutes: 40
         run: windows\scripts\core.ps1 test -Package ReqlyCore
 

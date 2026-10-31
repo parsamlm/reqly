@@ -8,7 +8,6 @@ import Presentation
 import ProxyEngine
 import ReqlyModel
 import TrafficStore
-import WindowsSystem
 
 /// One session for the app: the live one, or a saved one it opened. It keeps the request list
 /// the way the Mac app does, with the same ``TrafficList``, and tells the app how the rows
@@ -54,6 +53,8 @@ public actor SessionHost {
     private var waitingDevices: [String: [CheckedContinuation<Bool, Never>]] = [:]
     /// The devices you let in, for naming their connections as they open.
     private let origins: DeviceOrigins
+    /// What only the system Reqly runs on has: its secrets and network addresses, here.
+    private let system: SystemParts
     /// Bodies made ready to show lately, so the Tree view's paths and the Hex view's bytes need no
     /// second reading.
     private var presented: [(key: PresentedBody, body: BodyPresentation)] = []
@@ -61,9 +62,11 @@ public actor SessionHost {
     /// before clearing is saved in time to keep its exchange, as in the Mac app.
     private var lastSessionCall: Task<Void, Never>?
 
-    /// Opens a session, live or from a file, and starts sending its events to `send`.
+    /// Opens a session, live or from a file, with the parts of the system it runs on, and starts
+    /// sending its events to `send`.
     public static func open(
-        _ options: OpenOptions, protobuf: ProtobufLibrary = .shared, send: @escaping @Sendable (Data) -> Void
+        _ options: OpenOptions, system: SystemParts, protobuf: ProtobufLibrary = .shared,
+        send: @escaping @Sendable (Data) -> Void
     ) async throws(Problem) -> SessionHost {
         let folder = URL(fileURLWithPath: options.sessionsFolder, isDirectory: true)
         let store: TrafficStore
@@ -98,73 +101,60 @@ public actor SessionHost {
         let extraRoots = (options.extraTrustedRoots ?? []).compactMap { Data(base64Encoded: $0).map([UInt8].init) }
         let origins = DeviceOrigins()
         let capture = CaptureSession(
-            store: store, systemProxy: systemProxy(options), extraTrustedRoots: extraRoots,
-            findOrigin: originFinder(options, devices: origins))
-        let https = rootStore(options).map { HTTPSHost(store: $0, capture: capture) }
+            store: store, systemProxy: systemProxy(options, system), extraTrustedRoots: extraRoots,
+            findOrigin: originFinder(options, system, devices: origins))
+        let https = rootStore(options, system).map { HTTPSHost(store: $0, capture: capture) }
         await https?.load()
-        let host = SessionHost(capture: capture, https: https, protobuf: protobuf, origins: origins, send: send)
+        let host = SessionHost(
+            capture: capture, https: https, protobuf: protobuf, origins: origins, system: system, send: send)
         await host.begin(showingStoredTraffic: options.file != nil)
         return host
     }
 
-    /// Where Reqly's certificate lives: Windows' store, or a stand-in file for test runs.
-    private static func rootStore(_ options: OpenOptions) -> (any RootStore)? {
+    /// Where Reqly's certificate lives: the system's store, or a stand-in file for test runs.
+    private static func rootStore(_ options: OpenOptions, _ system: SystemParts) -> (any RootStore)? {
         guard options.file == nil else { return nil }
         if let standIn = options.rootStandIn {
             return FileRootStore(file: URL(fileURLWithPath: standIn))
         }
-        #if os(Windows)
-            return options.rootFile.map { WindowsRootStore(file: URL(fileURLWithPath: $0)) }
-        #else
-            return nil
-        #endif
+        guard let rootStore = system.rootStore, let rootFile = options.rootFile else { return nil }
+        return rootStore(URL(fileURLWithPath: rootFile))
     }
 
-    /// Windows' own proxy switch, for a live session that asks for it, or the same switch on a
-    /// stand-in for Windows' settings, for a test run.
-    private static func systemProxy(_ options: OpenOptions) -> (any SystemProxySwitch)? {
+    /// The system's own proxy switch, for a live session that asks for it, or the same switch on a
+    /// stand-in for the system's settings, for a test run.
+    private static func systemProxy(_ options: OpenOptions, _ system: SystemParts) -> (any SystemProxySwitch)? {
         guard options.file == nil, options.setsSystemProxy == true, let restore = options.proxyRestoreFile else {
             return nil
         }
-        let restoreFile = URL(fileURLWithPath: restore)
-        if let standIn = options.proxySettingsStandIn {
-            return UserProxySwitch(
-                settings: FileProxySettings(file: URL(fileURLWithPath: standIn)), restoreFile: restoreFile)
-        }
-        #if os(Windows)
-            return UserProxySwitch(settings: WinINetProxySettings(), restoreFile: restoreFile)
-        #else
-            return nil
-        #endif
+        return system.proxySwitch(
+            URL(fileURLWithPath: restore), options.proxySettingsStandIn.map { URL(fileURLWithPath: $0) })
     }
 
     /// Finds where each connection came from: a device on the network you let in, or the app that
-    /// opened it on this computer, from Windows' connection table.
-    private static func originFinder(_ options: OpenOptions, devices: DeviceOrigins) -> CaptureSession.OriginFinder? {
+    /// opened it on this computer, as the system tells.
+    private static func originFinder(
+        _ options: OpenOptions, _ system: SystemParts, devices: DeviceOrigins
+    ) -> CaptureSession.OriginFinder? {
         guard options.file == nil else { return nil }
-        #if os(Windows)
-            let apps = options.findsApps != false ? AppLookup() : nil
-        #endif
+        let apps = options.findsApps != false ? system.appFinder?() : nil
         return { client, proxyPort in
             guard client.isLoopback else {
                 return devices.device(atAddress: client.ip).map { Origin(device: $0) }
             }
-            #if os(Windows)
-                return apps?.origin(clientPort: client.port, proxyPort: client.localPort ?? proxyPort)
-            #else
-                return nil
-            #endif
+            return apps?.origin(clientPort: client.port, proxyPort: client.localPort ?? proxyPort)
         }
     }
 
     init(
         capture: CaptureSession, https: HTTPSHost? = nil, protobuf: ProtobufLibrary = .shared,
-        origins: DeviceOrigins = DeviceOrigins(), send: @escaping @Sendable (Data) -> Void
+        origins: DeviceOrigins = DeviceOrigins(), system: SystemParts, send: @escaping @Sendable (Data) -> Void
     ) {
         self.capture = capture
         self.https = https
         self.protobuf = protobuf
         self.origins = origins
+        self.system = system
         self.send = send
     }
 
@@ -518,7 +508,7 @@ public actor SessionHost {
         case .openConnections(let path, let secretsPath, let protectsSecrets):
             connections.open(
                 URL(fileURLWithPath: path),
-                secrets: SecretFile(file: URL(fileURLWithPath: secretsPath), isProtected: protectsSecrets))
+                secrets: system.secrets(URL(fileURLWithPath: secretsPath), protectsSecrets))
             capture.setUpstreamProxy(connections.activeUpstreamProxy)
             capture.setClientIdentities(connections.activeIdentities)
             await applyReverseProxies()
@@ -780,14 +770,14 @@ public actor SessionHost {
     /// Lets every held request and response go on as it was.
     private var devicesWire: WireDevices {
         WireDevices(
-            devices, allowsNetworkDevices: allowsNetworkDevices, addresses: NetworkAddresses.current(),
+            devices, allowsNetworkDevices: allowsNetworkDevices, addresses: system.networkAddresses(),
             problem: devicesProblem)
     }
 
     /// Whether a device on the network may send its traffic through Reqly: yes if you let it in
     /// before, and otherwise once you decide. Every connection from it waits on the same decision.
     func admit(_ client: ClientAddress) async -> Bool {
-        let id = DevicesFile.identity(ip: client.ip, hardwareAddress: NetworkNeighbors.hardwareAddress(of: client.ip))
+        let id = DevicesFile.identity(ip: client.ip, hardwareAddress: system.hardwareAddress(client.ip))
         let saved = devices.contents
         let verdict = devices.admit(id: id, address: client.ip, allowsNetworkDevices: allowsNetworkDevices)
         if devices.contents != saved {

@@ -1,17 +1,22 @@
-# Builds or tests the core (ReqlyKit), or ReqlyCore.dll, on Windows, with the bundled SQLite that
-# GRDB links, and SwiftNIO and swift-nio-ssl with Reqly's patches for Windows (windows/patches).
-#   windows\scripts\core.ps1 build|test [-Package core|ReqlyCore] [-Arch x64|arm64] [more swift options]
+# Builds or tests the core (ReqlyKit), the core interface (core-interface), or ReqlyCore.dll, on
+# Windows, with the bundled SQLite that GRDB links, and SwiftNIO and swift-nio-ssl with Reqly's
+# patches for Windows (windows/patches).
+#   windows\scripts\core.ps1 build|test [-Package core|core-interface|ReqlyCore] [-Arch x64|arm64] [more swift options]
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory, Position = 0)][ValidateSet('build', 'test')][string]$Command,
-    [ValidateSet('core', 'ReqlyCore')][string]$Package = 'core',
+    [ValidateSet('core', 'core-interface', 'ReqlyCore')][string]$Package = 'core',
     [ValidateSet('x64', 'arm64')][string]$Arch = 'x64',
     [Parameter(ValueFromRemainingArguments)][string[]]$Rest = @()
 )
 $ErrorActionPreference = 'Stop'
 
 $root = Resolve-Path "$PSScriptRoot\..\.."
-$packagePath = if ($Package -eq 'core') { "$root\core" } else { "$root\windows\ReqlyCore" }
+$packagePath = switch ($Package) {
+    'core' { "$root\core" }
+    'core-interface' { "$root\core-interface" }
+    default { "$root\windows\ReqlyCore" }
+}
 # On Windows, SwiftPM leaves the packages it builds edited copies of, the patched ones, out of
 # Package.resolved, which belongs to the repository, so the file goes back as it was afterwards.
 $resolved = Join-Path $packagePath 'Package.resolved'

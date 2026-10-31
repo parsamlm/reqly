@@ -2,7 +2,6 @@ import CertificateAuthority
 import CoreInterface
 import Foundation
 import Testing
-import WindowsSystem
 
 /// Uninstalling removes Reqly's certificate. These use a stand-in file, as test runs do, so the
 /// computer's certificate stores are never touched.
@@ -13,10 +12,10 @@ import WindowsSystem
         try FileRootStore(file: file).save(RootIdentity.create())
         let path = file.withUnsafeFileSystemRepresentation { String(cString: $0!) }
 
-        #expect(RootRemoval.remove(rootFile: path, standIn: true) == .removed)
+        #expect(RootRemoval.remove(rootFile: path, standIn: true, system: .standIns) == .removed)
         #expect(!FileManager.default.fileExists(atPath: path))
         // Uninstalling again, or after HTTPS was never set up, finds nothing to remove.
-        #expect(RootRemoval.remove(rootFile: path, standIn: true) == .nothing)
+        #expect(RootRemoval.remove(rootFile: path, standIn: true, system: .standIns) == .nothing)
     }
 
     @Test func keepsItWhenYouSayNo() {

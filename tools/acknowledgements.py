@@ -41,8 +41,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT = os.path.join(ROOT, "mac", "Reqly", "Resources", "Acknowledgements.json")
 WINDOWS_OUTPUT = os.path.join(ROOT, "windows", "Reqly", "Assets", "Acknowledgements.json")
-# The Windows app's core resolves the same packages as ReqlyKit, at the same versions.
+# The Windows app's core, and the core interface it builds on, resolve the same packages as ReqlyKit,
+# at the same versions.
 WINDOWS_RESOLVED = os.path.join(ROOT, "windows", "ReqlyCore", "Package.resolved")
+CORE_INTERFACE_RESOLVED = os.path.join(ROOT, "core-interface", "Package.resolved")
 NUGET_LOCK = os.path.join(ROOT, "windows", "Reqly", "packages.lock.json")
 ZLIB = os.path.join(ROOT, "core", "Sources", "CZlibBundled")
 BROTLI = os.path.join(ROOT, "core", "Sources", "CBrotliBundled")
@@ -704,8 +706,11 @@ def windows_list(arguments, warnings):
     packages', and the runtimes it carries."""
     resolved = pins(RESOLVED)
     windows_resolved = pins(WINDOWS_RESOLVED)
-    if {key: pin["state"] for key, pin in windows_resolved.items()} != {key: pin["state"] for key, pin in resolved.items()}:
+    states = {key: pin["state"] for key, pin in resolved.items()}
+    if {key: pin["state"] for key, pin in windows_resolved.items()} != states:
         raise Problem("ReqlyKit and windows/ReqlyCore resolve different packages. Resolve both again.")
+    if {key: pin["state"] for key, pin in pins(CORE_INTERFACE_RESOLVED).items()} != states:
+        raise Problem("ReqlyKit and core-interface resolve different packages. Resolve both again.")
     packages = [package(identity, pin, arguments.checkouts, warnings) for identity, pin in windows_resolved.items()]
     windows_boringssl(next(package for package in packages if package["name"] == "swift-nio-ssl"))
     windows_patches(packages)

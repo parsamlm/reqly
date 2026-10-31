@@ -1,17 +1,33 @@
 import Foundation
+import ReqlyModel
 import Synchronization
 import Testing
-import WindowsSystem
+
+/// Made-up proxy settings: a proxy, or none, and the addresses that go around it.
+struct MadeUpProxySettings: UserProxySettings, Equatable {
+    var proxy: String?
+    var bypass: String?
+
+    static let noProxy = MadeUpProxySettings()
+
+    func capturing(port: Int) -> MadeUpProxySettings {
+        MadeUpProxySettings(proxy: "127.0.0.1:\(port)", bypass: bypass)
+    }
+
+    func pointsAtReqly(port: Int) -> Bool {
+        proxy == "127.0.0.1:\(port)"
+    }
+}
 
 /// Proxy settings kept in memory, so the tests never touch the computer's own.
 final class StandInSettings: ProxySettingsStore {
-    private let state: Mutex<(settings: ProxySettings, failsWrites: Bool)>
+    private let state: Mutex<(settings: MadeUpProxySettings, failsWrites: Bool)>
 
-    init(_ settings: ProxySettings) {
+    init(_ settings: MadeUpProxySettings) {
         state = Mutex((settings, false))
     }
 
-    var settings: ProxySettings {
+    var settings: MadeUpProxySettings {
         get { state.withLock { $0.settings } }
         set { state.withLock { $0.settings = newValue } }
     }
@@ -23,11 +39,11 @@ final class StandInSettings: ProxySettingsStore {
 
     struct Refused: Error {}
 
-    func read() throws -> ProxySettings {
+    func read() throws -> MadeUpProxySettings {
         settings
     }
 
-    func write(_ settings: ProxySettings) throws {
+    func write(_ settings: MadeUpProxySettings) throws {
         try state.withLock { state in
             if state.failsWrites {
                 throw Refused()
@@ -38,26 +54,11 @@ final class StandInSettings: ProxySettingsStore {
 }
 
 @Suite struct UserProxySwitchTests {
-    /// Settings someone might have: a company proxy, its bypass list, and automatic detection.
-    static let yours = ProxySettings(
-        flags: ProxySettings.direct | ProxySettings.usesProxy | ProxySettings.detectsAutomatically,
-        server: "proxy.corp:8080", bypass: "<local>;*.corp", setupScript: "http://wpad/old.pac")
+    /// Settings someone might have: a company proxy and its bypass list.
+    static let yours = MadeUpProxySettings(proxy: "proxy.corp:8080", bypass: "<local>;*.corp")
 
     static func restoreFile() -> URL {
         URL.temporaryDirectory.appending(path: "ReqlyProxyTests-\(UUID().uuidString)/ProxyRestore.json")
-    }
-
-    @Test func sendsHTTPAndHTTPSThroughReqlyAndKeepsTheRest() {
-        let capturing = Self.yours.capturing(port: 9090)
-        #expect(capturing.server == "http=127.0.0.1:9090;https=127.0.0.1:9090")
-        #expect(capturing.flags == Self.yours.flags)
-        #expect(capturing.bypass == "<local>;*.corp")
-        #expect(capturing.setupScript == "http://wpad/old.pac")
-        #expect(capturing.pointsAtReqly(port: 9090))
-        #expect(!capturing.pointsAtReqly(port: 9091))
-        #expect(!Self.yours.pointsAtReqly(port: 9090))
-        // Direct only, as Windows starts: the proxy goes on.
-        #expect(ProxySettings().capturing(port: 1).flags == ProxySettings.direct | ProxySettings.usesProxy)
     }
 
     @Test func putsYourSettingsBackAfterCapturing() async throws {
@@ -96,7 +97,7 @@ final class StandInSettings: ProxySettingsStore {
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         let proxy = UserProxySwitch(settings: settings, restoreFile: file)
         try await proxy.enable(port: 9090)
-        let changed = ProxySettings(flags: ProxySettings.direct)
+        let changed = MadeUpProxySettings.noProxy
         settings.settings = changed
         try await proxy.disable()
         #expect(settings.settings == changed)
@@ -128,7 +129,7 @@ final class StandInSettings: ProxySettingsStore {
         #expect(settings.settings == Self.yours)
     }
 
-    @Test func changesNothingWhenWindowsRefuses() async throws {
+    @Test func changesNothingWhenTheSystemRefuses() async throws {
         let settings = StandInSettings(Self.yours)
         settings.failsWrites = true
         let file = Self.restoreFile()
@@ -138,5 +139,28 @@ final class StandInSettings: ProxySettingsStore {
         }
         #expect(settings.settings == Self.yours)
         #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// Your settings and the port, which Reqly for Windows' betas wrote too.
+    @Test func keepsYourSettingsAndThePortInTheRestoreFile() async throws {
+        let settings = StandInSettings(Self.yours)
+        let file = Self.restoreFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        try await UserProxySwitch(settings: settings, restoreFile: file).enable(port: 9090)
+        let kept = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        #expect(Set(kept.keys) == ["yours", "port"])
+        #expect(kept["port"] as? Int == 9090)
+        let yours = try #require(kept["yours"] as? [String: Any])
+        #expect(yours["proxy"] as? String == "proxy.corp:8080")
+    }
+
+    @Test func keepsStandInSettingsInAFile() throws {
+        let file = Self.restoreFile().deletingLastPathComponent().appending(path: "Settings.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let settings = FileProxySettings<MadeUpProxySettings>(file: file)
+        // No file yet: no proxy, as a computer starts.
+        #expect(try settings.read() == .noProxy)
+        try settings.write(Self.yours)
+        #expect(try settings.read() == Self.yours)
     }
 }

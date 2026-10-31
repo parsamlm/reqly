@@ -1,7 +1,8 @@
 #!/bin/bash
-# Builds or tests the core (ReqlyKit), or libReqlyCore.so, on Linux, with the system's SQLite and
-# zlib (libsqlite3-dev and zlib1g-dev), as CI's container has them.
-#   linux/scripts/core.sh build|test [--package core|ReqlyCore] [more swift options]
+# Builds or tests the core (ReqlyKit), the core interface (core-interface), or libReqlyCore.so, on
+# Linux, with the system's SQLite and zlib (libsqlite3-dev and zlib1g-dev), as CI's container has
+# them.
+#   linux/scripts/core.sh build|test [--package core|core-interface|ReqlyCore] [more swift options]
 # A build of libReqlyCore.so looks for Swift's runtime only beside itself (RUNPATH $ORIGIN, which
 # stage-core.sh checks), so Reqly loads the copy it ships, never a toolchain's under
 # /usr/lib/swift. Tests run on the toolchain's runtime, as SwiftPM sets them up. For the files to
@@ -10,7 +11,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: linux/scripts/core.sh build|test [--package core|ReqlyCore] [more swift options]" >&2
+    echo "usage: linux/scripts/core.sh build|test [--package core|core-interface|ReqlyCore] [more swift options]" >&2
     exit 2
 }
 
@@ -22,7 +23,7 @@ rest=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --package)
-            [[ $# -ge 2 && ($2 == core || $2 == ReqlyCore) ]] || usage
+            [[ $# -ge 2 && ($2 == core || $2 == core-interface || $2 == ReqlyCore) ]] || usage
             package=$2
             shift 2
             ;;
@@ -36,6 +37,8 @@ done
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 if [[ $package == core ]]; then
     path=$root/core
+elif [[ $package == core-interface ]]; then
+    path=$root/core-interface
 else
     path=$root/windows/ReqlyCore
     if [[ $command == build ]]; then

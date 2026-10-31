@@ -2,7 +2,6 @@ import Capture
 import Foundation
 import ReqlyModel
 import Synchronization
-import WindowsSystem
 
 /// The devices you let in, by the address each connects from, for naming each connection from the
 /// network as it opens. The session reads it while the host changes it.
@@ -71,7 +70,7 @@ struct WireDevices: Encodable {
     var addresses: [Address]
     var problem: String?
 
-    init(_ book: DevicesBook, allowsNetworkDevices: Bool, addresses: [NetworkAddresses.Address], problem: String?) {
+    init(_ book: DevicesBook, allowsNetworkDevices: Bool, addresses: [SystemParts.Address], problem: String?) {
         self.allowsNetworkDevices = allowsNetworkDevices
         known = book.known.map {
             Known(

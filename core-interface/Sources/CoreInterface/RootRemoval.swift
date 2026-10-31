@@ -1,6 +1,5 @@
 import CertificateAuthority
 import Foundation
-import WindowsSystem
 
 /// How removing Reqly's certificate went, as Reqly is uninstalled. The numbers are what
 /// `reqly_remove_root` returns.
@@ -12,18 +11,15 @@ public enum RootRemoval: Int32, Sendable {
     case declined = 2
     case failed = -1
 
-    /// Removes Reqly's certificate as Reqly is uninstalled: from your trusted roots, which Windows
-    /// asks you to confirm, and its key with it. A test run's stand-in file only goes.
-    public static func remove(rootFile: String, standIn: Bool) -> RootRemoval {
+    /// Removes Reqly's certificate as Reqly is uninstalled: from your trusted roots, which the
+    /// system asks you to confirm, and its key with it. A test run's stand-in file only goes.
+    public static func remove(rootFile: String, standIn: Bool, system: SystemParts) -> RootRemoval {
         let file = URL(fileURLWithPath: rootFile)
         if standIn {
             return remove(from: FileRootStore(file: file))
         }
-        #if os(Windows)
-            return remove(from: WindowsRootStore(file: file))
-        #else
-            return .nothing
-        #endif
+        guard let rootStore = system.rootStore else { return .nothing }
+        return remove(from: rootStore(file))
     }
 
     /// Removes the certificate a store keeps, with its key and the system's trust in it.

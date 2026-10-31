@@ -1,6 +1,6 @@
 # Has a package build on Windows with SwiftNIO and swift-nio-ssl as Reqly patches them, until their
 # releases have the same fixes:
-#   windows\scripts\patch-packages.ps1 -PackagePath <core or windows\ReqlyCore>
+#   windows\scripts\patch-packages.ps1 -PackagePath <core, core-interface or windows\ReqlyCore>
 # For each folder in windows\patches, named after a package, it makes a copy of the version its
 # VERSION file names, which must be the one Package.resolved pins, from the package's own
 # repository, applies the folder's patches in order, and has the package build with that copy,

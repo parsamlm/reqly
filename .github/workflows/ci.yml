@@ -19,6 +19,7 @@ jobs:
           xcrun swift-format lint --strict --recursive --configuration .swift-format
           mac/Reqly mac/ReqlyHelper mac/ReqlyMacKit/Sources mac/ReqlyMacKit/Tests mac/ReqlyMacKit/Package.swift
           core/Sources core/Tests core/Package.swift
+          core-interface/Sources core-interface/Tests core-interface/Package.swift
           windows/ReqlyCore/Sources windows/ReqlyCore/Tests windows/ReqlyCore/Package.swift
 
       # When a test fails, what it found also shows on the run's summary page.
@@ -38,9 +39,17 @@ jobs:
             exit 1
           }
 
-      # The Windows app's interface to the core. Its messages and the parts of Windows' own
-      # pieces that aren't Windows calls are tested here too.
-      - name: Test the Windows app's core interface
+      # The core interface, which answers the Windows app's messages, and will serve the Linux app.
+      - name: Test the core interface
+        run: |
+          set -o pipefail
+          swift test --package-path core-interface 2>&1 | tee "$RUNNER_TEMP/core-interface.log" || {
+            grep "recorded an issue" "$RUNNER_TEMP/core-interface.log" | sed 's/^/::error::/'
+            exit 1
+          }
+
+      # ReqlyCore.dll's C functions, and the parts of Windows' own pieces that aren't Windows calls.
+      - name: Test the Windows app's C interface
         run: |
           set -o pipefail
           swift test --package-path windows/ReqlyCore 2>&1 | tee "$RUNNER_TEMP/windows.log" || {
@@ -81,7 +90,10 @@ jobs:
       - name: Test the core
         run: linux/scripts/core.sh test
 
-      - name: Test the Windows app's core interface
+      - name: Test the core interface
+        run: linux/scripts/core.sh test --package core-interface
+
+      - name: Test the Windows app's C interface
         run: linux/scripts/core.sh test --package ReqlyCore
 
   # libReqlyCore.so for release, as Reqly for Linux will ship it: with the parts of Swift's

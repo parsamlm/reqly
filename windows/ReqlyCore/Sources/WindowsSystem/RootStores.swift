@@ -4,37 +4,7 @@ import ReqlyModel
 
 #if os(Windows)
     import WinSDK
-#endif
 
-/// A root in a plain file, for test runs, made there the first time HTTPS is set up. It counts as
-/// trusted, so a test run decrypts with it, while the computer itself never trusts it: it never
-/// goes near Windows' certificate stores.
-public struct FileRootStore: RootStore {
-    public let file: URL
-
-    public init(file: URL) {
-        self.file = file
-    }
-
-    public func load() throws -> RootIdentity? {
-        guard let data = try? Data(contentsOf: file) else { return nil }
-        return try RootIdentity(serialized: data)
-    }
-
-    public func save(_ root: RootIdentity) throws {
-        try FileReplacement.write(root.serialized(), to: file)
-    }
-
-    public func isTrusted(_ root: RootIdentity) -> Bool { true }
-
-    public func trust(_ root: RootIdentity) throws {}
-
-    public func remove(_ root: RootIdentity) throws {
-        try? FileManager.default.removeItem(at: file)
-    }
-}
-
-#if os(Windows)
     /// Reqly's root on Windows. Its certificate and key stay in a file that Windows encrypts for
     /// your user account (DPAPI), and the certificate goes in your user's Trusted Root
     /// Certification Authorities while you trust it. Windows asks you before it trusts the
