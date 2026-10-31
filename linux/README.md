@@ -2,11 +2,26 @@
 
 [Phase 3](../ROADMAP.md#phase-3--reqly-for-linux) of the roadmap: everything from the Mac app on Debian, Ubuntu and the systems based on them, sharing the Swift core with the Mac and Windows apps. Its code goes in this folder.
 
-The app will run the core in its own process as `libReqlyCore.so`, built from [windows/ReqlyCore](../windows/ReqlyCore), with the same C interface as the Windows app's `ReqlyCore.dll`.
+The app is Swift, with GTK 4 and libadwaita, and links the core and the [core interface](../core-interface) directly, in one process. `libReqlyCore.so`, built from [windows/ReqlyCore](../windows/ReqlyCore), stays a check that the core interface builds and runs on Linux.
 
 | Folder | What's in it |
 |---|---|
-| `scripts/` | `core.sh` builds and tests the core, or `libReqlyCore.so`. `stage-core.sh` gathers a release build of `libReqlyCore.so` with the parts of Swift's runtime it needs, and `check-core.sh` checks that they start on a system without Swift, with `smoke.c`, a small program that loads the library and sends a request through it. |
+| `Package.swift`, `Sources/`, `Tests/` | The `ReqlyLinux` package: what only Linux has, which the app hands the core as its `SystemParts`, as `WindowsSystem` does on Windows. `LinuxDesktop` sets your desktop's proxy, `LinuxTrust` keeps and trusts Reqly's certificate, `LinuxApps` finds which app opened a connection, and `LinuxSystem` puts them together. `CGio`, `CSecret` and `CLinux` reach GIO, libsecret and the kernel. |
+| `packaging/` | `reqly-trust`, the helper that adds Reqly's root to the computer's list as root, and its polkit action, `net.reqly.trust.policy`. |
+| `docker/` | The image the package is built and tested in, `reqly-linux-dev:noble`: Ubuntu 24.04 with Swift 6.4.1 and the development packages. |
+| `scripts/` | `app.sh` builds and tests the package. `core.sh` builds and tests the core, or `libReqlyCore.so`. `stage-core.sh` gathers a release build of `libReqlyCore.so` with the parts of Swift's runtime it needs, and `check-core.sh` checks that they start on a system without Swift, with `smoke.c`, a small program that loads the library and sends a request through it. |
+
+## Building the package
+
+In `reqly-linux-dev:noble`, so it builds against Ubuntu 24.04's headers, the oldest Reqly supports. Where Docker is, such as on a Mac with Colima, `app.sh` runs the build in the image, with the repository mounted read-only and the build kept in a Docker volume, `reqly-linux-build` unless `--volume` names another. Without Docker, such as in a container of the image, it builds in place.
+
+```bash
+docker build -t reqly-linux-dev:noble linux/docker
+linux/scripts/app.sh build
+linux/scripts/app.sh test
+linux/scripts/app.sh build --target LinuxDesktop      # one module and what it uses
+linux/scripts/app.sh test --filter LinuxDesktopTests  # one module's tests
+```
 
 ## Building the core
 

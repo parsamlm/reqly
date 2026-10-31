@@ -1,0 +1,101 @@
+#!/bin/sh
+# Adds Reqly's root to this computer's list of certificates, or takes it out, for the account that
+# asked. Reqly runs it as root through pkexec, with the polkit action net.reqly.trust; it's
+# installed as /usr/libexec/reqly/reqly-trust.
+#   reqly-trust add       reads the root, one PEM certificate, from standard input
+#   reqly-trust remove
+# The account is pkexec's PKEXEC_UID. Each account's root is its own file,
+# /usr/local/share/ca-certificates/reqly/reqly-ca-<uid>.crt, so two accounts' roots stay apart. It
+# reads the root from standard input, never from a path, so root never reads a file in your home
+# folder.
+# Exits:
+#   0  done
+#   1  it failed, and says why on standard error, such as for a certificate that isn't Reqly's
+#   2  used wrongly: no PKEXEC_UID, or an unknown command
+set -eu
+umask 022
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+folder=/usr/local/share/ca-certificates/reqly
+hooks=/etc/ca-certificates/update.d
+
+fail() {
+    echo "reqly-trust: $*" >&2
+    exit 1
+}
+
+uid=${PKEXEC_UID:-}
+case $uid in
+    '' | *[!0-9]*)
+        echo "usage: pkexec /usr/libexec/reqly/reqly-trust add|remove" >&2
+        exit 2
+        ;;
+esac
+[ "$(id -u)" -eq 0 ] || fail "it has to run as root."
+file=$folder/reqly-ca-$uid.crt
+link=/etc/ssl/certs/reqly-ca-$uid.pem
+
+case ${1:-} in
+    add)
+        [ $# -eq 1 ] || fail "add takes no arguments; the certificate comes on standard input."
+        work=$(mktemp -d)
+        trap 'rm -rf "$work"' EXIT
+        # A root is about 700 bytes; anything far bigger isn't one.
+        head -c 65536 >"$work/root.pem"
+        [ "$(grep -c -- '-----BEGIN ' "$work/root.pem")" -eq 1 ] &&
+            [ "$(grep -c -- '-----BEGIN CERTIFICATE-----' "$work/root.pem")" -eq 1 ] ||
+            fail "standard input isn't one PEM certificate."
+        openssl x509 -in "$work/root.pem" -out "$work/root.crt" 2>/dev/null ||
+            fail "standard input isn't a certificate OpenSSL can read."
+        subject=$(openssl x509 -in "$work/root.crt" -noout -subject -nameopt RFC2253)
+        issuer=$(openssl x509 -in "$work/root.crt" -noout -issuer -nameopt RFC2253)
+        subject=${subject#subject=}
+        issuer=${issuer#issuer=}
+        # RFC 2253 lists the name's parts last first: O=Reqly,CN=Reqly CA 2026-10-31 12:00.
+        case ",$subject," in
+            *,O=Reqly,*) ;;
+            *) fail "the certificate isn't Reqly's: its organization isn't Reqly." ;;
+        esac
+        case ",$subject" in
+            *",CN=Reqly CA"*) ;;
+            *) fail "the certificate isn't Reqly's: its name doesn't start with Reqly CA." ;;
+        esac
+        [ "$subject" = "$issuer" ] || fail "the certificate isn't a root: someone else issued it."
+        openssl x509 -in "$work/root.crt" -noout -ext basicConstraints 2>/dev/null | grep -q 'CA:TRUE' ||
+            fail "the certificate isn't a certificate authority's."
+        # Only a folder root made and alone can change, never a link to somewhere else.
+        [ ! -L "$folder" ] || fail "$folder is a link."
+        install -d -o root -g root -m 0755 "$folder"
+        [ "$(stat -c %u:%g:%a "$folder")" = 0:0:755 ] || fail "$folder isn't root's alone."
+        install -o root -g root -m 0644 "$work/root.crt" "$file.new"
+        mv -f "$file.new" "$file"
+        # It warns about its own bundle each time, so what it says only shows when it fails.
+        said=$(update-ca-certificates 2>&1) || fail "update-ca-certificates failed: $said"
+        [ -e "$link" ] || fail "update-ca-certificates didn't add the certificate."
+        ;;
+    remove)
+        [ $# -eq 1 ] || fail "remove takes no arguments."
+        had=no
+        [ ! -e "$link" ] || had=yes
+        [ ! -L "$folder" ] || fail "$folder is a link."
+        rm -f "$file"
+        rmdir "$folder" 2>/dev/null || true
+        said=$(update-ca-certificates --fresh 2>&1) || fail "update-ca-certificates failed: $said"
+        # update-ca-certificates never tells its hooks, such as Java's keystore (jks-keystore,
+        # from ca-certificates-java), about a local certificate it took out, even with --fresh. So
+        # they hear it here as update-ca-certificates tells them: each hook run-parts would pick
+        # reads one line, "-" and the link's path, on standard input. Java's drops the keystore
+        # entry named after the link, debian:reqly-ca-<uid>.pem.
+        if [ $had = yes ] && [ -d "$hooks" ]; then
+            run-parts --test -- "$hooks" | while read -r hook; do
+                printf -- '-%s\n' "$link" | "$hook" >/dev/null 2>&1 || echo "reqly-trust: $hook failed." >&2
+            done
+        fi
+        [ ! -e "$link" ] || fail "update-ca-certificates left the certificate in place."
+        ;;
+    *)
+        echo "usage: pkexec /usr/libexec/reqly/reqly-trust add|remove" >&2
+        exit 2
+        ;;
+esac
