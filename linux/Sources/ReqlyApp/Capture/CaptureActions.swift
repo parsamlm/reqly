@@ -1,4 +1,6 @@
+import CGtk
 import CoreInterface
+import GtkBinding
 
 extension AppModel {
     /// Starts or stops capturing, one change at a time. Starting points your desktop's proxy at
@@ -12,7 +14,10 @@ extension AppModel {
         if on {
             capture = .starting
             do {
-                listeningPort = try await session.startCapturing(port: port)
+                let listening = try await session.startCapturing(port: port)
+                // Which desktop's setting now points at Reqly, before the status line says so.
+                await desktopProxy.captureStarted(port: listening)
+                listeningPort = listening
                 capture = .capturing
                 problem = nil
             } catch {
@@ -23,34 +28,40 @@ extension AppModel {
             capture = .stopping
             do {
                 try await session.stopCapturing()
+                desktopProxy.captureStopped()
                 capture = .stopped
                 listeningPort = nil
                 problem = nil
             } catch {
+                // Your setting still points at Reqly, so it goes on capturing.
                 capture = .capturing
                 problem = error.message
             }
         }
     }
 
-    /// What the status line says, as on Windows.
+    /// What the status line says: the port and which desktop's proxy setting points at Reqly, as
+    /// on Windows, with what to do for apps to follow it, or what went wrong.
     var statusText: String {
-        if let problem {
-            return problem
-        }
-        switch capture {
-        case .capturing:
-            return "Capturing on port \(port)" + (options.setsSystemProxy ? "" : " · Desktop proxy not set")
-        case .starting: return "Starting…"
-        case .stopping: return "Stopping…"
-        case .stopped: return "Not capturing · Port \(port)"
-        }
+        let stoppedAfterGNOME = capture == .stopped && desktopProxy.stoppedAfterSettingGNOME
+        return CaptureStatus(
+            capture: capture, port: port, problem: problem,
+            proxySet: capture == .capturing ? desktopProxy.proxySet : [], chrome: desktopProxy.chrome,
+            terminalsKeepingProxy: stoppedAfterGNOME ? desktopProxy.terminalsFollowingGNOME : []
+        ).text
     }
 }
 
 extension MainWindow {
-    /// You turned the capture switch on or off.
+    /// You turned the capture switch on or off, with the pointer or the keyboard. The switch
+    /// can't be used while capturing starts or stops, and has the keyboard's focus again after.
     func captureSwitched(on: Bool) {
-        Task { await model.setCapturing(on) }
+        let hadFocus = gtk_widget_is_focus(captureSwitch) != 0
+        Task {
+            await model.setCapturing(on)
+            if hadFocus, gtk_widget_get_sensitive(captureSwitch) != 0 {
+                gtk_widget_grab_focus(captureSwitch)
+            }
+        }
     }
 }

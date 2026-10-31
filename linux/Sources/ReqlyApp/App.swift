@@ -9,7 +9,8 @@ import LinuxDesktop
 /// A real run is the only Reqly: a second launch hands GApplication's activation to the first one,
 /// through its name on the session bus, which brings back its window, and quits before it touches
 /// anything, so two never put back each other's proxy settings. A test run is a non-unique
-/// application, so it runs beside the Reqly that's open.
+/// application, so it runs beside the Reqly that's open, unless `--app-id` gives it an ID of its
+/// own, under which it's the only one.
 @MainActor
 final class App {
     /// The app ID: the name a running Reqly holds on the session bus, and its desktop file's name.
@@ -30,8 +31,9 @@ final class App {
     init(options: Options) {
         self.options = options
         model = AppModel(options: options, folders: AppFolders(options: options))
+        let isUnique = !options.isTestRun || options.appID != nil
         application = adw_application_new(
-            Self.id, options.isTestRun ? G_APPLICATION_NON_UNIQUE : G_APPLICATION_DEFAULT_FLAGS)
+            options.appID ?? Self.id, isUnique ? G_APPLICATION_DEFAULT_FLAGS : G_APPLICATION_NON_UNIQUE)
     }
 
     /// Runs Reqly until it quits, and returns its exit status.

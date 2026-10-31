@@ -2,7 +2,6 @@ import AppSetup
 import CoreInterface
 import Dispatch
 import Foundation
-import LinuxDesktop
 
 /// Reqly's state, on the main actor, and the live session behind it. The window and the features
 /// read the state, and hear of each change through ``observe(_:)``. The session's events arrive in
@@ -22,6 +21,8 @@ final class AppModel {
     private(set) var session: SessionHost?
     /// HTTPS decryption: Reqly's certificate, and the hosts to decrypt.
     private(set) lazy var https = HTTPSModel(app: self)
+    /// Your desktop's proxy setting, as capturing changes it.
+    private(set) lazy var desktopProxy = DesktopProxy(options: options, folders: folders)
     var capture = Capture.stopped {
         didSet { changed() }
     }
@@ -101,16 +102,7 @@ final class AppModel {
     private func openSession() async {
         // Settings a Reqly that quit unexpectedly left pointing at itself go back first, as on
         // Windows.
-        if options.setsSystemProxy, options.proxySettingsStandIn == nil {
-            do {
-                let guardian = ProxyGuard(restoreFile: folders.proxyRestoreFile)
-                if try DesktopProxySwitch.restoreLeftBehind(guardian: guardian) {
-                    AppLog.write("put back the proxy settings a Reqly that quit unexpectedly left")
-                }
-            } catch {
-                AppLog.write("couldn't put back the proxy settings a Reqly left: \(error)")
-            }
-        }
+        await desktopProxy.restoreLeftBehind()
         do {
             try folders.makeSessionsFolder()
         } catch {
