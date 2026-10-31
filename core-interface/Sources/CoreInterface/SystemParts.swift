@@ -3,9 +3,9 @@ import Foundation
 import ReqlyModel
 
 /// What only the system Reqly runs on has, which the app hands a session as it opens it:
-/// WindowsSystem's pieces on Windows. A part a system doesn't have stays empty, and sessions go
-/// without it, as a saved session does. Test runs' stand-ins, chosen by ``OpenOptions``, take
-/// the parts' place.
+/// WindowsSystem's pieces on Windows, and LinuxSystem's on Linux. A part a system doesn't have
+/// stays empty, and sessions go without it, as a saved session does. Test runs' stand-ins, chosen
+/// by ``OpenOptions``, take the parts' place.
 public struct SystemParts: Sendable {
     /// One of this computer's addresses, as the Devices window shows it.
     public struct Address: Hashable, Sendable {

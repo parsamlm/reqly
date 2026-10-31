@@ -109,6 +109,13 @@ import Testing
         let development = try #require(
             SystemParts.linux(trustHelper: "/src/linux/packaging/reqly-trust").rootStore?(file) as? LinuxRootStore)
         #expect(development.helper.path == "/src/linux/packaging/reqly-trust")
+
+        // The app's own store, which shows and changes each place, is the session's.
+        let apps = SystemParts.linuxRootStore(file: file, trustHelper: "/src/linux/packaging/reqly-trust")
+        #expect(apps.file == development.file && apps.pemFile == development.pemFile)
+        #expect(apps.bundleFile == development.bundleFile && apps.helper.path == development.helper.path)
+        #expect(apps.keys.keyring is SecretServiceKeyring && !apps.helper.asksInTerminal)
+        #expect(SystemParts.linuxRootStore(file: file).helper.path == TrustHelper.installedPath)
     }
 
     /// A test run's secrets go in a plain file, in the same JSON as Windows'; the app's go in the

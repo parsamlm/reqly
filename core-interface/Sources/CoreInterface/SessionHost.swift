@@ -618,6 +618,15 @@ public actor SessionHost {
         return try await https.remove()
     }
 
+    /// Reads the certificate from the store again, and whether it's trusted, after the app made
+    /// it or trusted it itself, as the Linux app does, place by place. The session decrypts once
+    /// any place trusts it. A session that doesn't decrypt, such as a saved one, says HTTPS isn't
+    /// set up.
+    public func reloadHTTPS() async -> HTTPSState {
+        guard let httpsHost else { return HTTPSState(status: .notSetUp, hosts: DecryptedHosts()) }
+        return await httpsHost.reload()
+    }
+
     /// The hosts to decrypt, as the app saved them.
     public func setDecryptedHosts(_ hosts: DecryptedHosts) async throws(Problem) -> HTTPSState {
         try await changeHosts { $0 = hosts }

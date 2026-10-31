@@ -40,6 +40,20 @@ public struct TrustPlace: Sendable, Equatable {
     /// Whether changing it asks for an administrator's password.
     public var needsPassword: Bool { kind == .computer }
 
+    /// Whether Reqly can add the certificate to it now, as Set Up HTTPS and Trust… do: there's
+    /// something to add it to, Reqly can change it, and it doesn't trust the certificate yet.
+    public var canTrust: Bool { status == .notTrusted }
+
+    /// Its status in a word or two, as Settings › HTTPS shows it beside its name.
+    public var statusName: String {
+        switch status {
+        case .trusted: "Trusted"
+        case .notTrusted: "Not trusted"
+        case .notFound: "Not found"
+        case .unavailable: "Unavailable"
+        }
+    }
+
     /// A sentence about it, for the app to show under its name.
     public var detail: String {
         if case .unavailable(let reason) = status { return reason }
@@ -56,6 +70,8 @@ public struct TrustPlace: Sendable, Equatable {
             case 1: "One profile. Restart Firefox afterwards."
             default: "\(locations.count) profiles. Restart Firefox afterwards."
             }
+        case .computer where status == .trusted:
+            return "It's in this computer's list, for every account on it."
         case .computer:
             return "This adds the certificate to this computer's list, for every account on it. "
                 + "Linux asks for an administrator's password."

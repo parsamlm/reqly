@@ -25,8 +25,16 @@ actor HTTPSHost {
         await refresh()
     }
 
-    /// Makes the certificate if there isn't one, then asks the system to trust it, which on
-    /// Windows asks you to confirm. Saying no isn't a failure: the status says it isn't trusted.
+    /// Reads the certificate and whether it's trusted again, as ``load()`` does as the session
+    /// opens, after the app changed them in the store itself.
+    func reload() async -> HTTPSState {
+        await load()
+        return state
+    }
+
+    /// Makes the certificate if there isn't one, then asks the system to trust it, which asks you
+    /// to confirm on Windows, and for an administrator's password on Linux, for the computer's
+    /// list. Saying no isn't a failure: the status says it isn't trusted.
     func setUp() async throws(Problem) -> HTTPSState {
         let store = self.store
         let existing = root
@@ -52,8 +60,8 @@ actor HTTPSHost {
         return state
     }
 
-    /// Removes the certificate, its key and the system's trust in it, which on Windows asks you
-    /// to confirm.
+    /// Removes the certificate, its key and the system's trust in it, which asks you to confirm
+    /// on Windows, and for an administrator's password on Linux, for the computer's list.
     func remove() async throws(Problem) -> HTTPSState {
         guard let root else { return state }
         let store = self.store

@@ -25,7 +25,7 @@ extension SystemParts {
     /// The secrets work the same way: in your keyring, or in their file, which only you can read.
     public static func linux(trustHelper: String? = nil) -> SystemParts {
         SystemParts(
-            rootStore: { file in LinuxRootStore(file: file, helper: trustHelper) },
+            rootStore: { file in linuxRootStore(file: file, trustHelper: trustHelper) },
             proxySwitch: { restoreFile, standIn in
                 if let standIn {
                     return UserProxySwitch(settings: DesktopProxyStandIn(file: standIn), restoreFile: restoreFile)
@@ -39,6 +39,13 @@ extension SystemParts {
                 NetworkAddresses.current().map { SystemParts.Address(interface: $0.interface, address: $0.address) }
             },
             hardwareAddress: { NetworkNeighbors.hardwareAddress(of: $0) })
+    }
+
+    /// The certificate store Linux's parts give a session for `file`, with the root helper at
+    /// `trustHelper`, or the installed one. The app makes its own the same way, to show and change
+    /// each place that trusts the certificate, so the two see the same files and keyring.
+    public static func linuxRootStore(file: URL, trustHelper: String? = nil) -> LinuxRootStore {
+        LinuxRootStore(file: file, helper: trustHelper)
     }
 }
 

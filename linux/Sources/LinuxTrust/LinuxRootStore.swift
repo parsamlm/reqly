@@ -17,7 +17,7 @@ public struct LinuxRootStore: RootStore {
     public let file: URL
     public let keys: RootKeyStorage
     public let locations: TrustLocations
-    public let helper: TrustHelper
+    public var helper: TrustHelper
     /// The environment certutil is found in, through `PATH`, and tools run with.
     public let environment: [String: String]
     /// The computer's list, which only tests change.

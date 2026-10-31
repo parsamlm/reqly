@@ -49,7 +49,7 @@ import Testing
 
     /// Runs the helper through a pkexec that prints `said` to standard error and exits with
     /// `status`, after saving its arguments and standard input.
-    func run(status: Int32, said: String = "", remove: Bool = false) throws -> Ran {
+    func run(status: Int32, said: String = "", remove: Bool = false, asksInTerminal: Bool = false) throws -> Ran {
         try Fixtures.withFolder { folder throws in
             let bin = folder.appending(path: "bin")
             try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -65,9 +65,10 @@ import Testing
                 """, at: bin.appending(path: "pkexec"))
             let helper = folder.appending(path: "reqly-trust")
             try Fixtures.script("#!/bin/sh\nexit 0\n", at: helper)
-            let trustHelper = TrustHelper(
+            var trustHelper = TrustHelper(
                 path: helper.path, pkexec: bin.appending(path: "pkexec").path,
                 environment: ["PATH": "/usr/bin:/bin"], uid: 1000)
+            trustHelper.asksInTerminal = asksInTerminal
             let result = Result { () throws(TrustProblem) in
                 if remove {
                     try trustHelper.remove()
@@ -93,6 +94,14 @@ import Testing
         let removed = try run(status: 0, remove: true)
         #expect(removed.arguments.hasSuffix("reqly-trust remove"))
         #expect(removed.input == "")
+    }
+
+    /// `reqly --remove-certificate` lets pkexec ask in its terminal, when there's no password
+    /// dialog, so pkexec stays in the terminal's session.
+    @Test func asksInTheTerminalOnlyWhenTold() throws {
+        let removed = try run(status: 0, remove: true, asksInTerminal: true)
+        #expect(throws: Never.self) { try removed.result.get() }
+        #expect(!removed.leadsSession)
     }
 
     @Test func closingTheDialogCancels() throws {

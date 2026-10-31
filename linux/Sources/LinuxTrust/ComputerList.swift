@@ -72,6 +72,10 @@ public struct TrustHelper: Sendable {
     public var environment: [String: String]
     /// Your account, which the commands to run by hand name.
     public var uid: UInt32
+    /// Whether pkexec may ask for the password in the terminal Reqly runs in, when there's no
+    /// password dialog, as `reqly --remove-certificate` lets it. Reqly's window never does: you
+    /// may never see a question in the terminal it was started from.
+    public var asksInTerminal = false
 
     public init(
         path: String = installedPath, pkexec: String = pkexecPath,
@@ -113,10 +117,10 @@ public struct TrustHelper: Sendable {
         let ended: ToolRun.Ended
         do {
             // In a session of its own, so with no polkit agent it can't fall back to asking in the
-            // terminal Reqly was started from, where you may never see it.
+            // terminal Reqly was started from, where you may never see it, unless it may ask there.
             ended = try ToolRun(
                 path: pkexec, arguments: [path, action], environment: ToolRun.withoutProxy(environment), input: input,
-                cancellation: cancellation, newSession: true
+                cancellation: cancellation, newSession: !asksInTerminal
             ).run()
         } catch .cancelled {
             throw .cancelled
