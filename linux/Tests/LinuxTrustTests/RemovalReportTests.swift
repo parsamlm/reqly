@@ -97,6 +97,29 @@ import Testing
         }
     }
 
+    /// Without the helper, Reqly can't ask for the password at all, so it gives the commands that
+    /// take the certificate out of the computer's list by hand, and keeps the key until then.
+    @Test func givesTheCommandsWhenTheHelperIsMissing() throws {
+        let root = try Fixtures.root(minute: 44)
+        try withStore(listing: root) { store, list in
+            try FileManager.default.removeItem(atPath: store.helper.path)
+            try store.save(root)
+            let report = RemovalReport.remove(from: store)
+            #expect(!report.isComplete)
+            #expect(
+                report.lines.last
+                    == "Reqly couldn't remove its certificate from everywhere. Reqly's helper, \(store.helper.path), "
+                    + "isn't installed. To take it out yourself, run these in a terminal, then remove it again:\n"
+                    + ComputerList.commandsToRemove(uid: 4250))
+            #expect(try store.load() != nil)
+
+            // Once they've run, removing it again finishes.
+            try "".write(to: list, atomically: true, encoding: .utf8)
+            #expect(RemovalReport.remove(from: store).outcome == .removed)
+            #expect(try store.load() == nil)
+        }
+    }
+
     @Test func saysWhenItCantReadTheKey() throws {
         try withStore { store, _ in
             try store.save(try Fixtures.root(minute: 43))

@@ -15,11 +15,11 @@ import Testing
     @Test func saysEachStatusAndWhetherReqlyCanTrustIt() {
         let places: [(place: TrustPlace, status: String, canTrust: Bool, detail: String)] = [
             (
-                TrustPlace(kind: .firefox, status: .notTrusted, locations: Self.profiles), "Not trusted", true,
+                TrustPlace(kind: .firefox, status: .notTrusted, locations: Self.profiles), "Not Trusted", true,
                 "2 profiles. Restart Firefox afterwards."
             ),
             (
-                TrustPlace(kind: .firefox, status: .notFound, locations: []), "Not found", false,
+                TrustPlace(kind: .firefox, status: .notFound, locations: []), "Not Found", false,
                 "Open Firefox once, then come back."
             ),
             (
@@ -27,7 +27,7 @@ import Testing
                 "One certificate database. Restart your browsers afterwards."
             ),
             (
-                TrustPlace(kind: .browsers, status: .notFound, locations: []), "Not found", false,
+                TrustPlace(kind: .browsers, status: .notFound, locations: []), "Not Found", false,
                 "Open Chrome, or another browser built on it, once, then come back."
             ),
             (
@@ -37,7 +37,7 @@ import Testing
                 "Unavailable", false, "Needs the libnss3-tools package, which has certutil."
             ),
             (
-                TrustPlace(kind: .computer, status: .notTrusted, locations: Self.computer), "Not trusted", true,
+                TrustPlace(kind: .computer, status: .notTrusted, locations: Self.computer), "Not Trusted", true,
                 "This adds the certificate to this computer's list, for every account on it. Linux asks for an "
                     + "administrator's password."
             ),
@@ -53,6 +53,8 @@ import Testing
         }
         #expect(places.map(\.place.name).first == "Firefox")
         #expect(places.last?.place.name == "Command-line tools and most other apps")
+        #expect(places.last?.place.title == "Command-Line Tools and Most Other Apps")
+        #expect(places[2].place.title == "Chrome and Other Browsers Built on It")
     }
 
     /// The fix for each app none of the places reaches, with the certificate's paths quoted for
@@ -63,8 +65,8 @@ import Testing
             pemFile: folder.appending(path: "Reqly CA.pem"), bundleFile: folder.appending(path: "ca-certificates.crt"))
         #expect(
             apps.map(\.name) == [
-                "Node from nodejs.org or nvm", "Python in a virtual environment", "Java you installed yourself",
-                "Docker containers", "Snap and Flatpak browsers Reqly doesn't know about",
+                "Node From nodejs.org or nvm", "Python in a Virtual Environment", "Java You Installed Yourself",
+                "Docker Containers", "Snap and Flatpak Browsers Reqly Doesn't Know About",
             ])
         let pem = #"'/home/o'\''neil/.local/share/reqly/Reqly CA.pem'"#
         #expect(apps[0].fix == "export NODE_EXTRA_CA_CERTS=\(pem)")
@@ -75,7 +77,8 @@ import Testing
         #expect(
             apps[3].fix == """
                 COPY ["Reqly CA.pem", "/usr/local/share/ca-certificates/reqly-ca.crt"]
-                RUN update-ca-certificates
+                RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \\
+                    && update-ca-certificates
                 """)
         #expect(apps[4].fix == "/home/o'neil/.local/share/reqly/Reqly CA.pem")
         #expect(apps.allSatisfy { $0.detail.hasSuffix(":") })

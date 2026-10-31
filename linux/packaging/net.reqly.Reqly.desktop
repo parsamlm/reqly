@@ -1,12 +1,13 @@
 # Reqly's desktop file, named after its app ID, which GTK gives its window on Wayland and as its
 # X11 class, so docks and task bars show Reqly's name and icon. For checks in a desktop VM, with
 # `reqly` on PATH; linux/README.md says how to install it there. Reqly doesn't open files yet, so
-# MimeType, with Reqly's own file types, and the action that starts capturing come with the package.
+# Exec takes none, and %F, MimeType, with Reqly's own file types, and the action that starts
+# capturing come with the package, once Step 5 opens files.
 [Desktop Entry]
 Type=Application
 Name=Reqly
 Comment=See what your apps send and receive
-Exec=reqly %F
+Exec=reqly
 Icon=net.reqly.Reqly
 Categories=Development;Network;
 Keywords=proxy;http;https;traffic;har;debug;

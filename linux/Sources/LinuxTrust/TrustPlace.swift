@@ -28,12 +28,22 @@ public struct TrustPlace: Sendable, Equatable {
     /// The databases or Firefox profiles it covers, or the computer's list itself.
     public var locations: [URL]
 
-    /// Its name, for the app to show.
+    /// Its name, as a line of `reqly --remove-certificate` starts with it.
     public var name: String {
         switch kind {
         case .browsers: "Chrome and other browsers built on it"
         case .firefox: "Firefox"
         case .computer: "Command-line tools and most other apps"
+        }
+    }
+
+    /// Its name as a row's title or a switch's label, in the app, which GNOME's guidelines give
+    /// header capitalization.
+    public var title: String {
+        switch kind {
+        case .browsers: "Chrome and Other Browsers Built on It"
+        case .firefox: "Firefox"
+        case .computer: "Command-Line Tools and Most Other Apps"
         }
     }
 
@@ -44,12 +54,13 @@ public struct TrustPlace: Sendable, Equatable {
     /// something to add it to, Reqly can change it, and it doesn't trust the certificate yet.
     public var canTrust: Bool { status == .notTrusted }
 
-    /// Its status in a word or two, as Settings › HTTPS shows it beside its name.
+    /// Its status in a word or two, as Settings › HTTPS shows it beside its name, a label with
+    /// header capitalization.
     public var statusName: String {
         switch status {
         case .trusted: "Trusted"
-        case .notTrusted: "Not trusted"
-        case .notFound: "Not found"
+        case .notTrusted: "Not Trusted"
+        case .notFound: "Not Found"
         case .unavailable: "Unavailable"
         }
     }

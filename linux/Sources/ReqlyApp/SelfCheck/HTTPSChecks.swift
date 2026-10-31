@@ -15,16 +15,12 @@ extension SelfCheck {
     ]
 
     /// Set Up HTTPS… shows the test run's stand-in in place of the places, makes the certificate,
-    /// and Reqly decrypts.
+    /// and Reqly decrypts. Opened again, it's the same dialog, from the start. A second setup
+    /// while one is under way doesn't start.
     func checkHTTPSSetup() async throws {
         let https = try await standInHTTPS()
         note("before: \(https.statusName)")
-        activate("set-up-https")
-        try await until("Set Up HTTPS to open") {
-            SetUpDialog.showing.map { gtk_widget_get_mapped($0.dialog) != 0 } ?? false
-        }
-        guard let setUp = SetUpDialog.showing else { throw Failure("Set Up HTTPS didn't open") }
-        try await until("the places") { setUp.isReady }
+        let setUp = try await openSetUp()
         let places = setUp.placeRows.map { "\(title($0)): \(subtitle($0))" }
         note("places: \(places.joined(separator: " | "))")
         try require(
@@ -42,7 +38,39 @@ extension SelfCheck {
         try require(https.state?.certificate?.isEmpty == false, "the session has no certificate to decrypt with")
         await settle()
         gtk_widget_activate(setUp.continueButton)
-        try await until("Set Up HTTPS to close") { SetUpDialog.showing == nil }
+        try await until("Set Up HTTPS to close") { !setUp.isShowing }
+
+        let again = try await openSetUp()
+        let label = string(gtk_button_get_label(cast(again.continueButton))) ?? ""
+        try require(again === setUp, "Set Up HTTPS made its dialog again")
+        try require(
+            !again.isDone && again.statusRow == nil && label == "Continue"
+                && gtk_widget_get_sensitive(again.continueButton) != 0,
+            "opened again, it shows \(label), not the start")
+        note("opened again: the same dialog, from the start, with \(label)")
+        await settle()
+        gtk_widget_activate(again.cancelButton)
+        try await until("Set Up HTTPS to close") { !again.isShowing }
+
+        // The one asked for here runs before the task's, which finds it under way.
+        let other = Task { await https.setUp(trusting: [], cancellation: Cancellation()) }
+        let first = await https.setUp(trusting: [], cancellation: Cancellation())
+        let second = await other.value
+        note("two setups at once: the second says \(second.failure ?? "nothing")")
+        try require(first.failure == nil, first.failure ?? "")
+        try require(second.failure?.hasPrefix("Reqly is still busy") == true, "the second setup ran too")
+    }
+
+    /// Opens Set Up HTTPS…, once it has read the places.
+    private func openSetUp() async throws -> SetUpDialog {
+        let window = window
+        activate("set-up-https")
+        try await until("Set Up HTTPS to open") {
+            window.setUp.map { $0.isShowing && gtk_widget_get_mapped($0.dialog) != 0 } ?? false
+        }
+        let setUp = try present(window.setUp, "Set Up HTTPS didn't open")
+        try await until("the places") { setUp.isReady }
+        return setUp
     }
 
     /// Settings › HTTPS shows the status, where the key is, and the fixes for what no place reaches,
@@ -160,12 +188,15 @@ extension SelfCheck {
     private func openHTTPSPage() async throws -> HTTPSPage {
         let window = window
         activate("settings")
-        try await until("Settings to open") { window.settings.map { gtk_widget_get_mapped($0.dialog) != 0 } ?? false }
-        guard let dialog = window.settings?.dialog else { throw Failure("Settings didn't open") }
-        adw_preferences_dialog_set_visible_page_name(cast(dialog), "https")
-        guard let visible = adw_preferences_dialog_get_visible_page(cast(dialog)),
-            let page = HTTPSPage.of(cast(visible))
-        else { throw Failure("Settings has no HTTPS page") }
+        try await until("Settings to open") {
+            window.settings.map { $0.isShowing && gtk_widget_get_mapped($0.dialog) != 0 } ?? false
+        }
+        guard let settings = window.settings, let page = settings.httpsPage else {
+            throw Failure("Settings didn't open")
+        }
+        adw_preferences_dialog_set_visible_page_name(cast(settings.dialog), "https")
+        let visible = adw_preferences_dialog_get_visible_page(cast(settings.dialog)).map { cast($0) as Widget }
+        try require(visible == page.page, "Settings shows another page than HTTPS")
         try await until("Settings › HTTPS to show") { gtk_widget_get_mapped(page.page) != 0 && page.isReady }
         return page
     }
@@ -177,7 +208,7 @@ extension SelfCheck {
         if let dialog = window.settings?.dialog {
             adw_dialog_close(cast(dialog))
         }
-        try await until("Settings to close") { window.settings == nil }
+        try await until("Settings to close") { window.settings?.isShowing == false }
     }
 
     /// Presses Enter in an entry row, as you would after typing: its text's "activate" signal,

@@ -58,8 +58,8 @@ public struct RemovalReport: Sendable, Equatable {
             outcome = .removed
         } catch CertificateStoreError.cancelled {
             outcome = .declined
-        } catch CertificateStoreError.failed(let reason) {
-            outcome = .failed(reason)
+        } catch CertificateStoreError.failed(let reasons) {
+            outcome = .failed("Reqly couldn't remove its certificate from everywhere. \(reasons)")
         } catch {
             outcome = .failed("Reqly couldn't remove its certificate. \(Self.explain(error))")
         }

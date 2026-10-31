@@ -8,11 +8,12 @@ import LinuxTrust
 /// shows how each went. The computer's list is switched on too: Linux asks for an administrator's
 /// password before it changes, which is the confirmation. A test run shows its stand-in
 /// certificate instead, and changes nothing on the computer.
+///
+/// The window makes it once and presents it again each time, from the start, as Settings is:
+/// libadwaita never frees the pages of a dialog. What an opening started that's still going when
+/// it closes, such as reading the places, shows nothing once it's opened again.
 @MainActor
 final class SetUpDialog {
-    /// The one that's open, kept until it closes, so there's only one, and the self-check finds it.
-    private(set) static var showing: SetUpDialog?
-
     let dialog: Widget
     let cancelButton: Widget
     /// Continue, and Done once Reqly has set up HTTPS.
@@ -28,21 +29,29 @@ final class SetUpDialog {
     private(set) var isReady = false
     /// Whether Reqly has set up HTTPS, and the results show.
     private(set) var isDone = false
+    /// Whether it's open, over the window.
+    private(set) var isShowing = false
 
     private let https: HTTPSModel
     private let stack: Widget
     private let toasts: Widget
     private let placesGroup: Widget
     private let results: Widget
+    private var resultGroups: [Widget] = []
     private let progress: (box: Widget, label: Widget)
     private let failure: Widget
     /// The kind of each switch row, in order.
     private var switches: [(kind: TrustPlace.Kind, row: Widget)] = []
+    /// The setup this opening started, while it's under way.
     private var cancellation: Cancellation?
+    /// Counts the openings, so what an earlier one started shows nothing in a later one.
+    private var opening = 0
 
     init(https: HTTPSModel) {
         self.https = https
         dialog = cast(adw_dialog_new())
+        // Kept for as long as the window is, rather than freed as it closes.
+        g_object_ref_sink(raw(dialog))
         adw_dialog_set_title(cast(dialog), "Set Up HTTPS")
         adw_dialog_set_content_width(cast(dialog), 520)
         // Tall enough for the three places and the key without scrolling, when the window has room.
@@ -54,7 +63,6 @@ final class SetUpDialog {
         cancelButton = gtk_button_new_with_label("Cancel")
         continueButton = gtk_button_new_with_label("Continue")
         gtk_widget_add_css_class(continueButton, "suggested-action")
-        gtk_widget_set_sensitive(continueButton, 0)
         adw_header_bar_pack_start(cast(header), cancelButton)
         adw_header_bar_pack_end(cast(header), continueButton)
 
@@ -73,7 +81,7 @@ final class SetUpDialog {
         adw_preferences_group_set_title(cast(placesGroup), "Add It To")
         adw_preferences_group_set_description(
             cast(placesGroup), "You can remove it from every place at any time, in Settings, under HTTPS.")
-        keyRow = HTTPSWidgets.row("Reqly's Key", "Looking for your keyring…")
+        keyRow = HTTPSWidgets.row("Reqly's Key")
         let key = adw_preferences_group_new()!
         adw_preferences_group_add(cast(key), keyRow)
         progress = HTTPSWidgets.progress()
@@ -100,23 +108,51 @@ final class SetUpDialog {
         connect(cancelButton, "clicked") { [weak self] in self?.cancel() }
         connect(continueButton, "clicked") { [weak self] in self?.continueOrClose() }
         connect(dialog, "closed") { [weak self] in self?.closed() }
-        Task { [weak self] in await self?.load() }
+        https.observe { [weak self] in self?.showWhetherItCanStart() }
     }
 
-    /// Shows the dialog over `window`.
+    /// Shows the dialog over `window`, from the start: the places as they are now.
     func present(over window: Widget) {
-        Self.showing = self
+        opening += 1
+        isShowing = true
+        isReady = false
+        isDone = false
+        cancellation = nil
+        gtk_stack_set_visible_child_name(cast(stack), "choices")
+        gtk_button_set_label(cast(continueButton), "Continue")
+        gtk_widget_set_visible(cancelButton, 1)
+        HTTPSWidgets.say(failure, nil)
+        adw_action_row_set_subtitle(cast(keyRow), "Looking for your keyring…")
+        for group in resultGroups {
+            adw_preferences_page_remove(cast(results), cast(group))
+        }
+        resultGroups = []
+        statusRow = nil
+        resultRows = []
+        showWhetherItCanStart()
         adw_dialog_present(cast(dialog), window)
+        let opening = opening
+        Task { [weak self] in await self?.load(opening) }
     }
 
-    /// Reads each place, and what keeping the key involves, then lets Continue start.
-    private func load() async {
+    /// Reads each place, and what keeping the key involves, then lets Continue start, unless
+    /// the dialog has closed or opened again meanwhile.
+    private func load(_ opening: Int) async {
         await https.readPlaces()
         let keyring = await https.keyringState()
+        guard opening == self.opening, isShowing else { return }
         showPlaces()
         adw_action_row_set_subtitle(cast(keyRow), keyText(keyring))
         isReady = true
-        gtk_widget_set_sensitive(continueButton, 1)
+        showWhetherItCanStart()
+    }
+
+    /// Continue starts once the places are read, and not while Reqly is busy with its certificate,
+    /// as when a setup you closed this dialog on still waits for the keyring, which then shows.
+    private func showWhetherItCanStart() {
+        guard isShowing, !isDone, cancellation == nil else { return }
+        gtk_widget_set_sensitive(continueButton, cBool(isReady && !https.isWorking))
+        HTTPSWidgets.show(progress, https.isWorking ? "Reqly is still busy with its certificate…" : nil)
     }
 
     private func showPlaces() {
@@ -135,7 +171,7 @@ final class SetUpDialog {
             placeRows = https.places.map { place in
                 let row = adw_switch_row_new()!
                 adw_preferences_row_set_use_markup(cast(row), 0)
-                adw_preferences_row_set_title(cast(row), place.name)
+                adw_preferences_row_set_title(cast(row), place.title)
                 adw_action_row_set_subtitle(
                     cast(row),
                     place.status == .trusted ? "It trusts the certificate already." : HTTPSWidgets.detail(of: place))
@@ -193,9 +229,11 @@ final class SetUpDialog {
             kinds.contains(.computer)
                 ? "Setting up HTTPS. Linux asks for an administrator's password…" : "Setting up HTTPS…")
         let https = https
+        let opening = opening
         Task { [weak self] in
             let result = await https.setUp(trusting: kinds, cancellation: cancellation)
-            self?.finish(result)
+            guard let self, opening == self.opening else { return }
+            finish(result)
         }
     }
 
@@ -205,7 +243,7 @@ final class SetUpDialog {
         if let failure = result.failure {
             HTTPSWidgets.say(self.failure, failure)
             showPlaces()
-            gtk_widget_set_sensitive(continueButton, 1)
+            showWhetherItCanStart()
             return
         }
         showResults(result)
@@ -233,14 +271,14 @@ final class SetUpDialog {
         let statusRow = HTTPSWidgets.row(https.statusName, advice)
         self.statusRow = statusRow
         adw_preferences_group_add(cast(status), statusRow)
-        adw_preferences_page_add(cast(results), cast(status))
+        resultGroups = [status]
 
         if !https.isStandIn {
             let places = adw_preferences_group_new()!
             adw_preferences_group_set_title(cast(places), "Places")
             resultRows = https.places.map { place in
                 let problem = result.problems[place.kind]
-                let row = HTTPSWidgets.row(place.name, outcome(of: place, problem))
+                let row = HTTPSWidgets.row(place.title, outcome(of: place, problem))
                 let status = HTTPSWidgets.suffixLabel()
                 gtk_label_set_text(cast(status), place.statusName)
                 adw_action_row_add_suffix(cast(row), status)
@@ -260,12 +298,15 @@ final class SetUpDialog {
                 adw_preferences_group_add(cast(places), row)
                 return row
             }
-            adw_preferences_page_add(cast(results), cast(places))
+            resultGroups.append(places)
         }
 
         let key = adw_preferences_group_new()!
         adw_preferences_group_add(cast(key), HTTPSWidgets.row("Reqly's Key", https.keyDescription ?? "Not kept yet"))
-        adw_preferences_page_add(cast(results), cast(key))
+        resultGroups.append(key)
+        for group in resultGroups {
+            adw_preferences_page_add(cast(results), cast(group))
+        }
     }
 
     /// What a place's row says once Reqly has tried it.
@@ -291,8 +332,6 @@ final class SetUpDialog {
 
     private func closed() {
         cancellation?.cancel()
-        if Self.showing === self {
-            Self.showing = nil
-        }
+        isShowing = false
     }
 }

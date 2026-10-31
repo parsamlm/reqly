@@ -326,6 +326,35 @@ struct Fixtures {
         third.discard()
         #expect(!FileManager.default.fileExists(atPath: third.directory.path(percentEncoded: false)))
     }
+
+    /// A folder of yours, named as the sessions' folder, keeps everything that isn't a session,
+    /// even a folder with a lock file nobody holds, and a session in it is private all the same.
+    @Test func newSessionsLeaveWhatIsntASessionAlone() throws {
+        let root = F.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileManager = FileManager.default
+        let project = root.appending(path: "project")
+        let abandoned = root.appending(path: UUID().uuidString)
+        for folder in [project, abandoned] {
+            try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data().write(to: folder.appending(path: ".lock"))
+        }
+        let yours = [root.appending(path: "notes.txt"), project.appending(path: "main.c")]
+        for file in yours {
+            try Data("yours".utf8).write(to: file)
+        }
+
+        let store = try TrafficStore.newSession(in: root)
+        defer { store.discard() }
+        for file in yours {
+            #expect(fileManager.fileExists(atPath: file.path(percentEncoded: false)), "\(file.lastPathComponent) went")
+        }
+        #expect(!fileManager.fileExists(atPath: abandoned.path(percentEncoded: false)))
+        #if !os(Windows)
+            let mode = try fileManager.attributesOfItem(atPath: store.directory.path)[.posixPermissions] as? Int
+            #expect(mode == 0o700)
+        #endif
+    }
 }
 
 /// The speed check from ARCHITECTURE.md, with time of its own: writing 100,000 requests takes most

@@ -1,10 +1,16 @@
 import CGio
+import Foundation
 
-/// A GLib error, such as GSettings' or D-Bus', as a Swift one.
-public struct GLibError: Error, Hashable, CustomStringConvertible {
+/// A GLib error, such as GSettings' or D-Bus', as a Swift one: GLib's own message, or Reqly's.
+public struct GLibError: LocalizedError, Hashable, CustomStringConvertible {
     public var message: String
 
     public var description: String { message }
+
+    /// The message as a sentence, as the status line shows it.
+    public var errorDescription: String? {
+        message.hasSuffix(".") ? message : message + "."
+    }
 
     /// The error GLib returned in `error`, which this frees.
     static func taking(_ error: UnsafeMutablePointer<GError>?, or fallback: String) -> GLibError {
@@ -23,7 +29,7 @@ enum SessionBus {
     /// Sends a signal with one string to every app listening, such as KDE's
     /// `reparseSlaveConfiguration`.
     static func emit(path: String, interface: String, member: String, string: String) throws {
-        try TimeLimit.run("D-Bus signal \(member)", seconds: timeLimit) {
+        try TimeLimit.run("sending the D-Bus signal \(member)", seconds: timeLimit) {
             let connection = try Self.connection()
             defer { g_object_unref(UnsafeMutableRawPointer(connection)) }
             var error: UnsafeMutablePointer<GError>?
@@ -32,10 +38,10 @@ enum SessionBus {
                 g_dbus_connection_emit_signal(
                     connection, nil, path, interface, member, g_variant_new_tuple(children, 1), &error)
             }
-            guard sent != 0 else { throw GLibError.taking(error, or: "couldn't send \(member)") }
+            guard sent != 0 else { throw GLibError.taking(error, or: "Reqly couldn't send the D-Bus signal \(member)") }
             // Signals wait in a queue; this sends it before the call returns.
             guard g_dbus_connection_flush_sync(connection, nil, &error) != 0 else {
-                throw GLibError.taking(error, or: "couldn't send \(member)")
+                throw GLibError.taking(error, or: "Reqly couldn't send the D-Bus signal \(member)")
             }
         }
     }
@@ -43,7 +49,7 @@ enum SessionBus {
     /// Whether an app on the session bus has `name`, such as a running Reqly's
     /// `net.reqly.Reqly`.
     static func nameHasOwner(_ name: String) throws -> Bool {
-        try TimeLimit.run("D-Bus NameHasOwner", seconds: timeLimit) {
+        try TimeLimit.run("asking D-Bus whether \(name) is taken", seconds: timeLimit) {
             let connection = try Self.connection()
             defer { g_object_unref(UnsafeMutableRawPointer(connection)) }
             var error: UnsafeMutablePointer<GError>?
@@ -54,7 +60,9 @@ enum SessionBus {
                     "NameHasOwner", g_variant_new_tuple(children, 1), nil, G_DBUS_CALL_FLAGS_NONE,
                     Int32(timeLimit * 1000), nil, &error)
             }
-            guard let reply else { throw GLibError.taking(error, or: "couldn't ask D-Bus about \(name)") }
+            guard let reply else {
+                throw GLibError.taking(error, or: "Reqly couldn't ask D-Bus whether \(name) is taken")
+            }
             defer { g_variant_unref(reply) }
             guard let answer = g_variant_get_child_value(reply, 0) else {
                 throw GLibError(message: "D-Bus didn't say whether \(name) is taken")
@@ -68,7 +76,7 @@ enum SessionBus {
     private static func connection() throws -> OpaquePointer {
         var error: UnsafeMutablePointer<GError>?
         guard let connection = g_bus_get_sync(G_BUS_TYPE_SESSION, nil, &error) else {
-            throw GLibError.taking(error, or: "there's no session bus")
+            throw GLibError.taking(error, or: "There's no session bus")
         }
         return connection
     }

@@ -1,7 +1,9 @@
+import AppSetup
 import CGtk
 import CoreInterface
 import Foundation
 import GtkBinding
+import LinuxSystem
 
 /// The self-check, `--smoke <report>`: runs its parts one after another on the main loop, each
 /// within its time limit, or only the ones `--smoke-parts` names, and writes PASS or FAIL for
@@ -55,6 +57,34 @@ final class SelfCheck {
 
     var window: MainWindow { app.window! }
     var model: AppModel { app.model }
+
+    /// Why the self-check can't run with `options`, or `nil` when it can. Its parts change what
+    /// they find, such as the files in your applications folder and the clipboard, so it runs
+    /// only as linux/scripts/self-check.sh runs it: with a stand-in for each of your settings it
+    /// could change, and with your home and XDG folders in the report's folder, a scratch folder.
+    nonisolated static func refusal(
+        options: Options, report: URL, environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        let missing = [
+            ("--proxy-settings-stand-in", options.proxySettingsStandIn), ("--root-stand-in", options.rootStandIn),
+            ("--secrets-stand-in", options.secretsStandIn),
+        ].filter { $0.1 == nil }.map(\.0)
+        guard missing.isEmpty else {
+            return "The self-check needs \(missing.joined(separator: ", ")), so it changes nothing of yours. Run it "
+                + "with linux/scripts/self-check.sh."
+        }
+        let scratch = report.deletingLastPathComponent().standardizedFileURL.path + "/"
+        let folders = LinuxFolders(environment: environment)
+        let outside = [
+            ("HOME", environment["HOME"] ?? NSHomeDirectory()), ("XDG_CONFIG_HOME", folders.config.path),
+            ("XDG_DATA_HOME", folders.data.path), ("XDG_STATE_HOME", folders.state.path),
+        ].filter { !URL(filePath: $0.1).standardizedFileURL.path.hasPrefix(scratch) }.map(\.0)
+        guard outside.isEmpty else {
+            return "The self-check runs only with \(outside.joined(separator: ", ")) in the report's folder, "
+                + "\(scratch), so it changes nothing of yours. Run it with linux/scripts/self-check.sh."
+        }
+        return nil
+    }
 
     // MARK: - Running
 
@@ -143,6 +173,12 @@ final class SelfCheck {
     /// Notes what the part found, for the report.
     func note(_ line: String) {
         notes.append(line)
+    }
+
+    /// `value`, or the part fails, saying `failure`.
+    func present<Value>(_ value: Value?, _ failure: @autoclosure () -> String) throws -> Value {
+        guard let value else { throw Failure(failure()) }
+        return value
     }
 
     /// Fails the part, saying `failure`, unless `condition` holds.

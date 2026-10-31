@@ -101,7 +101,7 @@ let package = Package(
         .testTarget(
             name: "ReqlyAppTests",
             dependencies: [
-                "ReqlyApp", "LinuxDesktop", "LinuxApps",
+                "ReqlyApp", "AppSetup", "LinuxDesktop", "LinuxApps",
                 .product(name: "CoreInterface", package: "core-interface"),
                 .product(name: "ReqlyModel", package: "core"),
             ]

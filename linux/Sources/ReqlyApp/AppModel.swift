@@ -106,7 +106,8 @@ final class AppModel {
         do {
             try folders.makeSessionsFolder()
         } catch {
-            problem = "Reqly couldn't make the folder for its sessions. \(error.localizedDescription)"
+            // Foundation's own description of a file error says nothing on Linux.
+            problem = "Reqly couldn't make the folder for its sessions, \(folders.sessionsFolder.path)."
             return
         }
         do {
@@ -121,7 +122,9 @@ final class AppModel {
             return
         }
         changed()
-        await https.load()
+        // Reading the certificate may wait for you to unlock your keyring, so capturing, and
+        // quitting, don't wait for it.
+        Task { await https.load() }
         if options.startsCapturing ?? settings.startsCapturingOnLaunch {
             await setCapturing(true)
         }

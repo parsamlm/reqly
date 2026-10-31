@@ -137,6 +137,48 @@ import Testing
         // The bus itself always has its name.
         #expect(try SessionBus.nameHasOwner("org.freedesktop.DBus"))
         #expect(try !SessionBus.nameHasOwner(ProxyGuard.appName))
+        #expect(ProxyGuard.isRunning(appName: "org.freedesktop.DBus"))
+        #expect(!ProxyGuard.isRunning())
+    }
+
+    /// The session says what went wrong with each error's localized description, which on Linux
+    /// says only "The operation could not be completed" unless the error says more.
+    @Test func saysWhatWentWrongInSentences() {
+        #expect(
+            GNOMEProxyStore.Locked(keys: ["org.gnome.system.proxy mode"]).localizedDescription
+                == "An administrator has locked your proxy settings (org.gnome.system.proxy mode).")
+        #expect(GLibError(message: "There's no session bus").localizedDescription == "There's no session bus.")
+        #expect(
+            TimeLimit.Exceeded(what: "changing GNOME's proxy setting", seconds: 10).localizedDescription
+                == "Changing GNOME's proxy setting took longer than 10 seconds, so Reqly stopped waiting.")
+        #expect(
+            Programs.Failure(program: "/usr/bin/ptyxis", code: ENOENT).localizedDescription
+                == "Reqly couldn't start /usr/bin/ptyxis: No such file or directory.")
+    }
+
+    /// When KDE's setting can't be changed, capturing doesn't start: your settings stay as they
+    /// were, the login entry goes again, and the reason reads as a sentence.
+    @Test func leavesNoLoginEntryWhenTheSettingCantChange() async throws {
+        let folder = try TestEnvironment.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // A file where KDE's folder should be.
+        let blocked = folder.appending(path: "config")
+        try Data().write(to: blocked)
+        var kde = KDEProxyStore(file: blocked.appending(path: "kioslaverc"))
+        kde.tellsApps = false
+        let store = DesktopProxyStore(gnome: nil, kde: kde, desktop: SessionDesktop(currentDesktop: "KDE"))
+        let guardian = ProxyGuard(
+            restoreFile: folder.appending(path: "ProxyRestore.json"),
+            environment: ["HOME": folder.path, "XDG_CONFIG_HOME": folder.path], executable: "/bin/false")
+        let proxySwitch = DesktopProxySwitch(store: store, guardian: guardian)
+        do {
+            try await proxySwitch.enable(port: 9090)
+            Issue.record("Capturing started with a setting that can't change.")
+        } catch {
+            #expect(error.localizedDescription == "Reqly couldn't make the folder for \(kde.file.path).")
+        }
+        #expect(!guardian.loginEntry.exists)
+        #expect(!FileManager.default.fileExists(atPath: guardian.restoreFile.path))
     }
 }
 

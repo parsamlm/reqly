@@ -13,7 +13,8 @@ import ReqlyModel
 /// Linux has no one store that trusts the certificate, so the app adds it to each place itself,
 /// with a LinuxRootStore made as the session's is, on the same files and keyring, then has the
 /// session read it again. A test run's stand-in certificate counts as trusted, and no place on
-/// the computer changes: the app never calls Linux's store then.
+/// the computer changes: the app never calls Linux's store then. A test run without a stand-in
+/// has no certificate at all.
 @MainActor
 final class HTTPSModel {
     /// Where the certificate is kept.
@@ -22,6 +23,9 @@ final class HTTPSModel {
         case linux(LinuxRootStore)
         /// A test run's stand-in file.
         case standIn(FileRootStore)
+        /// None, for a test run without a stand-in, so it never touches your certificate, its key
+        /// or the places that trust it.
+        case unavailable
     }
 
     /// How setting up went.
@@ -64,22 +68,40 @@ final class HTTPSModel {
         let linux = SystemParts.linuxRootStore(file: app.folders.rootFile, trustHelper: app.options.trustHelper)
         pemFile = linux.pemFile
         bundleFile = linux.bundleFile
-        store = app.options.rootStandIn.map { .standIn(FileRootStore(file: URL(filePath: $0))) } ?? .linux(linux)
+        if let standIn = app.options.rootStandIn {
+            store = .standIn(FileRootStore(file: URL(filePath: standIn)))
+        } else {
+            store = app.options.usesYourCertificates ? .linux(linux) : .unavailable
+        }
         Self.current = self
     }
+
+    /// What a test run without a stand-in says of HTTPS.
+    static let unavailableReason =
+        "This test run decrypts nothing, so it leaves your certificate alone. Give it --root-stand-in to decrypt."
 
     var isStandIn: Bool {
         if case .standIn = store { true } else { false }
     }
 
+    /// Whether there's a certificate store at all, which a test run without a stand-in hasn't.
+    var isAvailable: Bool {
+        if case .unavailable = store { false } else { true }
+    }
+
     var hasCertificate: Bool { state.map { $0.status != .notSetUp } ?? false }
 
-    /// The status in a word or two, or why it isn't known.
+    /// Why the session couldn't read the certificate, such as a keyring you didn't unlock, while
+    /// that's so.
+    var readProblem: String? { state?.readProblem }
+
+    /// The status in a word or two, as a row's title shows it, or why it isn't known.
     var statusName: String {
         switch state?.status {
         case .trusted: "Decrypting"
-        case .notTrusted: "Not trusted"
-        case .notSetUp: "Not set up"
+        case .notTrusted: "Not Trusted"
+        case .notSetUp where readProblem != nil: "Not Read"
+        case .notSetUp: "Not Set Up"
         case nil: problem ?? "Checking…"
         }
     }
@@ -96,6 +118,8 @@ final class HTTPSModel {
             case .file?: return "In a file only you can read: \(HTTPSWidgets.shortPath(store.file))"
             case nil: return nil
             }
+        case .unavailable:
+            return nil
         }
     }
 
@@ -107,6 +131,16 @@ final class HTTPSModel {
             places.first(where: { $0.kind == .computer })?.status == .unavailable(reason)
         else { return nil }
         return ComputerList.commandsToAdd(pemFile: store.pemFile, uid: store.helper.uid)
+    }
+
+    /// The commands that take the certificate out of the computer's list by hand, for when it's
+    /// there and Reqly can't ask for an administrator's password, since its helper or pkexec is
+    /// missing, as when you added it with ``commandsToTrustByHand``. Nil otherwise.
+    var commandsToRemoveByHand: String? {
+        guard case .linux(let store) = store, hasCertificate, store.helper.unavailableReason != nil,
+            places.first(where: { $0.kind == .computer })?.status == .trusted
+        else { return nil }
+        return ComputerList.commandsToRemove(uid: store.helper.uid)
     }
 
     /// The certificate's files for a terminal set up for Reqly, once HTTPS is set up and both are
@@ -134,10 +168,16 @@ final class HTTPSModel {
     // MARK: - The certificate
 
     /// Hands the session the hosts you saved, and reads whether HTTPS is set up, as the session
-    /// opens. With a certificate, it writes the terminal's copy of the computer's list again,
-    /// since the computer's list changes with updates.
+    /// opens, which waits while the session reads the certificate, maybe for your keyring. With a
+    /// certificate, it writes the terminal's copy of the computer's list again, since the
+    /// computer's list changes with updates.
     func load() async {
         guard let session = app.session else { return }
+        guard isAvailable else {
+            problem = Self.unavailableReason
+            changed()
+            return
+        }
         do {
             state = try await session.setDecryptedHosts(app.settings.decryptedHosts)
             problem = nil
@@ -161,8 +201,18 @@ final class HTTPSModel {
         }
     }
 
-    /// Reads each place again, and where the key is, as Set Up HTTPS and Settings › HTTPS do each
-    /// time they open: Chrome may have made its database since.
+    /// Reads each place again, and the certificate too when the session couldn't read it, as
+    /// Set Up HTTPS and Settings › HTTPS do each time they open: Chrome may have made its
+    /// database since, and your keyring may be open now.
+    func readAgain() async {
+        if readProblem != nil {
+            await reload()
+        } else {
+            await readPlaces()
+        }
+    }
+
+    /// Reads each place again, and where the key is.
     func readPlaces() async {
         guard case .linux(let store) = store else { return }
         let known = root
@@ -187,6 +237,8 @@ final class HTTPSModel {
     /// has the session read it again. Each step may wait: for the keyring's question, certutil, or
     /// an administrator's password, which `cancellation` stops waiting for.
     func setUp(trusting kinds: Set<TrustPlace.Kind>, cancellation: Cancellation) async -> SetupResult {
+        // Such as a setup still waiting for the keyring after you closed its dialog.
+        guard !isWorking else { return SetupResult(failure: Self.busy) }
         isWorking = true
         changed()
         defer {
@@ -224,15 +276,21 @@ final class HTTPSModel {
                 }
             }
             result.failure = failure.map { "Reqly couldn't set up HTTPS. \($0.reason)" }
+        case .unavailable:
+            result.failure = Self.unavailableReason
         }
         await reload()
         return result
     }
 
+    /// What setting up, trusting or removing says while another of them is still under way.
+    private static let busy = "Reqly is still busy with its certificate. Try again once it's done."
+
     /// Adds the certificate to one place, as Trust… does, then has the session read it again.
     /// Returns what went wrong, if anything did.
     func trust(_ kind: TrustPlace.Kind) async -> TrustProblem? {
         guard case .linux(let store) = store, let root else { return nil }
+        guard !isWorking else { return .failed(Self.busy) }
         isWorking = true
         changed()
         defer {
@@ -249,6 +307,7 @@ final class HTTPSModel {
     /// it after you closed the password dialog, or what went wrong.
     func remove() async -> String? {
         guard let session = app.session else { return nil }
+        guard !isWorking else { return Self.busy }
         isWorking = true
         changed()
         defer {

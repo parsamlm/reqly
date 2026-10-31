@@ -99,9 +99,10 @@ struct CaptureStatus: Equatable {
     var terminalsKeepingProxy: [String]
 
     /// Terminals that set the proxy variables in each new tab by themselves while GNOME's setting
-    /// is manual, by program and name. Konsole and xterm don't.
+    /// is manual, by program and name: GNOME Terminal and Ptyxis, as measured, and GNOME Console,
+    /// whose code reads GNOME's setting for each tab the same way. Konsole and xterm don't.
     static let terminalsFollowingGNOME: [(program: String, name: String)] = [
-        ("gnome-terminal", "GNOME Terminal"), ("ptyxis", "Ptyxis"),
+        ("gnome-terminal", "GNOME Terminal"), ("ptyxis", "Ptyxis"), ("kgx", "GNOME Console"),
     ]
 
     var text: String {

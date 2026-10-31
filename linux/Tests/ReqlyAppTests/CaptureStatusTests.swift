@@ -48,6 +48,7 @@ import Testing
             Self.status(.stopped, terminals: ["GNOME Terminal", "Ptyxis"])
                 == "Not capturing · Port 9090 · GNOME Terminal and Ptyxis tabs opened while capturing still point "
                 + "at Reqly, so open a new tab")
+        #expect(CaptureStatus.terminalsFollowingGNOME.map(\.name) == ["GNOME Terminal", "Ptyxis", "GNOME Console"])
     }
 
     @Test func showsTheSessionsProblemAndTheStepsBetween() {

@@ -259,16 +259,16 @@ public struct LinuxRootStore: RootStore {
                 try writeRecord(record)
                 throw CertificateStoreError.cancelled
             } catch {
-                left.append(error.errorDescription ?? "")
+                left.append(Self.removalProblem(error, uid: helper.uid))
             }
         } else {
             record.computer = false
         }
 
+        // Only the reasons: whoever shows them says what didn't go.
         guard left.isEmpty else {
             try writeRecord(record)
-            throw CertificateStoreError.failed(
-                "Reqly couldn't remove its certificate from everywhere. " + left.joined(separator: " "))
+            throw CertificateStoreError.failed(left.joined(separator: " "))
         }
         try keys.remove(from: record.key)
         for file in [pemFile, bundleFile, recordFile] {
@@ -352,6 +352,20 @@ public struct LinuxRootStore: RootStore {
     }
 
     private static let needsCertutil = "Needs the libnss3-tools package, which has certutil."
+
+    /// What kept the certificate in the computer's list, with the commands that take it out by
+    /// hand when Reqly can't ask for the password at all: with no helper or pkexec, or where it
+    /// isn't allowed, as over SSH. With no password dialog, the problem has them already.
+    static func removalProblem(_ problem: TrustProblem, uid: UInt32) -> String {
+        let reason = problem.errorDescription ?? ""
+        switch problem {
+        case .unavailable, .notAllowed:
+            return reason + " To take it out yourself, run these in a terminal, then remove it again:\n"
+                + ComputerList.commandsToRemove(uid: uid)
+        case .cancelled, .noPasswordDialog, .failed:
+            return reason
+        }
+    }
 
     private static func base64(_ root: RootIdentity) throws -> String {
         Data(try root.certificateDER).base64EncodedString()

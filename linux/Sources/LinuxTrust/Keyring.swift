@@ -40,7 +40,7 @@ public enum KeyringProblem: Error, Sendable, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unavailable(let reason): "There's no keyring to keep the key in. \(reason)"
-        case .dismissed: "The keyring's question was closed, so the key wasn't saved there."
+        case .dismissed: "The keyring's question was closed without an answer."
         case .timedOut: "The keyring didn't answer."
         case .failed(let reason): "The keyring couldn't keep the key. \(reason)"
         }

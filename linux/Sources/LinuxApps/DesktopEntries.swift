@@ -45,11 +45,18 @@ public final class DesktopEntries: Sendable {
         var version = 0
     }
 
+    /// The entries of the apps on this computer, read once for the whole of Reqly: the app lookup
+    /// names apps with them, and the request list shows their icons.
+    public static let shared = DesktopEntries()
+
     public let folders: [Folder]
     private let locales: [String]
     private let searchPath: [String]
     private let interval: Duration
     private let state = Mutex(State())
+    /// Held while the folders are read, so callers that come meanwhile wait for what's read
+    /// rather than each read them again.
+    private let reading = Mutex(())
 
     /// - Parameters:
     ///   - folders: Where entries are, the first folder's winning when two have the same ID.
@@ -134,30 +141,42 @@ public final class DesktopEntries: Sendable {
         return state.withLock(\.version)
     }
 
-    /// The index, read again when a folder has changed.
+    /// The index, read again when a folder has changed. One caller at a time looks at the folders,
+    /// and reads them; the others get the index that's there while it does, or wait for the first.
     private func index() -> Index {
-        let now = ContinuousClock.now
-        let current = state.withLock { state -> (index: Index, modified: [String: Int64?])? in
-            if let index = state.index, let checked = state.checked, now - checked < interval {
-                return (index, [:])
+        if let index = recentIndex() {
+            return index
+        }
+        return reading.withLock { _ in
+            // Another caller may have looked while this one waited.
+            if let index = recentIndex() {
+                return index
             }
-            state.checked = now
-            return state.index.map { ($0, state.modified) }
+            let current = state.withLock { state -> (index: Index, modified: [String: Int64?])? in
+                state.checked = .now
+                return state.index.map { ($0, state.modified) }
+            }
+            let modified = Dictionary(folders.map { ($0.path, LinuxFile.modified($0.path)) }) { first, _ in first }
+            if let current, current.modified == modified {
+                return current.index
+            }
+            let index = read()
+            state.withLock { state in
+                state.index = index
+                state.modified = modified
+                state.version += 1
+            }
+            return index
         }
-        if let current, current.modified.isEmpty {
-            return current.index
+    }
+
+    /// The index, when the folders were looked at less than `interval` ago.
+    private func recentIndex() -> Index? {
+        let now = ContinuousClock.now
+        return state.withLock { state in
+            guard let index = state.index, let checked = state.checked, now - checked < interval else { return nil }
+            return index
         }
-        let modified = Dictionary(folders.map { ($0.path, LinuxFile.modified($0.path)) }) { first, _ in first }
-        if let current, current.modified == modified {
-            return current.index
-        }
-        let index = read()
-        state.withLock { state in
-            state.index = index
-            state.modified = modified
-            state.version += 1
-        }
-        return index
     }
 
     /// Reads every folder's entries into an index.

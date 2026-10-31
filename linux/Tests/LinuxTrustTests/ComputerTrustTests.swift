@@ -112,6 +112,50 @@ struct ComputerTrustTests {
         #expect(lines.contains("-/etc/ssl/certs/reqly-ca-4242.pem"))
     }
 
+    // MARK: Uninstalling
+
+    /// The package's postrm, beside the helper.
+    static let postrmPath = URL(filePath: helperPath).deletingLastPathComponent().appending(path: "postrm").path
+
+    /// Removing the package takes every account's root out of the computer's list, and tells the
+    /// hooks, as the helper does for one account. An upgrade leaves them.
+    @Test func uninstallingTakesEveryAccountsRootOut() throws {
+        let hooks = URL(filePath: "/etc/ca-certificates/update.d")
+        let hook = hooks.appending(path: "reqly-test-hook")
+        let heard = URL(filePath: NSTemporaryDirectory()).appending(path: "reqly-hook-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: hooks, withIntermediateDirectories: true)
+        try Fixtures.script("#!/bin/sh\ncat >> \(heard.path)\n", at: hook)
+        defer {
+            try? FileManager.default.removeItem(at: hook)
+            try? FileManager.default.removeItem(at: heard)
+        }
+        let before = try bundleCount()
+        let roots = [try Fixtures.root(minute: 26), try Fixtures.root(minute: 27)]
+        for (root, uid) in zip(roots, ["4245", "4246"]) {
+            #expect(try helper(["add"], uid: uid, input: PEM.encode(try root.certificateDER)).status == 0)
+        }
+        let postrm = { (argument: String) in
+            try Fixtures.run("/bin/sh", [Self.postrmPath, argument], environment: ["PATH": "/usr/bin:/bin"])
+        }
+        #expect(try postrm("upgrade").status == 0)
+        #expect(try bundleCount() == before + 2)
+
+        try? FileManager.default.removeItem(at: heard)
+        let removed = try postrm("remove")
+        #expect(removed.status == 0, "\(removed.errorText)")
+        #expect(removed.errorText.isEmpty, "\(removed.errorText)")
+        for root in roots {
+            #expect(!ComputerList.contains(try root.certificateDER))
+        }
+        #expect(try bundleCount() == before)
+        #expect(!FileManager.default.fileExists(atPath: "/usr/local/share/ca-certificates/reqly"))
+        let lines = try String(contentsOf: heard, encoding: .utf8).split(separator: "\n")
+        #expect(
+            lines.contains("-/etc/ssl/certs/reqly-ca-4245.pem") && lines.contains("-/etc/ssl/certs/reqly-ca-4246.pem"))
+        // With nothing left, it does nothing.
+        #expect(try postrm("purge").status == 0)
+    }
+
     // MARK: The store
 
     /// A home folder, a keyring in memory, and a pkexec that runs the helper as root for account

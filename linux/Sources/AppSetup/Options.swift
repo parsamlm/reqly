@@ -39,32 +39,41 @@ public struct Options: Sendable, Equatable {
     /// A JSON file that stands in for your desktop's proxy settings, so the switch runs without
     /// changing yours.
     public var proxySettingsStandIn: String?
+    /// Your settings while Reqly captures. With a stand-in and no file named, it's the stand-in's
+    /// own, beside it, never the one the Reqly you use keeps.
     public var proxyRestoreFile: String?
     public var settingsFile: String?
-    public var rulesFile: String?
-    public var connectionsFile: String?
-    public var protobufFile: String?
-    public var devicesFile: String?
     public var sessionsFolder: String?
-    public var crashReportsFolder: String?
     /// Where Reqly's standard error goes, such as GLib's warnings, in place of the terminal's.
     public var logFile: String?
-    /// A plain file for the secrets, so the run needs nothing of your keyring.
-    public var secretsStandIn: String?
     /// Where Reqly's certificate goes, and its key when there's no keyring.
     public var rootFile: String?
     /// A plain file for a certificate that counts as trusted, so the run decrypts while nothing on
     /// the computer trusts it: not your browsers, Firefox or the computer's list.
     public var rootStandIn: String?
     /// The root helper to trust the certificate in the computer's list with, such as a development
-    /// build's copy, in place of the installed one.
+    /// build's copy, in place of the installed one. pkexec runs it as root, so it's a full path.
     public var trustHelper: String?
+
+    // Taken now, so test runs have Windows' command lines, and used as the roadmap's Phase 3
+    // brings what they're for: the rules, connections, protobuf and devices files, the secrets,
+    // the network devices choice and the welcome guide in Step 5, and the crash reports and the
+    // update check in Step 6.
+    public var rulesFile: String?
+    public var connectionsFile: String?
+    public var protobufFile: String?
+    public var devicesFile: String?
+    /// A plain file for the secrets, so the run needs nothing of your keyring. Giving one makes
+    /// the run a test run already.
+    public var secretsStandIn: String?
+    public var crashReportsFolder: String?
     /// Whether devices on the network may connect, in place of the choice in your settings.
     public var allowsNetworkDevices: Bool?
     /// Whether Reqly checks for a newer version, in place of the choice in your settings.
     public var checksForUpdates: Bool?
     /// Whether the welcome guide counts as seen, so it stays closed.
     public var hasSeenWelcome: Bool?
+
     /// Light or dark, whatever your desktop uses, for pictures of both.
     public var theme: Theme?
     /// `--smoke <report>`: runs the self-check, writes what it found to the report, and quits.
@@ -120,7 +129,14 @@ public struct Options: Sendable, Equatable {
             case "--secrets-stand-in": secretsStandIn = try value()
             case "--root-file": rootFile = try value()
             case "--root-stand-in": rootStandIn = try value()
-            case "--trust-helper": trustHelper = try value()
+            case "--trust-helper":
+                // pkexec looks a bare name up in PATH, so it could run another program than the
+                // one Reqly checked.
+                let path = try value()
+                guard path.hasPrefix("/") else {
+                    throw UsageError("--trust-helper takes the helper's full path, starting with /, not \(path).")
+                }
+                trustHelper = path
             case "--allows-network-devices": allowsNetworkDevices = try yesOrNo()
             case "--checks-for-updates": checksForUpdates = try yesOrNo()
             case "--has-seen-welcome": hasSeenWelcome = try yesOrNo()
@@ -156,6 +172,11 @@ public struct Options: Sendable, Equatable {
         setsSystemProxyOption ?? (!isTestRun || proxySettingsStandIn != nil)
     }
 
+    /// Whether HTTPS uses your certificate store: Reqly's certificate in your keyring, and the
+    /// places that trust it. Only a real run does. A test run decrypts with its stand-in, or not at
+    /// all, so it never changes your certificate, its key or the places that trust it.
+    public var usesYourCertificates: Bool { !isTestRun }
+
     /// Linux's parts for the session, with `--trust-helper`'s root helper if there's one.
     public var systemParts: SystemParts {
         trustHelper.map { SystemParts.linux(trustHelper: $0) } ?? .linux
@@ -177,20 +198,26 @@ public struct Options: Sendable, Equatable {
           --port <number>                   --starts-capturing yes|no
           --sets-system-proxy yes|no        --proxy-settings-stand-in <file>
           --proxy-restore-file <file>       --settings-file <file>
+          --sessions-folder <folder>        --log-file <file>
+          --root-file <file>                --root-stand-in <file>
+          --trust-helper <full path>        --theme light|dark
+          --smoke <report>                  --smoke-parts <part>,<part>...
+          --app-id <id>
+
+        Taken for the same command lines as Windows', and used once Reqly for Linux has rules,
+        connections, devices, the welcome guide, crash reports and updates:
           --rules-file <file>               --connections-file <file>
           --protobuf-file <file>            --devices-file <file>
-          --sessions-folder <folder>        --crash-reports-folder <folder>
-          --log-file <file>                 --secrets-stand-in <file>
-          --root-file <file>                --root-stand-in <file>
-          --trust-helper <program>          --allows-network-devices yes|no
-          --checks-for-updates yes|no       --has-seen-welcome yes|no
-          --theme light|dark                --smoke <report>
-          --smoke-parts <part>,<part>...    --app-id <id>
+          --secrets-stand-in <file>         --crash-reports-folder <folder>
+          --allows-network-devices yes|no   --checks-for-updates yes|no
+          --has-seen-welcome yes|no
 
         A run with a stand-in, its own settings file, --app-id or --smoke is a test run: it runs
         beside the Reqly that's open, as the only run under its --app-id if it has one, and
         changes your desktop's own proxy only when given --sets-system-proxy yes and no
-        --proxy-settings-stand-in.
+        --proxy-settings-stand-in. It never uses your certificate or keyring: it decrypts only
+        with --root-stand-in. A stand-in for the proxy keeps its restore file beside it, unless
+        --proxy-restore-file names one.
 
         """
 }

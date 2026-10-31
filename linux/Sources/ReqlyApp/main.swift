@@ -15,7 +15,7 @@ let options: Options
 do {
     options = try Options(arguments)
 } catch {
-    FileHandle.standardError.write(Data("reqly: \(error)\n".utf8))
+    StandardError.write("reqly: \(error)\n")
     exit(2)
 }
 switch options.command {
@@ -31,6 +31,11 @@ case .open:
     break
 }
 
+// The self-check changes what it finds, so it runs only on stand-ins and a scratch home.
+if let report = options.smokeReport, let refusal = SelfCheck.refusal(options: options, report: URL(filePath: report)) {
+    StandardError.write("reqly: \(refusal)\n")
+    exit(2)
+}
 // A Reqly started from a terminal set up for it would otherwise send its own requests through
 // itself.
 TerminalSetup.removeProxyVariablesFromThisProcess()
@@ -42,7 +47,7 @@ if let logFile = options.logFile {
         dup2(fd, STDERR_FILENO)
         close(fd)
     } else {
-        FileHandle.standardError.write(Data("reqly: couldn't open the log file \(logFile)\n".utf8))
+        StandardError.write("reqly: couldn't open the log file \(logFile)\n")
     }
 }
 // Kept for as long as the program runs: GLib's callbacks hold it only weakly.

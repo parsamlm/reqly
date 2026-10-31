@@ -22,29 +22,31 @@ public struct UncoveredApp: Sendable, Equatable {
         let pem = ComputerList.quoted(pemFile.path)
         return [
             UncoveredApp(
-                name: "Node from nodejs.org or nvm",
+                name: "Node From nodejs.org or nvm",
                 detail: "It reads only its own list. This adds Reqly's certificate to it, for what you start "
                     + "from the same shell:",
                 fix: "export NODE_EXTRA_CA_CERTS=\(pem)"),
             UncoveredApp(
-                name: "Python in a virtual environment",
+                name: "Python in a Virtual Environment",
                 detail: "Requests and pip there read certifi's list, not this computer's. This points them at "
                     + "this computer's list with Reqly's certificate added:",
                 fix: "export REQUESTS_CA_BUNDLE=\(ComputerList.quoted(bundleFile.path))"),
             UncoveredApp(
-                name: "Java you installed yourself",
+                name: "Java You Installed Yourself",
                 detail: "It keeps a keystore of its own. This adds Reqly's certificate to it, with that Java's "
                     + "keytool:",
                 fix: "keytool -importcert -cacerts -storepass changeit -noprompt -alias reqly-ca -file \(pem)"),
             UncoveredApp(
-                name: "Docker containers",
+                name: "Docker Containers",
                 detail: "Each image has its own list. For an image based on Debian or Ubuntu, copy Reqly CA.pem "
                     + "from \(pemFile.deletingLastPathComponent().path) beside its Dockerfile, then add these "
                     + "lines to it:",
+                // Plain Debian and Ubuntu images don't have update-ca-certificates.
                 fix: "COPY [\"Reqly CA.pem\", \"/usr/local/share/ca-certificates/reqly-ca.crt\"]\n"
-                    + "RUN update-ca-certificates"),
+                    + "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \\\n"
+                    + "    && update-ca-certificates"),
             UncoveredApp(
-                name: "Snap and Flatpak browsers Reqly doesn't know about",
+                name: "Snap and Flatpak Browsers Reqly Doesn't Know About",
                 detail: "They keep certificates in folders of their own. Import Reqly's certificate in the "
                     + "browser's own certificate settings, from this file:",
                 fix: pemFile.path),

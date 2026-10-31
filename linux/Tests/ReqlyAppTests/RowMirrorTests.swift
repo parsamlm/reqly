@@ -98,5 +98,22 @@ import Testing
         let change = try #require(received)
         #expect(change.splices == [RowMirror.Splice(position: 0, removing: 2, inserting: Self.ids([7, 8, 9]))])
         #expect(mirror.members == Set(Self.ids([7, 8, 9])))
+        #expect(change.changed.isEmpty)
+    }
+
+    /// Every row comes in place of the steps when many join at once, so a row that stays, such as
+    /// a request that completed meanwhile, is asked for again.
+    @Test func asksAgainForRowsThatStayThroughEveryRow() throws {
+        var mirror = RowMirror()
+        _ = mirror.receive(version: 1, steps: [Self.inserted([(0, 1), (1, 2)])])
+        let received = mirror.receive(version: 2, steps: [.reset(Self.ids([1, 2, 3]))])
+        let change = try #require(received)
+        #expect(change.changed == Self.ids([1, 2]))
+        #expect(change.inserted == Self.ids([1, 2, 3]))
+
+        // And when the mirror took every row after a missing event, whose changes it never saw.
+        #expect(mirror.receive(version: 4, steps: [.changed(Self.ids([3]))]) == nil)
+        let caughtUp = mirror.reset(version: 4, ids: Self.ids([2, 3, 4]))
+        #expect(caughtUp.changed == Self.ids([2, 3]))
     }
 }

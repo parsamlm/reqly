@@ -1,4 +1,5 @@
 import CGio
+import Foundation
 
 /// GNOME's proxy setting, read and changed in the process through GSettings, which keeps it in
 /// dconf. Apps that follow it hear about a change at once. Every call can block on D-Bus, so
@@ -14,12 +15,14 @@ public struct GNOMEProxyStore: Sendable {
 
     /// A key an administrator has locked, so Reqly can't change it, such as
     /// `org.gnome.system.proxy.http host`.
-    public struct Locked: Error, Hashable, CustomStringConvertible {
+    public struct Locked: LocalizedError, Hashable, CustomStringConvertible {
         public var keys: [String]
 
         public var description: String {
             "An administrator has locked your proxy settings (\(keys.joined(separator: ", ")))."
         }
+
+        public var errorDescription: String? { description }
     }
 
     /// Whether GNOME's settings are installed. Without them, GSettings would end the process
@@ -122,7 +125,9 @@ public struct GNOMEProxyStore: Sendable {
             g_main_context_pop_thread_default(context)
             g_main_context_unref(context)
         }
-        guard let proxy = g_settings_new(schema) else { throw GLibError(message: "couldn't open \(schema)") }
+        guard let proxy = g_settings_new(schema) else {
+            throw GLibError(message: "Reqly couldn't open GNOME's proxy settings, \(schema).")
+        }
         defer { g_object_unref(proxy) }
         if delayed {
             g_settings_delay(proxy)
@@ -134,7 +139,7 @@ public struct GNOMEProxyStore: Sendable {
             children.https.map { g_object_unref($0) }
         }
         guard let http = children.http, let https = children.https else {
-            throw GLibError(message: "couldn't open \(schema)'s http and https")
+            throw GLibError(message: "Reqly couldn't open GNOME's proxy settings for HTTP and HTTPS, in \(schema).")
         }
         return try body(proxy, http, https)
     }

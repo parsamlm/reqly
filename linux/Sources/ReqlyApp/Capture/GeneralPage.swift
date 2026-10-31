@@ -46,6 +46,13 @@ extension SettingsDialog {
         adw_preferences_group_add(cast(capture), starts)
 
         adw_preferences_page_add(cast(page), cast(capture))
+        // Each time Settings opens: capturing may have started on another port since.
+        whenPresented { [weak self] in
+            guard let self else { return }
+            adw_preferences_group_set_description(cast(capture), proxyDescription())
+            adw_spin_row_set_value(cast(port), Double(model.settings.proxyPort))
+            showPort(port, problem: nil)
+        }
         return page
     }
 

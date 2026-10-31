@@ -115,7 +115,8 @@ public actor SessionHost {
             store: store, systemProxy: systemProxy(options, system), extraTrustedRoots: extraRoots,
             findOrigin: originFinder(options, system, devices: origins))
         let https = rootStore(options, system).map { HTTPSHost(store: $0, capture: capture) }
-        await https?.load()
+        // The certificate may wait for your keyring, so the session opens without waiting for it.
+        await https?.startLoading()
         let host = SessionHost(
             capture: capture, https: https, protobuf: protobuf, origins: origins, system: system, events: events)
         await host.begin(showingStoredTraffic: options.file != nil)
@@ -601,9 +602,10 @@ public actor SessionHost {
 
     // MARK: - HTTPS
 
-    /// Whether HTTPS is set up, and the hosts to decrypt.
+    /// Whether HTTPS is set up, and the hosts to decrypt. As the session opens, it waits for the
+    /// certificate to be read, as each of the HTTPS calls does.
     public func https() async throws(Problem) -> HTTPSState {
-        try await withHTTPS { await $0.state }
+        try await withHTTPS { await $0.currentState() }
     }
 
     /// Makes Reqly's certificate if there isn't one, and asks the system to trust it.

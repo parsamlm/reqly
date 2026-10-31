@@ -53,7 +53,8 @@ public actor UserProxySwitch<Store: ProxySettingsStore>: SystemProxySwitch {
         // Settings an earlier Reqly left go back first, so the ones kept are yours.
         _ = try Self.restoreLeftBehind(settings: settings, restoreFile: restoreFile)
         let yours = try settings.read()
-        try FileReplacement.write(JSONEncoder().encode(Kept(yours: yours, port: port)), to: restoreFile)
+        // On the disk before your settings change, so a power cut right after can't lose them.
+        try FileReplacement.writeDurably(JSONEncoder().encode(Kept(yours: yours, port: port)), to: restoreFile)
         do {
             try settings.write(yours.capturing(port: port))
         } catch {

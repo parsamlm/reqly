@@ -5,13 +5,15 @@ import Foundation
 /// session of their own, with none of Reqly's descriptors, so none keeps Reqly's port open.
 public enum Programs {
     /// Couldn't start a program.
-    public struct Failure: Error, Hashable, CustomStringConvertible {
+    public struct Failure: LocalizedError, Hashable, CustomStringConvertible {
         public var program: String
         public var code: Int32
 
         public var description: String {
             "Reqly couldn't start \(program): \(String(cString: strerror(code)))."
         }
+
+        public var errorDescription: String? { description }
     }
 
     /// The program called `name` in `path`'s folders, such as the `PATH` variable's, or `nil`

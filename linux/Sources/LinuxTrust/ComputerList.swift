@@ -153,7 +153,8 @@ public enum TrustProblem: Error, Sendable, Equatable, LocalizedError {
     /// There's no password dialog, as on some tiling window managers. `commands` do it by hand,
     /// in a terminal.
     case noPasswordDialog(commands: String)
-    /// Your account isn't allowed to.
+    /// polkit doesn't allow it from here: Reqly's action is allowed only from the desktop you're
+    /// using, so never over SSH, and with no administrator to ask.
     case notAllowed
     /// What it needs is missing, such as certutil or pkexec.
     case unavailable(String)
@@ -167,7 +168,8 @@ public enum TrustProblem: Error, Sendable, Equatable, LocalizedError {
             "No password dialog is available, so Reqly can't ask for an administrator's password. "
                 + "To do it yourself, run these in a terminal:\n\(commands)"
         case .notAllowed:
-            "Your account isn't allowed to change this computer's list of certificates. Ask an administrator."
+            "Changing this computer's list of certificates is allowed only from the desktop you're using, with an "
+                + "administrator's password, not from here, such as over SSH."
         case .unavailable(let reason), .failed(let reason):
             reason
         }

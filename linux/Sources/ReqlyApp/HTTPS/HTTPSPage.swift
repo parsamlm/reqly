@@ -2,20 +2,15 @@ import CGtk
 import CoreInterface
 import Foundation
 import GtkBinding
+import LinuxDesktop
 import LinuxTrust
 import ReqlyModel
 
-extension SettingsDialog {
-    /// Settings › HTTPS: whether Reqly decrypts, each place that trusts its certificate, what no
-    /// place reaches, where the key is, the hosts to decrypt, and removing the certificate.
-    func httpsPage() -> Widget {
-        HTTPSPage(settings: self, https: model.https).page
-    }
-}
-
-/// Settings › HTTPS. It reads each place again each time Settings opens, since Chrome may have
-/// made its database since, and follows the HTTPS model from then on, for as long as the page
-/// lives.
+/// Settings › HTTPS: whether Reqly decrypts, each place that trusts its certificate, what no place
+/// reaches, where the key is, the hosts to decrypt, and removing the certificate. Settings keeps
+/// it, and it follows the HTTPS model. It reads each place again each time Settings opens, since
+/// Chrome may have made its database since, and the certificate too when the session couldn't
+/// read it, as when your keyring stayed locked.
 @MainActor
 final class HTTPSPage {
     let page: Widget
@@ -32,6 +27,9 @@ final class HTTPSPage {
     /// Why the host typed can't join the list, in the session's words.
     let addProblem: Widget
     let removeButton: Widget
+    /// Copies the commands that take the certificate out of the computer's list by hand, beside
+    /// what a removal left, when Reqly can't ask for the password.
+    let removeCommandsButton: Widget
     /// Remove Certificate…'s question, while it shows.
     private(set) var removeConfirmation: Widget?
     /// Whether the places have been read since the page opened.
@@ -40,14 +38,17 @@ final class HTTPSPage {
     private weak var settings: SettingsDialog?
     private let https: HTTPSModel
     private let setUpButton: Widget
-    /// What's left after a removal that didn't finish, and why.
+    /// What's left after a removal that didn't finish, and why, with the copy button.
     private let removeNote: Widget
+    private let removeLeft: Widget
     private let placesGroup: Widget
     private let hostsGroup: Widget
     private let hostList: Widget
     private let noHosts: Widget
     private var hostRows: [HostPattern: Widget] = [:]
     private let progress: (box: Widget, label: Widget)
+    /// Copies the lines that set up your shell for Reqly, as Copy Terminal Setup does.
+    private let terminalSetupButton: Widget
     /// What the page itself waits for, such as a removal.
     private var waitingFor: String?
     /// Whether the switches are being set to the model's state, rather than by you.
@@ -84,7 +85,10 @@ final class HTTPSPage {
         // What no place reaches: a terminal set up for Reqly, then each kind of app's own fix.
         let notCovered = adw_preferences_group_new()!
         adw_preferences_group_set_title(cast(notCovered), "Not Covered")
-        adw_preferences_group_set_description(cast(notCovered), "These keep a list of certificates of their own.")
+        adw_preferences_group_set_description(
+            cast(notCovered),
+            "These keep a list of certificates of their own, so the places above don't reach them. A terminal set "
+                + "up for Reqly covers most command-line tools, and each app below has its fix.")
         let terminal = HTTPSWidgets.row(
             "A Terminal Set Up for Reqly",
             "Sets the variables most command-line tools read, Node's and Python's included, for what you start "
@@ -92,6 +96,13 @@ final class HTTPSPage {
         let openTerminal = HTTPSWidgets.suffixButton("Open Terminal")
         gtk_actionable_set_action_name(cast(openTerminal), "app.open-terminal")
         adw_action_row_add_suffix(cast(terminal), openTerminal)
+        let model = settings.model
+        let shell = TerminalSetup.Shell(shell: ProcessInfo.processInfo.environment["SHELL"])
+        terminalSetupButton = HTTPSWidgets.copyButton(
+            TerminalSetup(port: model.port, certificates: https.terminalCertificates).text(for: shell),
+            label: "Copy Terminal Setup"
+        ) { [weak settings] in settings?.toast(TerminalWords.copied(for: shell)) }
+        adw_action_row_add_suffix(cast(terminal), terminalSetupButton)
         adw_preferences_group_add(cast(notCovered), terminal)
 
         // The hosts: a list with the new host's row last, so a host joins above it.
@@ -124,12 +135,25 @@ final class HTTPSPage {
         gtk_widget_add_css_class(removeButton, "destructive-action")
         gtk_widget_set_halign(removeButton, GTK_ALIGN_START)
         removeNote = HTTPSWidgets.message("dim-label")
-        gtk_widget_set_margin_top(removeNote, 6)
+        gtk_widget_set_hexpand(removeNote, 1)
+        removeCommandsButton = HTTPSWidgets.copyButton(
+            https.commandsToRemoveByHand ?? "", label: "Copy the commands"
+        ) { [weak settings] in settings?.toast("Copied") }
+        gtk_widget_set_valign(removeCommandsButton, GTK_ALIGN_START)
+        removeLeft = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)
+        gtk_widget_set_margin_top(removeLeft, 6)
+        gtk_box_append(cast(removeLeft), removeNote)
+        gtk_box_append(cast(removeLeft), removeCommandsButton)
+        gtk_widget_set_visible(removeLeft, 0)
         adw_preferences_group_add(cast(removal), removeButton)
-        adw_preferences_group_add(cast(removal), removeNote)
+        adw_preferences_group_add(cast(removal), removeLeft)
 
         for group in [certificate, placesGroup, notCovered, hostsGroup, everyHost, removal] {
             adw_preferences_page_add(cast(page), cast(group))
+        }
+        // A test run without a stand-in has no certificate, and no places or hosts.
+        for group in [placesGroup, hostsGroup, everyHost] {
+            gtk_widget_set_visible(group, cBool(https.isAvailable))
         }
 
         for app in UncoveredApp.all(pemFile: https.pemFile, bundleFile: https.bundleFile) {
@@ -155,24 +179,23 @@ final class HTTPSPage {
             Task { await self.https.setDecryptsEveryHost(isOn) }
         }
         connect(removeButton, "clicked") { [weak self] in self?.confirmRemoval() }
-        // Kept by the page until it's destroyed, so nothing shows on its rows after.
-        g_object_set_data_full(cast(page), Self.key, Box(self).retained(), releaseContext)
-        let page = page
-        connect(page, "destroy") { g_object_set_data(cast(page), Self.key, nil) }
         https.observe { [weak self] in self?.show() }
         show()
+        settings.whenPresented { [weak self] in self?.readAgain() }
+    }
+
+    /// Reads each place again, and the certificate when the session couldn't, as Settings opens.
+    /// What an earlier removal left is said again only if it's still so.
+    private func readAgain() {
+        isReady = false
+        HTTPSWidgets.say(removeNote, nil)
+        gtk_widget_set_visible(removeLeft, 0)
         Task { [weak self] in
-            await https.readPlaces()
+            guard let https = self?.https else { return }
+            await https.readAgain()
             self?.isReady = true
             self?.show()
         }
-    }
-
-    private static let key = "reqly-https-page"
-
-    /// The page object behind a page of Settings, if it's this one.
-    static func of(_ page: Widget) -> HTTPSPage? {
-        g_object_get_data(cast(page), key).map { Box<HTTPSPage>.from($0) }
     }
 
     // MARK: - Showing
@@ -203,14 +226,19 @@ final class HTTPSPage {
         case .notTrusted:
             status = "Not trusted. Reqly decrypts nothing until a place below trusts its certificate."
         case .notSetUp:
-            status =
-                "Not set up. To read HTTPS traffic, apps on this computer need to trust a certificate that Reqly "
-                + "makes just for you. It never leaves this computer."
+            if let unread = https.readProblem {
+                status = "Reqly couldn't read its certificate. \(unread) It tries again each time you open Settings."
+            } else {
+                status =
+                    "Not set up. To read HTTPS traffic, apps on this computer need to trust a certificate that Reqly "
+                    + "makes just for you. It never leaves this computer."
+            }
         case nil:
             status = https.problem ?? "Checking Reqly's certificate…"
         }
         adw_action_row_set_subtitle(cast(statusRow), status)
-        let canSetUp = https.state.map { $0.status != .trusted } ?? false
+        // Setting up while the certificate can't be read would only fail the same way.
+        let canSetUp = https.state.map { $0.status != .trusted && $0.readProblem == nil } ?? false
         gtk_widget_set_visible(setUpButton, cBool(canSetUp))
         let key = https.keyDescription
         adw_action_row_set_subtitle(cast(keyRow), key ?? "")
@@ -230,9 +258,9 @@ final class HTTPSPage {
             } else {
                 let https = https
                 placeRows = https.places.map { place in
-                    let row = HTTPSWidgets.row(place.name)
+                    let row = HTTPSWidgets.row(place.title)
                     let trust = HTTPSWidgets.suffixButton("Trust…")
-                    setAccessibleLabel(trust, "Trust in \(place.name)")
+                    setAccessibleLabel(trust, "Trust in \(place.title)")
                     let kind = place.kind
                     connect(trust, "clicked") { [weak self] in self?.trust(kind) }
                     guard kind == .computer else { return (kind, row, HTTPSWidgets.suffixLabel(), [trust]) }
@@ -427,6 +455,8 @@ final class HTTPSPage {
             guard let self else { return }
             waitingFor = nil
             HTTPSWidgets.say(removeNote, left)
+            gtk_widget_set_visible(removeLeft, cBool(left != nil))
+            gtk_widget_set_visible(removeCommandsButton, cBool(left != nil && https.commandsToRemoveByHand != nil))
             show()
         }
     }

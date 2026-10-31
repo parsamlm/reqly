@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import LinuxApps
@@ -379,6 +380,32 @@ import Testing
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: folder)
         #expect(entries.entry(id: "org.example.New")?.name == "New")
         #expect(entries.version == version + 1)
+    }
+
+    /// Lookups that come together before the entries are read, as when several apps send their
+    /// first requests at once, read the folders once between them.
+    @Test func readsTheFoldersOnceForLookupsThatComeTogether() throws {
+        let (fixture, entries) = try computer()
+        // Its folder goes with it.
+        defer { withExtendedLifetime(fixture) {} }
+        let found = Found()
+        let done = DispatchGroup()
+        for _ in 0..<8 {
+            done.enter()
+            Thread.detachNewThread {
+                let name = entries.entry(id: "firefox-esr")?.unlocalizedName
+                found.names.withLock { $0.append(name) }
+                done.leave()
+            }
+        }
+        done.wait()
+        #expect(found.names.withLock { $0 } == Array(repeating: "Firefox ESR", count: 8))
+        #expect(entries.version == 1)
+    }
+
+    /// What each thread found.
+    private final class Found: Sendable {
+        let names = Mutex<[String?]>([])
     }
 
     @Test func knowsInstallFolders() {

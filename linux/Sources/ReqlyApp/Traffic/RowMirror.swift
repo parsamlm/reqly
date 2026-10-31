@@ -55,9 +55,11 @@ struct RowMirror {
     }
 
     /// Takes in every row, as of `version`, and the events held since: one change that makes the
-    /// list's rows these.
+    /// list's rows these. The rows that stay count as changed, since what changed in them came in
+    /// the events every row stands in for.
     mutating func reset(version: Int, ids all: [ExchangeID]) -> Change {
-        var change = Change(splices: [Splice(position: 0, removing: ids.count, inserting: all)])
+        var change = Change(
+            splices: [Splice(position: 0, removing: ids.count, inserting: all)], changed: all.filter(members.contains))
         self.version = version
         ids = all
         members = Set(all)
@@ -114,6 +116,8 @@ struct RowMirror {
             case .changed(let changed):
                 change.changed += changed
             case .reset(let all):
+                // Every row comes in place of steps, which may have changed rows that stay.
+                change.changed += all.filter(shown.contains)
                 change.splices.append(Splice(position: 0, removing: rows.count, inserting: all))
                 rows = all
                 shown = Set(all)

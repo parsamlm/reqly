@@ -33,7 +33,8 @@ extension SystemParts {
                 // The guard puts your settings back if Reqly ends while it captures.
                 return DesktopProxySwitch(guardian: ProxyGuard(restoreFile: restoreFile))
             },
-            appFinder: { AppLookup() },
+            // With the entries the app's list finds icons in, so they're read once.
+            appFinder: { AppLookup(entries: .shared) },
             secrets: { file, isProtected in KeyringSecrets(file: file, isProtected: isProtected) },
             networkAddresses: {
                 NetworkAddresses.current().map { SystemParts.Address(interface: $0.interface, address: $0.address) }

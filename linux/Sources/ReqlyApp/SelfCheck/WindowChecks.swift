@@ -55,22 +55,31 @@ extension SelfCheck {
         note("status line: \(status)")
     }
 
-    /// Settings opens from its action, with General and HTTPS, and closes.
+    /// Settings opens from its action, with General and HTTPS, and closes. Opened again, it's
+    /// the same dialog, with the same pages: libadwaita keeps every page a dialog had, so new ones
+    /// each time would pile up, each following the model.
     func checkSettings() async throws {
         let window = window
-        activate("settings")
-        try await until("Settings to open") {
-            window.settings.map { gtk_widget_get_mapped($0.dialog) != 0 } ?? false
+        var opened: [(dialog: Widget, https: HTTPSPage?)] = []
+        for _ in 1...2 {
+            activate("settings")
+            try await until("Settings to open") {
+                window.settings.map { $0.isShowing && gtk_widget_get_mapped($0.dialog) != 0 } ?? false
+            }
+            let settings = try present(window.settings, "Settings didn't open")
+            opened.append((settings.dialog, settings.httpsPage))
+            // libadwaita 1.5 doesn't close a dialog that's still opening.
+            await settle()
+            adw_dialog_close(cast(settings.dialog))
+            try await until("Settings to close") { window.settings?.isShowing == false }
         }
         let titles = window.settings?.pageTitles ?? []
         note("pages: \(titles.joined(separator: ", "))")
         try require(titles.contains("General") && titles.contains("HTTPS"), "Settings has no General or HTTPS page")
-        // libadwaita 1.5 doesn't close a dialog that's still opening.
-        await settle()
-        if let dialog = window.settings?.dialog {
-            adw_dialog_close(cast(dialog))
-        }
-        try await until("Settings to close") { window.settings == nil }
+        try require(
+            opened[0].dialog == opened[1].dialog && opened[0].https != nil && opened[0].https === opened[1].https,
+            "Settings made its dialog or its HTTPS page again")
+        note("opened twice: the same dialog and pages")
     }
 
     /// About opens from its action, with Reqly's name, version, website and license, and closes.

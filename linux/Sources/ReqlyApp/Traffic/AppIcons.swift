@@ -52,7 +52,8 @@ enum AppIcon: Hashable, Sendable {
 /// found. The icons are GIcons, which GTK draws from your icon theme, at the list's size.
 @MainActor
 final class AppIcons {
-    /// The desktop entries on this computer: yours, the system's, and Flatpak's and snapd's.
+    /// The desktop entries on this computer: yours, the system's, and Flatpak's and snapd's, which
+    /// the session's app lookup reads too.
     let entries: DesktopEntries
     /// Runs once an app's icon is found, with its key.
     var onFound: (@MainActor (String) -> Void)?
@@ -61,7 +62,7 @@ final class AppIcons {
     /// Each icon's GIcon, made once and kept for as long as Reqly runs.
     private var made: [AppIcon: OpaquePointer] = [:]
 
-    init(entries: DesktopEntries = DesktopEntries()) {
+    init(entries: DesktopEntries = .shared) {
         self.entries = entries
     }
 

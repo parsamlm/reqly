@@ -25,23 +25,35 @@ extension TrafficStore {
         return try TrafficStore(directory: folder, limits: limits, lock: lock)
     }
 
-    /// A new, empty session folder in `root`, already locked.
+    /// A new, empty session folder in `root`, already locked, which only you can open, even in a
+    /// `root` others can.
     static func makeSessionFolder(in root: URL) throws -> (URL, SessionLock) {
         let fileManager = FileManager.default
         try fileManager.createDirectory(
             at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
         )
         let folder = root.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
+        try fileManager.createDirectory(
+            at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         return (folder, try SessionLock(folder: folder))
     }
 
-    /// Deletes the sessions in `root` that no running copy of Reqly holds.
+    /// Deletes the sessions in `root` that no running copy of Reqly holds. Only folders named as
+    /// Reqly names a session's go: whatever else is in `root`, such as in a folder of yours that a
+    /// test run names, stays.
     static func removeAbandonedSessions(in root: URL) {
-        let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-        for folder in folders where SessionLock.isAbandoned(folder) {
+        let entries =
+            (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]))
+            ?? []
+        for folder in entries where isSessionFolder(folder) && SessionLock.isAbandoned(folder) {
             try? FileManager.default.removeItem(at: folder)
         }
+    }
+
+    /// Whether `url` is a folder named as ``makeSessionFolder(in:)`` names a session's.
+    private static func isSessionFolder(_ url: URL) -> Bool {
+        UUID(uuidString: url.lastPathComponent) != nil
+            && (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
     }
 }
 

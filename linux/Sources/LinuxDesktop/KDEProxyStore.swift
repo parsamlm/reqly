@@ -37,8 +37,10 @@ public struct KDEProxyStore: Sendable {
     }
 
     /// Couldn't read or change the file.
-    public struct Failure: Error, Hashable, CustomStringConvertible {
+    public struct Failure: LocalizedError, Hashable, CustomStringConvertible {
         public var description: String
+
+        public var errorDescription: String? { description }
     }
 
     /// Whether the file is there.
@@ -100,7 +102,9 @@ public struct KDEProxyStore: Sendable {
     /// The file, or `nil` when it isn't there.
     private func load() throws -> KConfigFile? {
         guard FileManager.default.fileExists(atPath: target.path) else { return nil }
-        let data = try Data(contentsOf: target)
+        guard let data = try? Data(contentsOf: target) else {
+            throw Failure(description: "Reqly couldn't read \(file.path).")
+        }
         guard let text = String(data: data, encoding: .utf8) else {
             throw Failure(description: "\(file.path) isn't UTF-8 text, so Reqly leaves it alone.")
         }
@@ -125,7 +129,11 @@ public struct KDEProxyStore: Sendable {
     private func save(_ config: KConfigFile) throws {
         let target = target
         let folder = target.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            throw Failure(description: "Reqly couldn't make the folder for \(file.path).")
+        }
         var status = stat()
         let mode = stat(target.path, &status) == 0 ? status.st_mode & 0o7777 : 0o600
         var template = Array(folder.appending(path: ".kioslaverc.reqly-XXXXXX").path.utf8CString)

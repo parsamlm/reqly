@@ -26,7 +26,10 @@ final class MainWindow {
     private let toasts: Widget
     /// Whether the switch is being set to the model's state, rather than by you.
     private var isShowingCapture = false
+    /// Settings and Set Up HTTPS…, each made the first time it opens and kept, as they keep
+    /// their pages.
     private(set) var settings: SettingsDialog?
+    private(set) var setUp: SetUpDialog?
     private(set) var about: Widget?
 
     init(app: App) {
@@ -130,7 +133,10 @@ final class MainWindow {
         // It waits for a start or a stop, and for the session.
         let canSwitch = model.session != nil && (model.capture == .stopped || model.capture == .capturing)
         gtk_widget_set_sensitive(captureSwitch, cBool(canSwitch))
-        gtk_label_set_text(cast(statusLabel), model.statusText)
+        let status = model.statusText
+        gtk_label_set_text(cast(statusLabel), status)
+        // The line may be cut short, advice and all, in a narrow window.
+        gtk_widget_set_tooltip_text(statusLabel, status)
         if model.isCapturing {
             gtk_widget_add_css_class(statusDot, "capturing")
         } else {
@@ -142,14 +148,18 @@ final class MainWindow {
 
     /// Settings, over the window.
     func showSettings() {
-        if let settings {
-            adw_dialog_present(cast(settings.dialog), window)
-            return
-        }
-        let settings = SettingsDialog(model: model)
+        let settings = settings ?? SettingsDialog(model: model)
         self.settings = settings
-        connect(settings.dialog, "closed") { [weak self] in self?.settings = nil }
-        adw_dialog_present(cast(settings.dialog), window)
+        guard !settings.isShowing else { return }
+        settings.present(over: window)
+    }
+
+    /// Set Up HTTPS…, over the window.
+    func showSetUp() {
+        let setUp = setUp ?? SetUpDialog(https: model.https)
+        self.setUp = setUp
+        guard !setUp.isShowing else { return }
+        setUp.present(over: window)
     }
 
     /// About Reqly: its name, version, website and license.

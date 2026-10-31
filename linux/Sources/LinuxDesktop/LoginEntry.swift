@@ -42,8 +42,10 @@ public struct LoginEntry: Sendable {
         """
     }
 
+    /// Writes the entry, and waits until the disk has it, so it's there after a power cut.
     public func write(executable: String, restoreFile: URL) throws {
-        try FileReplacement.write(Data(Self.text(executable: executable, restoreFile: restoreFile).utf8), to: file)
+        try FileReplacement.writeDurably(
+            Data(Self.text(executable: executable, restoreFile: restoreFile).utf8), to: file)
     }
 
     public func remove() {

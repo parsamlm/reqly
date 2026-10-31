@@ -49,14 +49,20 @@ public struct ProxyGuard: Sendable {
 
     // MARK: - Capture starting and stopping
 
-    /// Capture has started, and the restore file is written: keeps the login entry and starts a
-    /// watcher. Neither is needed for capture, so a failure only goes in the log.
-    public func captureStarted() {
+    /// Capture is about to start: keeps the login entry, on the disk before your settings change,
+    /// so a power cut at any moment after leaves it to put them back. Capture doesn't need it, so
+    /// a failure only goes in the log.
+    public func captureStarting() {
         do {
             try loginEntry.write(executable: executable, restoreFile: restoreFile)
         } catch {
             Self.log("couldn't write the login entry: \(error)")
         }
+    }
+
+    /// Capture has started, and the restore file is written: starts a watcher. Capture doesn't
+    /// need it, so a failure only goes in the log.
+    public func captureStarted() {
         do {
             try startWatcher()
         } catch {
@@ -64,8 +70,8 @@ public struct ProxyGuard: Sendable {
         }
     }
 
-    /// Capture has stopped and your settings are back: removes the login entry. The watcher sees
-    /// the restore file go and quits.
+    /// Capture has stopped and your settings are back, or never changed: removes the login entry.
+    /// The watcher sees the restore file go and quits.
     public func captureStopped() {
         loginEntry.remove()
     }
@@ -181,7 +187,7 @@ public struct ProxyGuard: Sendable {
     static func restoreAtLogin(
         restoreFile: URL, loginEntry: LoginEntry, appName: String = appName, restore: () throws -> Bool
     ) -> Int32 {
-        if (try? SessionBus.nameHasOwner(appName)) == true {
+        if isRunning(appName: appName) {
             return 0
         }
         let status = restoreNow(restore)
@@ -189,6 +195,12 @@ public struct ProxyGuard: Sendable {
             loginEntry.remove()
         }
         return status
+    }
+
+    /// Whether a Reqly runs in your login session: whether an app holds its name, `appName`, on
+    /// the session bus, as the Reqly you use does. No when there's no bus to ask.
+    public static func isRunning(appName: String = appName) -> Bool {
+        (try? SessionBus.nameHasOwner(appName)) == true
     }
 
     private static func restoreNow(_ restore: () throws -> Bool) -> Int32 {
@@ -211,7 +223,7 @@ public struct ProxyGuard: Sendable {
     }
 
     private static func log(_ message: String) {
-        FileHandle.standardError.write(Data("Reqly: \(message)\n".utf8))
+        StandardError.write("Reqly: \(message)\n")
     }
 }
 
@@ -227,7 +239,14 @@ public actor DesktopProxySwitch: SystemProxySwitch {
     }
 
     public func enable(port: Int) async throws {
-        try await proxySwitch.enable(port: port)
+        guardian.captureStarting()
+        do {
+            try await proxySwitch.enable(port: port)
+        } catch {
+            // Your settings stayed as they were.
+            guardian.captureStopped()
+            throw error
+        }
         guardian.captureStarted()
     }
 

@@ -7,7 +7,7 @@ The app is Swift, with GTK 4 and libadwaita, and links the core and the [core in
 | Folder | What's in it |
 |---|---|
 | `Package.swift`, `Sources/`, `Tests/` | The `ReqlyLinux` package: the app, the program `reqly` (`ReqlyApp`, with `AppSetup` for its command line, settings and folders), on GTK 4 and libadwaita through `CGtk`, `CGtkShim` and `GtkBinding`; and what only Linux has, which the app hands the core as its `SystemParts`, as `WindowsSystem` does on Windows. `LinuxDesktop` sets your desktop's proxy, `LinuxTrust` keeps and trusts Reqly's certificate, `LinuxApps` finds which app opened a connection, and `LinuxSystem` puts them together. `CGio`, `CSecret` and `CLinux` reach GIO, libsecret and the kernel. |
-| `packaging/` | `reqly-trust`, the helper that adds Reqly's root to the computer's list as root, and its polkit action, `net.reqly.trust.policy`; `net.reqly.Reqly.desktop`, the app's desktop file. |
+| `packaging/` | `reqly-trust`, the helper that adds Reqly's root to the computer's list as root, and its polkit action, `net.reqly.trust.policy`; `postrm`, which takes every account's root out of the computer's list as the package is removed; `net.reqly.Reqly.desktop`, the app's desktop file. |
 | `docker/` | The image the package is built and tested in, `reqly-linux-dev:noble`: Ubuntu 24.04 with Swift 6.4.1 and the development packages. |
 | `scripts/` | `app.sh` builds and tests the package, and runs the app's self-check through `self-check.sh`. `core.sh` builds and tests the core, or `libReqlyCore.so`. `stage-core.sh` gathers a release build of `libReqlyCore.so` with the parts of Swift's runtime it needs, and `check-core.sh` checks that they start on a system without Swift, with `smoke.c`, a small program that loads the library and sends a request through it. |
 
@@ -27,7 +27,7 @@ linux/scripts/app.sh test --filter LinuxDesktopTests  # one module's tests
 
 `reqly` is Swift calling GTK 4 and libadwaita's C API directly, built against Ubuntu 24.04's headers: GTK 4.14 and libadwaita 1.5. Anything newer is looked up as it runs, after a version check, with `GtkBinding`'s `Newer`, and has a fallback. `CGtkShim` is the little C that Swift can't write: GObject's macros as functions, one marshaller for every signal, and a GLib source that runs Swift's main queue, so the main actor, and the session's events, run inside GTK's main loop.
 
-A real run is the only Reqly: a second launch brings back the first one's window and quits, through GApplication's name on the session bus, `net.reqly.Reqly`. SIGTERM, SIGINT and SIGHUP quit it as the menu does, so capturing stops and your desktop's proxy goes back first. A run given a stand-in, its own settings file, `--app-id` or `--smoke` is a test run: it runs beside the Reqly that's open, and changes your desktop's own proxy only when told to. `reqly --help` lists the options, with the Windows app's names.
+A real run is the only Reqly: a second launch brings back the first one's window and quits, through GApplication's name on the session bus, `net.reqly.Reqly`. SIGTERM, SIGINT and SIGHUP quit it as the menu does, so capturing stops and your desktop's proxy goes back first. A run given a stand-in, its own settings file, `--app-id` or `--smoke` is a test run: it runs beside the Reqly that's open, and changes your desktop's own proxy only when told to. It never uses your certificate or keyring: it decrypts only with `--root-stand-in`. With `--proxy-settings-stand-in` and no `--proxy-restore-file`, it keeps its restore file beside the stand-in, as `ProxySettings-Restore.json` for `ProxySettings.json`. `reqly --help` lists the options, with the Windows app's names; the ones for rules, connections, devices, the welcome guide, crash reports and updates are taken, and wait for Steps 5 and 6.
 
 | Where | What |
 |---|---|
@@ -37,7 +37,7 @@ A real run is the only Reqly: a second launch brings back the first one's window
 
 `Sources/ReqlyApp` keeps each feature in a folder of its own: `Capture`, `HTTPS`, `Terminal` and `Traffic`. Capturing and HTTPS list their parts of the self-check in `SelfCheck/CaptureChecks.swift` and `SelfCheck/HTTPSChecks.swift`. The window, the model, Settings and the menu's actions are shared, in `MainWindow.swift`, `AppModel.swift`, `SettingsDialog.swift` and `App.swift`. `Tests/ReqlyAppTests` tests what the app decides without a window, such as the status line's words, the rows and the icons' rules.
 
-The self-check runs the app headless, under Xvfb on a session bus of its own, with a scratch home, GSettings in memory and stand-ins for your proxy settings, certificate and secrets, and prints a report with PASS or FAIL for each part:
+The self-check runs the app headless, under Xvfb on a session bus of its own, with a scratch home, GSettings in memory and stand-ins for your proxy settings, certificate and secrets, and prints a report with PASS or FAIL for each part. Reqly refuses `--smoke` without those stand-ins, or with a home or XDG folder outside the report's folder, since its parts change what they find:
 
 ```bash
 linux/scripts/app.sh self-check                         # every part
@@ -63,7 +63,7 @@ install -D -m 0644 linux/packaging/net.reqly.Reqly.desktop ~/.local/share/applic
 install -D -m 0644 design/logo/exports/reqly-icon.svg ~/.local/share/icons/hicolor/scalable/apps/net.reqly.Reqly.svg
 ```
 
-A real run points that desktop's proxy setting at Reqly while it captures, and Set Up HTTPS changes its browsers and, with a password, the computer's list. A test run with stand-ins and files of its own, as the self-check's, changes none of it, and runs beside a real one:
+A real run points that desktop's proxy setting at Reqly while it captures, and Set Up HTTPS changes its browsers and, with a password, the computer's list. A test run with stand-ins and files of its own, as the self-check's, changes none of it, and runs beside a real one. A sessions folder a test run names should be one of its own: Reqly deletes the sessions in it that no Reqly holds, though nothing else, and leaves its permissions as they are.
 
 ```bash
 t=/tmp/reqly-test && mkdir -p $t
@@ -76,7 +76,7 @@ reqly --settings-file $t/Settings.json --rules-file $t/Rules.json --connections-
 
 With `--sets-system-proxy no` in place of the proxy's stand-in, it leaves the proxy alone, and captures what you point at 127.0.0.1 on its port, such as a terminal from Open Terminal.
 
-- `reqly --remove-certificate` removes Reqly's certificate for your account, with no window: from the browsers, Firefox and the computer's list, which asks for an administrator's password, in the terminal when there's no password dialog, as over SSH, and its key. It says how each place went, and exits with 0 only once nothing of it is left. With `--root-stand-in`, only the stand-in goes.
+- `reqly --remove-certificate` removes Reqly's certificate for your account, with no window: from the browsers, Firefox and the computer's list, which asks for an administrator's password, in the terminal on a desktop with no polkit agent, and its key. Quit Reqly first; it refuses while Reqly is open. Over SSH, polkit doesn't allow the computer's list to change, and without the helper or pkexec Reqly can't ask at all, so it prints the commands that take the certificate out with `sudo`, then removing it again finishes. It says how each place went, and exits with 0 only once nothing of it is left. With `--root-stand-in`, only the stand-in goes.
 - `reqly --restore-proxy <restore file>` is the login entry's run, and `--restore-proxy-after <process> <restore file>` the watcher's, which waits for that Reqly to end. Each puts your proxy settings back from the restore file once Reqly isn't running, while Reqly's are still in place, and does nothing else. Run the first with `~/.local/state/reqly/ProxyRestore.json` to put them back by hand; Reqly also puts them back as it opens.
 - Set Up HTTPS adds the certificate to the computer's list through `reqly-trust`, which pkexec runs as root. To check it before there's a package, install it and its polkit action where the package will, so pkexec's dialog says what Reqly is about to do:
 
@@ -93,6 +93,15 @@ With `--sets-system-proxy no` in place of the proxy's stand-in, it leaves the pr
   ```
 
   The browsers' certificate databases need `certutil`, from `libnss3-tools`, which Ubuntu and Debian don't install by themselves; the package will depend on it.
+
+- Uninstalling: the package's `postrm` takes every account's certificate out of the computer's list, and tells Java's keystore. apt can't reach your home folder, so remove the certificate in Reqly, or with `reqly --remove-certificate`, before uninstalling. After, each browser database and Firefox profile keeps it, under its name, such as `Reqly CA 2026-10-31 12.00`, until it expires two years after it was made, and the key stays in your keyring, as "Reqly Certificate Authority", or in `~/.local/share/reqly`:
+
+  ```bash
+  certutil -d sql:$HOME/.pki/nssdb -L | grep 'Reqly CA'                 # its name in a database
+  certutil -d sql:$HOME/.pki/nssdb -D -n 'Reqly CA 2026-10-31 12.00'   # removes it there
+  ```
+
+  The same goes for `~/.local/share/pki/nssdb`, `~/snap/chromium/current/.pki/nssdb` and each Firefox profile's folder, in `~/.mozilla/firefox`, `~/.config/mozilla/firefox` or `~/snap/firefox/common/.mozilla/firefox`. Remove the key with Passwords and Keys, or with `rm -r ~/.local/share/reqly`.
 
 ## Building the core
 

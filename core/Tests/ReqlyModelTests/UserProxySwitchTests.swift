@@ -236,5 +236,15 @@ final class TwoPartStandIn: ProxySettingsStore {
         #expect(try settings.read() == .noProxy)
         try settings.write(Self.yours)
         #expect(try settings.read() == Self.yours)
+
+        // A folder where its file should be, so it can't be replaced: the failure names the file.
+        let blocked = FileProxySettings<MadeUpProxySettings>(file: file.deletingLastPathComponent())
+        let failure = #expect(throws: FileProxySettings<MadeUpProxySettings>.WriteFailure.self) {
+            try blocked.write(Self.yours)
+        }
+        #expect(failure?.file == blocked.file)
+        #expect(
+            failure?.localizedDescription.hasPrefix("Reqly couldn't write the stand-in for the proxy settings, ")
+                == true)
     }
 }

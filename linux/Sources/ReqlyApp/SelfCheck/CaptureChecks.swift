@@ -168,7 +168,8 @@ extension SelfCheck {
     }
 
     /// When the stand-in can't be pointed at Reqly, or put back, the status line shows the
-    /// session's problem, and the switch shows what's so: off, or still on.
+    /// session's problem, in words that say which file, and the switch shows what's so: off, or
+    /// still on.
     func checkProxyProblem() async throws {
         let captureSwitch = try await switchReady()
         let standIn = try standInFile()
@@ -180,7 +181,9 @@ extension SelfCheck {
         try await until("capturing to fail") { model.problem != nil && model.capture == .stopped }
         try FileManager.default.removeItem(at: standIn)
         note("setting it failed: \(statusLine)")
-        try require(statusLine.hasPrefix("Reqly couldn't start capturing"), "the status line says \(statusLine)")
+        let couldntWrite = "Reqly couldn't write the stand-in for the proxy settings, \(standIn.path)."
+        try require(
+            statusLine == "Reqly couldn't start capturing: \(couldntWrite)", "the status line says \(statusLine)")
         try require(gtk_switch_get_active(cast(captureSwitch)) == 0, "the switch stayed on")
 
         try JSONEncoder().encode(Self.yourProxySettings).write(to: standIn)
@@ -191,7 +194,8 @@ extension SelfCheck {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
         note("putting it back failed: \(statusLine)")
         try require(model.isCapturing, "capturing stopped with the stand-in still pointing at Reqly")
-        try require(statusLine.hasPrefix("Reqly couldn't stop capturing"), "the status line says \(statusLine)")
+        try require(
+            statusLine == "Reqly couldn't stop capturing: \(couldntWrite)", "the status line says \(statusLine)")
         try require(gtk_switch_get_active(cast(captureSwitch)) != 0, "the switch went off")
         try await setCapture(on: false)
         try require(try hasYourSettings(standIn), "the stand-in isn't as it was")
@@ -236,10 +240,14 @@ extension SelfCheck {
             let capturing = statusLine
             note("\(desktop), capturing: \(capturing)")
             try require(capturing == "Capturing on port \(port) · \(said)", "on \(desktop), it says \(capturing)")
+            // What a narrow window cuts short shows whole as its tooltip.
+            let tooltip = string(gtk_widget_get_tooltip_text(window.statusLabel)) ?? ""
+            try require(tooltip == capturing, "on \(desktop), its tooltip says \(tooltip)")
             try await setCapture(on: false)
             try require(statusLine == stopped, "on \(desktop), once stopped, it says \(statusLine)")
         }
         note("once stopped: \(stopped)")
+        note("tooltip: the whole status line each time")
         desktopProxy.environment["PATH"] = "/nonexistent"
         model.changed()
         note("once stopped, with neither terminal: \(statusLine)")
@@ -253,7 +261,7 @@ extension SelfCheck {
         try JSONEncoder().encode(Self.yourProxySettings).write(to: try standInFile())
         activate("settings")
         try await until("Settings to open") {
-            window.settings.map { gtk_widget_get_mapped($0.dialog) != 0 } ?? false
+            window.settings.map { $0.isShowing && gtk_widget_get_mapped($0.dialog) != 0 } ?? false
         }
         let dialog = try present(window.settings?.dialog, "Settings closed")
         let group = try present(descendant(of: dialog, typed: "AdwPreferencesGroup"), "General has no group")
@@ -278,29 +286,33 @@ extension SelfCheck {
         adw_spin_row_set_value(cast(port), Double(saved))
         await settle()
         adw_dialog_close(cast(dialog))
-        try await until("Settings to close") { window.settings == nil }
+        try await until("Settings to close") { window.settings?.isShowing == false }
     }
 
     // MARK: - Putting settings back, and one Reqly at a time
 
     /// A Reqly that opens puts back the stand-in a Reqly that ended while capturing left pointing
-    /// at itself, before it captures anything.
+    /// at itself, before it captures anything. Named no restore file, it keeps the stand-in's own,
+    /// beside it, never the one of the Reqly you use. Its standard error can't be written, as once
+    /// the terminal it was started from has closed, and it notes what it put back all the same.
     func checkRestore() async throws {
         let files = try ChildFiles("restore", in: scratch)
         try JSONEncoder().encode(Self.yourProxySettings).write(to: files.standIn)
         // As a Reqly capturing on port 47123 leaves it when it ends unexpectedly.
         let switcher = UserProxySwitch(
-            settings: DesktopProxyStandIn(file: files.standIn), restoreFile: files.restoreFile)
+            settings: DesktopProxyStandIn(file: files.standIn), restoreFile: files.standInsOwnRestoreFile)
         try await switcher.enable(port: 47123)
         try require(try DesktopProxyStandIn(file: files.standIn).read().pointsAtReqly(port: 47123), "nothing was left")
-        let child = try ChildRun(files.arguments + ["--starts-capturing", "no"])
+        let child = try ChildRun(
+            files.arguments(logs: false, namesRestoreFile: false) + ["--starts-capturing", "no"],
+            standardError: "/dev/full")
         defer { child.stop() }
-        note("left behind: the stand-in points at port 47123; Reqly \(child.identifier) opens")
+        note("left behind: the stand-in points at port 47123; Reqly \(child.identifier) opens, its standard error full")
         try await until("the new Reqly to put the stand-in back", seconds: 20) {
-            !FileManager.default.fileExists(atPath: files.restoreFile.path)
+            !FileManager.default.fileExists(atPath: files.standInsOwnRestoreFile.path)
         }
         try require(try hasYourSettings(files.standIn), "the stand-in isn't as it was")
-        note("put back as it was, every key, as Reqly opened")
+        note("put back as it was, every key, as Reqly opened, from the restore file beside the stand-in")
         child.send(SIGTERM)
         let status = await child.wait()
         try require(status == 0, "it ended with \(status.map(String.init) ?? "a signal")")
@@ -311,7 +323,7 @@ extension SelfCheck {
     func checkSignals() async throws {
         let files = try ChildFiles("signals", in: scratch)
         try JSONEncoder().encode(Self.yourProxySettings).write(to: files.standIn)
-        let child = try ChildRun(files.arguments + ["--starts-capturing", "yes", "--port", "0"])
+        let child = try ChildRun(files.arguments() + ["--starts-capturing", "yes", "--port", "0"])
         defer { child.stop() }
         var port: Int?
         try await until("Reqly \(child.identifier) to capture", seconds: 20) {
@@ -342,14 +354,15 @@ extension SelfCheck {
         let id = "net.reqly.SelfCheck.Run\(getpid())"
         let first = try ChildFiles("first", in: scratch)
         let second = try ChildFiles("second", in: scratch)
-        let report = first.folder.appending(path: "Report.txt")
+        // In the scratch folder, which has the home and XDG folders, as the self-check needs.
+        let report = scratch.appending(path: "single-instance-\(UUID().uuidString).txt")
         let one = try ChildRun(
-            first.arguments + ["--app-id", id, "--smoke", report.path, "--smoke-parts", "single-instance"])
+            first.arguments() + ["--app-id", id, "--smoke", report.path, "--smoke-parts", "single-instance"])
         defer { one.stop() }
         try await until("the first Reqly to be ready", seconds: 20) {
             FileManager.default.fileExists(atPath: report.path + ".ready")
         }
-        let two = try ChildRun(second.arguments + ["--app-id", id])
+        let two = try ChildRun(second.arguments() + ["--app-id", id])
         defer { two.stop() }
         let secondStatus = await two.wait()
         try require(secondStatus == 0, "the second ended with \(secondStatus.map(String.init) ?? "a signal")")
@@ -486,12 +499,6 @@ extension SelfCheck {
 
     // MARK: - What the parts share
 
-    /// `value`, or the part fails, saying `failure`.
-    private func present<Value>(_ value: Value?, _ failure: @autoclosure () -> String) throws -> Value {
-        guard let value else { throw Failure(failure()) }
-        return value
-    }
-
     /// The self-check's scratch folder, which self-check.sh deletes.
     private var scratch: URL { report.deletingLastPathComponent() }
 
@@ -608,20 +615,25 @@ private struct ChildFiles {
 
     var standIn: URL { folder.appending(path: "ProxySettings.json") }
     var restoreFile: URL { folder.appending(path: "ProxyRestore.json") }
+    /// The restore file Reqly keeps beside the stand-in when the command line names none.
+    var standInsOwnRestoreFile: URL { folder.appending(path: "ProxySettings-Restore.json") }
     var sessions: URL { folder.appending(path: "Sessions") }
 
-    var arguments: [String] {
+    /// Its command line: its files and stand-ins, with its log unless `logs` is false, so its
+    /// standard error stays where it was started with, and with ``restoreFile`` unless
+    /// `namesRestoreFile` is false.
+    func arguments(logs: Bool = true, namesRestoreFile: Bool = true) -> [String] {
         func file(_ name: String) -> String { folder.appending(path: name).path }
         return [
             "--settings-file", file("Settings.json"), "--rules-file", file("Rules.json"),
             "--connections-file", file("Connections.json"), "--protobuf-file", file("Protobuf.json"),
             "--devices-file", file("Devices.json"), "--sessions-folder", sessions.path,
             "--crash-reports-folder", file("Crashes"), "--proxy-settings-stand-in", standIn.path,
-            "--proxy-restore-file", restoreFile.path, "--root-stand-in", file("Root.dat"),
-            "--root-file", file("Certificate.dat"), "--secrets-stand-in", file("Secrets.json"),
-            "--allows-network-devices", "no", "--checks-for-updates", "no", "--has-seen-welcome", "yes",
-            "--log-file", file("Reqly.log"),
-        ]
+            "--root-stand-in", file("Root.dat"), "--root-file", file("Certificate.dat"),
+            "--secrets-stand-in", file("Secrets.json"), "--allows-network-devices", "no",
+            "--checks-for-updates", "no", "--has-seen-welcome", "yes",
+        ] + (namesRestoreFile ? ["--proxy-restore-file", restoreFile.path] : [])
+            + (logs ? ["--log-file", file("Reqly.log")] : [])
     }
 }
 
@@ -633,9 +645,14 @@ private final class ChildRun {
     /// Its process ID.
     let identifier: String
 
-    init(_ arguments: [String]) throws {
+    /// Starts Reqly with `arguments`, and its standard error going to the file at `standardError`,
+    /// such as `/dev/full`, or the self-check's own.
+    init(_ arguments: [String], standardError: String? = nil) throws {
         let launcher = g_subprocess_launcher_new(GSubprocessFlags(rawValue: 0))!
         defer { g_object_unref(raw(launcher)) }
+        if let standardError {
+            g_subprocess_launcher_set_stderr_file_path(launcher, standardError)
+        }
         var error: UnsafeMutablePointer<GError>?
         let started = withCStrings([ProxyGuard.currentExecutable] + arguments) {
             g_subprocess_launcher_spawnv(launcher, $0, &error)

@@ -64,6 +64,13 @@ import Testing
         #expect(throws: Options.UsageError("--port takes a number from 0 to 65535, not -1.")) {
             try Options(["--port", "-1"])
         }
+        // pkexec would look a bare name up in PATH.
+        #expect(
+            throws: Options.UsageError("--trust-helper takes the helper's full path, starting with /, not reqly-trust.")
+        ) {
+            try Options(["--trust-helper", "reqly-trust"])
+        }
+        #expect(throws: Options.UsageError.self) { try Options(["--trust-helper", "packaging/reqly-trust"]) }
     }
 
     /// A real run sets your desktop's proxy; a test run sets only a stand-in's, unless it's told
