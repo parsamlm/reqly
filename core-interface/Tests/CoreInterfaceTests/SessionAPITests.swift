@@ -1,3 +1,4 @@
+import CertificateAuthority
 import CoreInterface
 import Foundation
 import Presentation
@@ -352,6 +353,44 @@ final class SessionEvents: Sendable {
         await plain.close()
     }
 
+    /// The Linux app makes the certificate and trusts it itself, place by place, then has the
+    /// session read it again, so the session decrypts as soon as a place trusts it.
+    @Test func readsTheCertificateAgainAfterTheAppChangesIt() async throws {
+        let folder = Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = PlacesRootStore()
+        let system = SystemParts(rootStore: { _ in store }, secrets: { file, _ in PlainSecrets(file: file) })
+        let host = try await SessionHost.open(
+            OpenOptions(
+                sessionsFolder: folder.appending(path: "Sessions").path, findsApps: false,
+                rootFile: folder.appending(path: "Certificate.dat").path),
+            system: system, events: { _ in })
+        #expect(await host.reloadHTTPS().status == .notSetUp)
+        _ = try await host.decryptHost("api.weatherly.dev")
+
+        // Made and saved, but no place trusts it yet, so nothing is decrypted.
+        let root = try RootIdentity.create()
+        try store.save(root)
+        var state = await host.reloadHTTPS()
+        #expect(state.status == .notTrusted && state.certificateName == root.name && state.certificate == nil)
+
+        // A place trusts it now.
+        store.trustsIt()
+        state = await host.reloadHTTPS()
+        let der = Data(try root.certificateDER)
+        #expect(state.status == .trusted && state.certificate == der)
+        #expect(state.hosts.entries.map(\.pattern.rawValue) == ["api.weatherly.dev"])
+        #expect(try await host.https() == state)
+        await host.close()
+
+        // A session with no certificate store has nothing to read.
+        let plain = try await SessionHost.open(
+            OpenOptions(sessionsFolder: folder.appending(path: "Sessions").path, findsApps: false),
+            system: .standIns, events: { _ in })
+        #expect(await plain.reloadHTTPS() == HTTPSState(status: .notSetUp, hosts: DecryptedHosts()))
+        await plain.close()
+    }
+
     /// What an app's model would be, holding the session that hands it events.
     final class Model: Sendable {
         let events = SessionEvents()
@@ -428,4 +467,20 @@ final class SessionEvents: Sendable {
             }
         }
     #endif
+}
+
+/// A certificate store that the app changes behind the session's back, as Linux's is: the app
+/// saves the root, then a place trusts it.
+private final class PlacesRootStore: RootStore {
+    private let kept = Mutex<(root: RootIdentity?, isTrusted: Bool)>((nil, false))
+
+    func trustsIt() {
+        kept.withLock { $0.isTrusted = true }
+    }
+
+    func load() throws -> RootIdentity? { kept.withLock { $0.root } }
+    func save(_ root: RootIdentity) throws { kept.withLock { $0.root = root } }
+    func isTrusted(_ root: RootIdentity) -> Bool { kept.withLock { $0.isTrusted } }
+    func trust(_ root: RootIdentity) throws { trustsIt() }
+    func remove(_ root: RootIdentity) throws { kept.withLock { $0 = (nil, false) } }
 }
