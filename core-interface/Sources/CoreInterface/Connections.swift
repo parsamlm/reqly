@@ -169,101 +169,88 @@ struct ConnectionsBook {
         }
     }
 
-    func wire(reverseProxyProblems: [UUID: String]) -> WireConnections {
-        WireConnections(
-            upstreamProxy: WireUpstreamProxy(
-                UpstreamProxyDraft(contents.upstreamProxy, isOn: contents.usesUpstreamProxy)),
-            activeUpstreamProxy: activeUpstreamProxy?.address,
+    /// The settings as Settings show them, with why each reverse proxy that's on isn't listening.
+    func state(reverseProxyProblems: [UUID: String]) -> ConnectionsState {
+        ConnectionsState(
+            upstreamProxy: UpstreamProxyDraft(contents.upstreamProxy, isOn: contents.usesUpstreamProxy),
+            activeUpstreamProxy: activeUpstreamProxy,
             reverseProxies: contents.reverseProxies.map {
-                WireReverseProxyRow(
-                    id: $0.id, isOn: $0.isOn, localPort: $0.localPort, serverURL: $0.serverURL,
-                    rewritesRedirects: $0.rewritesRedirects, localAddress: $0.localAddress,
-                    server: $0.server?.url ?? $0.serverURL, problem: $0.isOn ? reverseProxyProblems[$0.id] : nil)
+                ConnectionsState.ReverseProxyRow(proxy: $0, problem: $0.isOn ? reverseProxyProblems[$0.id] : nil)
             },
             clientCertificates: contents.clientCertificates.map {
-                WireClientCertificate(
-                    id: $0.id, isOn: $0.isOn, name: $0.name, issuer: $0.issuer, hosts: HostList.text($0.hosts),
-                    expires: Wire.seconds($0.expires), hasExpired: $0.hasExpired(), isMissing: missing.contains($0.id))
+                ConnectionsState.ClientCertificateRow(certificate: $0, isMissing: missing.contains($0.id))
             },
             problem: problem)
     }
 }
 
 /// How Reqly's own connections go, as Settings show them.
-struct WireConnections: Encodable {
+public struct ConnectionsState: Sendable, Equatable {
+    /// A reverse proxy in the list.
+    public struct ReverseProxyRow: Sendable, Equatable {
+        public var proxy: ReverseProxy
+        /// Why it isn't listening, while Reqly captures.
+        public var problem: String?
+
+        public init(proxy: ReverseProxy, problem: String? = nil) {
+            self.proxy = proxy
+            self.problem = problem
+        }
+    }
+
+    /// A client certificate in the list. Its private key stays in the core.
+    public struct ClientCertificateRow: Sendable, Equatable {
+        public var certificate: ClientCertificate
+        /// Its private key is gone, so it can't be presented.
+        public var isMissing: Bool
+
+        public init(certificate: ClientCertificate, isMissing: Bool) {
+            self.certificate = certificate
+            self.isMissing = isMissing
+        }
+    }
+
     /// The upstream proxy as it's saved, whether or not it's in use.
-    var upstreamProxy: WireUpstreamProxy
-    /// The proxy traffic goes through now, such as `proxy.example.com:8080`.
-    var activeUpstreamProxy: String?
-    var reverseProxies: [WireReverseProxyRow]
+    public var upstreamProxy: UpstreamProxyDraft
+    /// The proxy traffic goes through now.
+    public var activeUpstreamProxy: UpstreamProxy?
+    public var reverseProxies: [ReverseProxyRow]
     /// In the order they're tried: the first one for a host is the one presented.
-    var clientCertificates: [WireClientCertificate]
-    var problem: String?
-}
+    public var clientCertificates: [ClientCertificateRow]
+    public var problem: String?
 
-/// The upstream proxy as Settings edit it, field for field as the core's ``UpstreamProxyDraft``.
-public struct WireUpstreamProxy: Codable, Sendable, Equatable {
-    public var isOn: Bool
-    public var host: String
-    public var port: String
-    public var username: String
-    public var password: String
-    /// Hosts to reach directly, as typed.
-    public var bypass: String
-    public var bypassesLocalAddresses: Bool
-
-    init(_ draft: UpstreamProxyDraft) {
-        isOn = draft.isOn
-        host = draft.host
-        port = draft.port
-        username = draft.username
-        password = draft.password
-        bypass = draft.bypass
-        bypassesLocalAddresses = draft.bypassesLocalAddresses
+    public init(
+        upstreamProxy: UpstreamProxyDraft, activeUpstreamProxy: UpstreamProxy? = nil, reverseProxies: [ReverseProxyRow],
+        clientCertificates: [ClientCertificateRow], problem: String? = nil
+    ) {
+        self.upstreamProxy = upstreamProxy
+        self.activeUpstreamProxy = activeUpstreamProxy
+        self.reverseProxies = reverseProxies
+        self.clientCertificates = clientCertificates
+        self.problem = problem
     }
-
-    var draft: UpstreamProxyDraft {
-        var draft = UpstreamProxyDraft()
-        draft.isOn = isOn
-        draft.host = host
-        draft.port = port
-        draft.username = username
-        draft.password = password
-        draft.bypass = bypass
-        draft.bypassesLocalAddresses = bypassesLocalAddresses
-        return draft
-    }
-}
-
-/// A reverse proxy in the list.
-struct WireReverseProxyRow: Encodable {
-    var id: UUID
-    var isOn: Bool
-    var localPort: Int
-    var serverURL: String
-    var rewritesRedirects: Bool
-    /// Such as `localhost:8080`.
-    var localAddress: String
-    /// Where requests go, such as `https://api.weatherly.dev`, or the server as typed while it isn't an address.
-    var server: String
-    /// Why it isn't listening, while Reqly captures.
-    var problem: String?
 }
 
 /// A reverse proxy as its editor edits it, with its port as typed.
-public struct WireReverseProxy: Codable, Sendable, Equatable {
+public struct ReverseProxyDraft: Sendable, Equatable {
     public var id: UUID
     public var isOn: Bool
     public var port: String
     public var serverURL: String
     public var rewritesRedirects: Bool
 
-    init(_ proxy: ReverseProxy) {
-        id = proxy.id
-        isOn = proxy.isOn
-        port = String(proxy.localPort)
-        serverURL = proxy.serverURL
-        rewritesRedirects = proxy.rewritesRedirects
+    public init(id: UUID, isOn: Bool, port: String, serverURL: String, rewritesRedirects: Bool) {
+        self.id = id
+        self.isOn = isOn
+        self.port = port
+        self.serverURL = serverURL
+        self.rewritesRedirects = rewritesRedirects
+    }
+
+    public init(_ proxy: ReverseProxy) {
+        self.init(
+            id: proxy.id, isOn: proxy.isOn, port: String(proxy.localPort), serverURL: proxy.serverURL,
+            rewritesRedirects: proxy.rewritesRedirects)
     }
 
     /// The proxy to save, with the port it has while the one typed isn't a number.
@@ -272,32 +259,4 @@ public struct WireReverseProxy: Codable, Sendable, Equatable {
             id: id, isOn: isOn, localPort: Int(port.trimmingCharacters(in: .whitespaces)) ?? old?.localPort ?? 0,
             serverURL: serverURL, rewritesRedirects: rewritesRedirects)
     }
-}
-
-/// What's wrong with something as you edit it, or a note on what it does once nothing is.
-struct WireCheck: Encodable {
-    var problem: String?
-    var note: String?
-}
-
-/// What's wrong with hosts as typed, and how many there are.
-struct WireHostsCheck: Encodable {
-    var problem: String?
-    var count: Int
-}
-
-/// A client certificate in the list. Its private key stays in the core.
-struct WireClientCertificate: Encodable {
-    var id: UUID
-    var isOn: Bool
-    /// Who the certificate names, such as "Weatherly Staging".
-    var name: String
-    var issuer: String
-    /// The hosts it's for, as the field shows them: `api.bank.dev, *.bank.dev`.
-    var hosts: String
-    /// Seconds since 1970.
-    var expires: Double?
-    var hasExpired: Bool
-    /// Its private key is gone, so it can't be presented.
-    var isMissing: Bool
 }

@@ -7,20 +7,12 @@ import ReqlyModel
 /// model keeps them. Reqly decrypts only while the system trusts the certificate, and only the
 /// hosts on the list; everything else passes through untouched.
 actor HTTPSHost {
-    enum Status: String, Codable {
-        /// No certificate yet.
-        case notSetUp
-        /// The certificate exists, but the system doesn't trust it, so nothing is decrypted.
-        case notTrusted
-        case trusted
-    }
-
     private let store: any RootStore
     private let capture: CaptureSession
     private var root: RootIdentity?
     private var authority: CertificateAuthority?
     private var hosts = DecryptedHosts()
-    private var status = Status.notSetUp
+    private var status = HTTPSState.Status.notSetUp
 
     init(store: any RootStore, capture: CaptureSession) {
         self.store = store
@@ -35,7 +27,7 @@ actor HTTPSHost {
 
     /// Makes the certificate if there isn't one, then asks the system to trust it, which on
     /// Windows asks you to confirm. Saying no isn't a failure: the status says it isn't trusted.
-    func setUp() async throws(Problem) -> WireHTTPS {
+    func setUp() async throws(Problem) -> HTTPSState {
         let store = self.store
         let existing = root
         let result = await Self.offThread { () -> Result<RootIdentity, any Error> in
@@ -57,13 +49,13 @@ actor HTTPSHost {
             throw Problem(.failed, "Reqly couldn't set up HTTPS. \(Self.explain(error))")
         }
         refresh()
-        return wire
+        return state
     }
 
     /// Removes the certificate, its key and the system's trust in it, which on Windows asks you
     /// to confirm.
-    func remove() async throws(Problem) -> WireHTTPS {
-        guard let root else { return wire }
+    func remove() async throws(Problem) -> HTTPSState {
+        guard let root else { return state }
         let store = self.store
         let result = await Self.offThread { Result { try store.remove(root) } }
         switch result {
@@ -76,34 +68,32 @@ actor HTTPSHost {
             throw Problem(.failed, "Reqly couldn't remove its certificate. \(Self.explain(error))")
         }
         refresh()
-        return wire
+        return state
     }
 
     /// Changes the hosts to decrypt. Reqly decrypts by the new list from the next connection on.
-    func changeHosts(_ change: @Sendable (inout DecryptedHosts) -> Void) -> WireHTTPS {
+    func changeHosts(_ change: @Sendable (inout DecryptedHosts) -> Void) -> HTTPSState {
         change(&hosts)
         apply()
-        return wire
+        return state
     }
 
-    func addHost(_ text: String) throws(Problem) -> WireHTTPS {
+    func addHost(_ text: String) throws(Problem) -> HTTPSState {
         if let problem = hosts.add(text) {
             throw Problem(.badRequest, problem.message)
         }
         apply()
-        return wire
+        return state
     }
 
     func decrypts(_ host: String) -> Bool {
         hosts.decrypts(host)
     }
 
-    var wire: WireHTTPS {
-        WireHTTPS(
-            status: status, certificateName: root?.name, created: root.map { $0.created.timeIntervalSince1970 },
-            certificate: status == .trusted
-                ? (try? root?.certificateDER).flatMap { Data($0).base64EncodedString() } : nil,
-            hosts: hosts)
+    var state: HTTPSState {
+        HTTPSState(
+            status: status, certificateName: root?.name, created: root?.created,
+            certificate: status == .trusted ? (try? root?.certificateDER).map { Data($0) } : nil, hosts: hosts)
     }
 
     /// Reads whether the system trusts the certificate, and decrypts only if it does.
@@ -142,16 +132,34 @@ actor HTTPSHost {
     }
 }
 
-/// HTTPS as the app shows it.
-public struct WireHTTPS: Codable, Sendable, Equatable {
-    var status: HTTPSHost.Status
+/// HTTPS as the app shows it: whether Reqly's certificate is set up and trusted, and the hosts
+/// to decrypt.
+public struct HTTPSState: Sendable, Equatable {
+    public enum Status: String, Sendable {
+        /// No certificate yet.
+        case notSetUp
+        /// The certificate exists, but the system doesn't trust it, so nothing is decrypted.
+        case notTrusted
+        case trusted
+    }
+
+    public var status: Status
     public var certificateName: String?
-    /// When the certificate was made, in seconds since 1970.
-    public var created: Double?
-    /// The certificate in DER, base64, for devices to install. It's there only while the system
-    /// trusts it, since only then does Reqly decrypt.
-    public var certificate: String?
+    /// When the certificate was made.
+    public var created: Date?
+    /// The certificate in DER, for devices to install. It's there only while the system trusts
+    /// it, since only then does Reqly decrypt.
+    public var certificate: Data?
     public var hosts: DecryptedHosts
 
-    public var statusName: String { status.rawValue }
+    public init(
+        status: Status, certificateName: String? = nil, created: Date? = nil, certificate: Data? = nil,
+        hosts: DecryptedHosts
+    ) {
+        self.status = status
+        self.certificateName = certificateName
+        self.created = created
+        self.certificate = certificate
+        self.hosts = hosts
+    }
 }

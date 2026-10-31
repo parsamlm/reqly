@@ -1,0 +1,52 @@
+# The JSON SessionHost puts on the wire, as WireGoldenTests.swift records it. Each step is
+# its call, its reply, and the events after it. Set REQLY_RECORD_WIRE_GOLDENS=1 to record again.
+
+open a live session
+event {"apps":[],"devices":[],"event":"sidebar","hosts":[],"methods":[],"pinned":0,"sources":[],"total":0}
+
+call {"call":"setRules","rules":{"kindsOn":["breakpoint"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"action":{"phase":"request","type":"breakpoint"},"id":"$UUID1","isOn":true,"match":{"host":"weather.invalid","path":"*"},"name":"Hold the weather"}]}}
+reply {"result":{}}
+
+call {"call":"send","request":{"method":"GET","url":"https://weather.invalid/v2/forecast","headers":[{"name":"Accept","value":"application/json"}]}}
+reply {"result":{"id":1}}
+event {"event":"paused","paused":{"body":"","breakpoint":"Hold the weather","headers":[{"isSecret":false,"name":"Host","value":"weather.invalid"},{"isSecret":false,"name":"Accept","value":"application/json"}],"id":1,"method":"GET","part":"request","reason":"","status":"","url":"https://weather.invalid/v2/forecast"}}
+
+call {"call":"decide","id":1,"edit":{"url":"ftp://weather.invalid/"}}
+reply {"problem":{"code":"badRequest","message":"Enter a URL that starts with http:// or https://."}}
+
+call {"call":"decide","id":1,"edit":{"url":"https://weather.invalid/v2/edited","headers":[{"name":"X-Edited","value":"1","isSecret":false}],"body":"{}"}}
+reply {"result":{}}
+event {"event":"resumed","id":1}
+
+call {"call":"resend","id":1}
+reply {"result":{"id":2}}
+event {"event":"paused","paused":{"body":"","breakpoint":"Hold the weather","headers":[{"isSecret":false,"name":"Host","value":"weather.invalid"},{"isSecret":false,"name":"Accept","value":"application/json"}],"id":2,"method":"GET","part":"request","reason":"","status":"","url":"https://weather.invalid/v2/forecast"}}
+
+call {"call":"continueAllPaused"}
+reply {"result":{}}
+event {"event":"resumed","id":2}
+
+call {"call":"send","request":{"method":"GET","url":"ftp://example.com","headers":[]}}
+reply {"problem":{"code":"badRequest","message":"Enter a URL that starts with http:// or https://."}}
+
+call {"call":"send","request":{"method":"POST","url":"report.invalid/v2/report","headers":[{"name":"X-Kept","value":"1"},{"name":"X-Off","value":"2","isOn":false}],"body":"sunny"}}
+reply {"result":{"id":3}}
+
+call {"call":"send","request":{"method":"GET","url":"https://weather.invalid/v2/forecast","headers":[{"name":"Accept","value":"application/json"}]}}
+reply {"result":{"id":4}}
+event {"event":"paused","paused":{"body":"","breakpoint":"Hold the weather","headers":[{"isSecret":false,"name":"Host","value":"weather.invalid"},{"isSecret":false,"name":"Accept","value":"application/json"}],"id":4,"method":"GET","part":"request","reason":"","status":"","url":"https://weather.invalid/v2/forecast"}}
+
+call {"call":"decide","id":4}
+reply {"result":{}}
+event {"event":"resumed","id":4}
+
+call {"call":"send","request":{"method":"GET","url":"https://weather.invalid/v2/forecast","headers":[{"name":"Accept","value":"application/json"}]}}
+reply {"result":{"id":5}}
+event {"event":"paused","paused":{"body":"","breakpoint":"Hold the weather","headers":[{"isSecret":false,"name":"Host","value":"weather.invalid"},{"isSecret":false,"name":"Accept","value":"application/json"}],"id":5,"method":"GET","part":"request","reason":"","status":"","url":"https://weather.invalid/v2/forecast"}}
+
+call {"call":"clear"}
+reply {"result":{}}
+event {"event":"resumed","id":5}
+
+call {"call":"decide","id":5}
+reply {"problem":{"code":"notFound","message":"Nothing is waiting at a breakpoint for exchange 5."}}

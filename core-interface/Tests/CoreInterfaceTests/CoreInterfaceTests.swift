@@ -1,4 +1,5 @@
 import Capture
+import DeviceBridge
 import Foundation
 import Presentation
 import ProxyEngine
@@ -913,6 +914,27 @@ func call(_ host: SessionHost, _ fields: [String: Any]) async -> Data {
         #expect(
             try problem(await call(host, ["call": "renameDevice", "device": "ip:192.168.1.20", "name": " "]))
                 == "badRequest")
+        await host.close()
+    }
+
+    /// Without adb, copying the certificate to an emulator says so before anything else, even
+    /// when the certificate isn't base64; with adb, the certificate is read before adb runs.
+    @Test func looksForAdbBeforeReadingTheCertificate() async throws {
+        let folder = URL.temporaryDirectory.appending(path: "ReqlyCoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let host = try await SessionHost.open(
+            OpenOptions(sessionsFolder: folder.appending(path: "Sessions").path, findsApps: false), send: { _ in })
+        let copy = ["call": "copyCertificateToEmulator", "serial": "emulator-5554", "certificate": "not base64!"]
+        await host.findAdb(with: { nil })
+        var reply = try #require(try JSONSerialization.jsonObject(with: await call(host, copy)) as? [String: Any])
+        #expect(
+            reply["problem"] as? [String: String] == ["code": "notAvailable", "message": AndroidDebugBridge.missing])
+        // An adb that isn't there, which the bad certificate keeps from ever running.
+        let adb = AndroidDebugBridge(executable: folder.appending(path: "adb"))
+        await host.findAdb(with: { adb })
+        reply = try #require(try JSONSerialization.jsonObject(with: await call(host, copy)) as? [String: Any])
+        #expect(
+            reply["problem"] as? [String: String] == ["code": "badRequest", "message": "The certificate isn't base64."])
         await host.close()
     }
 

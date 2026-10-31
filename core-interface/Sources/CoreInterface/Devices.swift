@@ -1,4 +1,5 @@
 import Capture
+import DeviceBridge
 import Foundation
 import ReqlyModel
 import Synchronization
@@ -18,57 +19,44 @@ final class DeviceOrigins: Sendable {
     }
 }
 
-/// The Android emulators that run, as the Devices window shows them.
-struct WireEmulators: Encodable {
-    struct Emulator: Encodable {
-        /// adb's serial, such as `emulator-5554`.
-        var id: String
-        /// Such as "Pixel 10 Pro XL".
-        var name: String
-        /// The proxy it sends its traffic to, such as `10.0.2.2:9090`.
-        var proxy: String?
-        /// Still starting up, or not answering adb.
-        var isReady: Bool
-        /// Its proxy is Reqly, on the port asked about.
-        var usesReqly: Bool
-    }
-
-    /// Whether Reqly found adb.
-    var hasAdb: Bool
-    var emulators: [Emulator]
-    var problem: String?
-}
-
 /// Phones and tablets on the network, as the Devices window shows them.
-struct WireDevices: Encodable {
-    struct Known: Encodable {
-        var id: String
+public struct DevicesState: Sendable, Equatable {
+    /// A device you let in.
+    public struct Known: Sendable, Equatable {
+        public var id: String
         /// The name you gave it, if you gave it one.
-        var name: String?
+        public var name: String?
         /// The address it last connected from.
-        var address: String
+        public var address: String
         /// Such as `aa:bb:cc:dd:ee:ff`, when its ID is that.
-        var hardwareAddress: String?
+        public var hardwareAddress: String?
+
+        public init(id: String, name: String? = nil, address: String, hardwareAddress: String? = nil) {
+            self.id = id
+            self.name = name
+            self.address = address
+            self.hardwareAddress = hardwareAddress
+        }
     }
 
-    struct Waiting: Encodable {
-        var id: String
-        var address: String
-    }
-
-    struct Address: Encodable {
-        /// Such as "Wi-Fi".
-        var interface: String
-        var address: String
-    }
-
-    var allowsNetworkDevices: Bool
-    var known: [Known]
+    public var allowsNetworkDevices: Bool
+    public var known: [Known]
     /// Devices waiting for you to decide, in the order they asked.
-    var waiting: [Waiting]
+    public var waiting: [DevicesBook.Request]
     /// This computer's addresses on the networks devices can reach, the likeliest first.
-    var addresses: [Address]
-    var problem: String?
+    public var addresses: [SystemParts.Address]
+    public var problem: String?
+
+    public init(
+        allowsNetworkDevices: Bool, known: [Known], waiting: [DevicesBook.Request], addresses: [SystemParts.Address],
+        problem: String? = nil
+    ) {
+        self.allowsNetworkDevices = allowsNetworkDevices
+        self.known = known
+        self.waiting = waiting
+        self.addresses = addresses
+        self.problem = problem
+    }
 
     init(_ book: DevicesBook, allowsNetworkDevices: Bool, addresses: [SystemParts.Address], problem: String?) {
         self.allowsNetworkDevices = allowsNetworkDevices
@@ -77,8 +65,33 @@ struct WireDevices: Encodable {
                 id: $0.id, name: book.names[$0.id], address: $0.address,
                 hardwareAddress: $0.id.hasPrefix("mac:") ? String($0.id.dropFirst(4)) : nil)
         }
-        waiting = book.requests.map { Waiting(id: $0.id, address: $0.address) }
-        self.addresses = addresses.map { Address(interface: $0.interface, address: $0.address) }
+        waiting = book.requests
+        self.addresses = addresses
+        self.problem = problem
+    }
+}
+
+/// The Android emulators that run, as the Devices window shows them.
+public struct Emulators: Sendable, Equatable {
+    public struct Row: Sendable, Equatable {
+        public var emulator: AndroidEmulator
+        /// Its proxy is Reqly, on the port asked about.
+        public var usesReqly: Bool
+
+        public init(emulator: AndroidEmulator, usesReqly: Bool) {
+            self.emulator = emulator
+            self.usesReqly = usesReqly
+        }
+    }
+
+    /// Whether Reqly found adb.
+    public var hasAdb: Bool
+    public var emulators: [Row]
+    public var problem: String?
+
+    public init(hasAdb: Bool, emulators: [Row], problem: String? = nil) {
+        self.hasAdb = hasAdb
+        self.emulators = emulators
         self.problem = problem
     }
 }

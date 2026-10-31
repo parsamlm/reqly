@@ -15,31 +15,34 @@ public actor ProtobufLibrary {
 
     public init() {}
 
-    func open(_ url: URL) async -> WireProtobuf {
+    /// Opens the list of `.proto` files and reads them, so protobuf bodies show their fields' names.
+    public func open(_ url: URL) async -> ProtobufState {
         book.open(url)
         await read()
-        return book.wire
+        return book.state
     }
 
-    var wire: WireProtobuf { book.wire }
+    /// The `.proto` files and what they hold.
+    public var state: ProtobufState { book.state }
 
-    func add(_ urls: [URL]) async -> WireProtobuf {
+    /// Adds files and folders that aren't on the list yet, and reads them.
+    public func add(_ urls: [URL]) async -> ProtobufState {
         if book.add(urls) {
             await read()
         }
-        return book.wire
+        return book.state
     }
 
-    func remove(_ path: String) async -> WireProtobuf {
+    public func remove(_ path: String) async -> ProtobufState {
         book.remove(path)
         await read()
-        return book.wire
+        return book.state
     }
 
     /// Reads the files again, as after they changed.
-    func reload() async -> WireProtobuf {
+    public func reload() async -> ProtobufState {
         await read()
-        return book.wire
+        return book.state
     }
 
     func choose(_ type: String?, for key: String) {
@@ -122,46 +125,56 @@ struct ProtobufBook {
         }
     }
 
-    var wire: WireProtobuf {
-        WireProtobuf(
+    var state: ProtobufState {
+        ProtobufState(
             sources: contents.sources.map {
-                WireProtobuf.Source(
+                ProtobufState.Source(
                     path: $0.path, isFolder: $0.isFolder, name: $0.url.lastPathComponent,
                     count: counts[$0.id].flatMap { $0 > 0 ? $0 : nil })
             },
-            summary: ProtobufFiles.summary(schema, hasSources: !contents.sources.isEmpty),
-            problems: problems.prefix(200).map {
-                WireProtobuf.Problem(file: $0.file, line: $0.line, message: $0.message)
-            },
+            summary: ProtobufFiles.summary(schema, hasSources: !contents.sources.isEmpty), problems: problems,
             saveProblem: saveProblem, types: schema.messageNames, version: version)
     }
 }
 
 /// The `.proto` files, as Settings list them, and the message types they hold.
-struct WireProtobuf: Encodable, Sendable {
-    struct Source: Encodable, Sendable {
-        var path: String
-        var isFolder: Bool
+public struct ProtobufState: Sendable, Equatable {
+    public struct Source: Sendable, Equatable {
+        public var path: String
+        public var isFolder: Bool
         /// The file's or the folder's name.
-        var name: String
+        public var name: String
         /// How many `.proto` files it holds, or none when it's missing or has none.
-        var count: Int?
+        public var count: Int?
+
+        public init(path: String, isFolder: Bool, name: String, count: Int? = nil) {
+            self.path = path
+            self.isFolder = isFolder
+            self.name = name
+            self.count = count
+        }
     }
 
-    struct Problem: Encodable, Sendable {
-        var file: String
-        /// 0 when the problem is with the whole file.
-        var line: Int
-        var message: String
-    }
-
-    var sources: [Source]
+    public var sources: [Source]
     /// Such as "14 message types and 2 services."
-    var summary: String
-    /// At most 200, in the order of the sources.
-    var problems: [Problem]
-    var saveProblem: String?
+    public var summary: String
+    /// In the order of the sources.
+    public var problems: [ProtoFileProblem]
+    public var saveProblem: String?
     /// Every message type, by its full name, for a body's message type menu.
-    var types: [String]
-    var version: Int
+    public var types: [String]
+    /// Goes up each time the files are read.
+    public var version: Int
+
+    public init(
+        sources: [Source], summary: String, problems: [ProtoFileProblem], saveProblem: String? = nil, types: [String],
+        version: Int
+    ) {
+        self.sources = sources
+        self.summary = summary
+        self.problems = problems
+        self.saveProblem = saveProblem
+        self.types = types
+        self.version = version
+    }
 }

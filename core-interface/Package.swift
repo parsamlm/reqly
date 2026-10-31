@@ -1,10 +1,10 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
-// CoreInterface: the core as the apps that aren't the Mac's use it. SessionHost answers JSON
-// messages and keeps the request list, and its neighbors keep rules, connections, devices,
-// Protobuf files and HTTPS, the same way on every system. The Windows app reaches it through
-// windows/ReqlyCore's C functions, and the Linux app will link it directly.
+// CoreInterface: the core as the apps that aren't the Mac's use it. SessionHost keeps the request
+// list, and its neighbors keep rules, connections, devices, Protobuf files and HTTPS, the same way
+// on every system, behind a Swift API that the Linux app will call directly. JSON messages over
+// that API carry it to the Windows app, through windows/ReqlyCore's C functions.
 //
 // What only one system has, such as its proxy setting and certificate store, comes from the app
 // as SystemParts when a session opens: WindowsSystem's on Windows. Its tests run on the Mac and

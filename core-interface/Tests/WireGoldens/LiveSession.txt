@@ -1,0 +1,173 @@
+# The JSON SessionHost puts on the wire, as WireGoldenTests.swift records it. Each step is
+# its call, its reply, and the events after it. Set REQLY_RECORD_WIRE_GOLDENS=1 to record again.
+
+open a live session
+event {"apps":[],"devices":[],"event":"sidebar","hosts":[],"methods":[],"pinned":0,"sources":[],"total":0}
+
+call {"call":"startCapturing","port":0}
+reply {"result":{"port":$port}}
+
+call {"call":"stopCapturing"}
+reply {"result":{}}
+
+call {"call":"https"}
+reply {"result":{"hosts":{"entries":[],"includesEveryHost":false},"status":"notSetUp"}}
+
+call {"call":"setUpHTTPS"}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"https"}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"setDecryptedHosts","hosts":{"entries":[{"pattern":"*.weatherly.dev","isOn":true},{"pattern":"not a host","isOn":true}],"includesEveryHost":false}}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[{"isOn":true,"pattern":"*.weatherly.dev"}],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"addDecryptedHost","text":" *.Example.com "}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[{"isOn":true,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"*.example.com"}],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"addDecryptedHost","text":"not a host"}
+reply {"problem":{"code":"badRequest","message":"“not a host” isn't a host. Enter a name like api.example.com, or *.example.com for its subdomains."}}
+
+call {"call":"decryptHost","host":"api.bank.dev"}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[{"isOn":true,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"*.example.com"},{"isOn":true,"pattern":"api.bank.dev"}],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"stopDecryptingHost","host":"api.weatherly.dev"}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[{"isOn":true,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"*.example.com"},{"isOn":true,"pattern":"api.bank.dev"},{"isOn":false,"pattern":"api.weatherly.dev"}],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"setHostDecrypted","pattern":"*.weatherly.dev","isOn":false}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[{"isOn":false,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"*.example.com"},{"isOn":true,"pattern":"api.bank.dev"},{"isOn":false,"pattern":"api.weatherly.dev"}],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"removeDecryptedHosts","patterns":["*.example.com"]}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[{"isOn":false,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"api.bank.dev"},{"isOn":false,"pattern":"api.weatherly.dev"}],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"setDecryptsEveryHost","isOn":true}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[{"isOn":false,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"api.bank.dev"},{"isOn":false,"pattern":"api.weatherly.dev"}],"includesEveryHost":true},"status":"trusted"}}
+
+call {"call":"decryptsHost","host":"example.org"}
+reply {"result":{"decrypts":true}}
+
+call {"call":"decryptsHost","host":"api.weatherly.dev"}
+reply {"result":{"decrypts":false}}
+
+call {"call":"setDecryptsEveryHost","isOn":false}
+reply {"result":{"certificate":"MIIBrjCCAVWgAwIBAgIUIOzHT2OHW7GQWirV8UMVLGSqV8AwCgYIKoZIzj0EAwIwNDEiMCAGA1UEAwwZUmVxbHkgQ0EgMjAyNi0xMC0zMSAxMjowMDEOMAwGA1UECgwFUmVxbHkwHhcNMjYxMDMwMTIwMDAwWhcNMjgxMDMwMTIwMDAwWjA0MSIwIAYDVQQDDBlSZXFseSBDQSAyMDI2LTEwLTMxIDEyOjAwMQ4wDAYDVQQKDAVSZXFseTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGbEWMLvrjJw211Cb9p+De8cF2Tt7dNw/nHsRxjTb/jZf1B5L6oMg4YSbOFXEcv02d1f4WJqKbyh6QN2fXjQP02jRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSpD0q36+PT0PIP5QmSy2QcRgPmrzAKBggqhkjOPQQDAgNHADBEAiBWf4pYzbKwDbbGMq6zEw0Om6gk8llXiWFF9XbZb6uLuwIgWwB5lMaO9yau5IosJ8bOxAxzDoGxeG0FzYebm5R+TLA=","certificateName":"Reqly CA 2026-10-31 12:00","created":1793448000,"hosts":{"entries":[{"isOn":false,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"api.bank.dev"},{"isOn":false,"pattern":"api.weatherly.dev"}],"includesEveryHost":false},"status":"trusted"}}
+
+call {"call":"removeHTTPS"}
+reply {"result":{"hosts":{"entries":[{"isOn":false,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"api.bank.dev"},{"isOn":false,"pattern":"api.weatherly.dev"}],"includesEveryHost":false},"status":"notSetUp"}}
+
+call {"call":"removeHTTPS"}
+reply {"result":{"hosts":{"entries":[{"isOn":false,"pattern":"*.weatherly.dev"},{"isOn":true,"pattern":"api.bank.dev"},{"isOn":false,"pattern":"api.weatherly.dev"}],"includesEveryHost":false},"status":"notSetUp"}}
+
+call {"call":"openConnections","path":"$FOLDER/Connections.json","protectsSecrets":false,"secretsPath":"$FOLDER/Secrets.json"}
+reply {"result":{"clientCertificates":[],"reverseProxies":[],"upstreamProxy":{"bypass":"","bypassesLocalAddresses":true,"host":"","isOn":false,"password":"","port":"","username":""}}}
+
+call {"call":"connections"}
+reply {"result":{"clientCertificates":[],"reverseProxies":[],"upstreamProxy":{"bypass":"","bypassesLocalAddresses":true,"host":"","isOn":false,"password":"","port":"","username":""}}}
+
+call {"call":"checkUpstreamProxy","proxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"","isOn":true,"password":"hunter2","port":"8080","username":"parsa"},"proxyPort":9090}
+reply {"result":{"problem":"Enter the proxy's server."}}
+
+call {"call":"setUpstreamProxy","proxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"","isOn":true,"password":"hunter2","port":"8080","username":"parsa"},"proxyPort":9090}
+reply {"problem":{"code":"badRequest","message":"Enter the proxy's server."}}
+
+call {"call":"checkUpstreamProxy","proxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"Proxy.Example.com","isOn":true,"password":"hunter2","port":"8080","username":"parsa"},"proxyPort":9090}
+reply {"result":{"problem":null}}
+
+call {"call":"setUpstreamProxy","proxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"Proxy.Example.com","isOn":true,"password":"hunter2","port":"8080","username":"parsa"},"proxyPort":9090}
+reply {"result":{"activeUpstreamProxy":"proxy.example.com:8080","clientCertificates":[],"reverseProxies":[],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":true,"password":"hunter2","port":"8080","username":"parsa"}}}
+
+call {"call":"setUpstreamProxy","proxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"Proxy.Example.com","isOn":false,"password":"hunter2","port":"8080","username":""},"proxyPort":9090}
+reply {"result":{"clientCertificates":[],"reverseProxies":[],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"newReverseProxy","proxyPort":8080}
+reply {"result":{"id":"$UUID1","isOn":true,"port":"8081","rewritesRedirects":true,"serverURL":""}}
+
+call {"call":"checkReverseProxy","proxy":{"id":"$UUID1","isOn":true,"port":"8081","rewritesRedirects":true,"serverURL":""},"proxyPort":8080}
+reply {"result":{"problem":"Enter the server that requests go to."}}
+
+call {"call":"checkReverseProxy","proxy":{"id":"$UUID1","isOn":true,"port":"8081","rewritesRedirects":true,"serverURL":"staging.weatherly.dev"},"proxyPort":8080}
+reply {"result":{"note":"Apps that use http://localhost:8081 reach https://staging.weatherly.dev."}}
+
+call {"call":"saveReverseProxy","proxy":{"id":"$UUID1","isOn":true,"port":"8081","rewritesRedirects":true,"serverURL":"staging.weatherly.dev"},"proxyPort":8080}
+reply {"result":{"clientCertificates":[],"reverseProxies":[{"id":"$UUID1","isOn":true,"localAddress":"localhost:8081","localPort":8081,"rewritesRedirects":true,"server":"https://staging.weatherly.dev","serverURL":"staging.weatherly.dev"}],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"newReverseProxy","proxyPort":8080}
+reply {"result":{"id":"$UUID2","isOn":true,"port":"8082","rewritesRedirects":true,"serverURL":""}}
+
+call {"call":"saveReverseProxy","proxy":{"id":"$UUID2","isOn":true,"port":"8081","rewritesRedirects":true,"serverURL":"https://api.weatherly.dev"},"proxyPort":8080}
+reply {"problem":{"code":"badRequest","message":"Another reverse proxy uses port 8081."}}
+
+call {"call":"setReverseProxyOn","isOn":false,"reverseProxy":"$UUID1"}
+reply {"result":{"clientCertificates":[],"reverseProxies":[{"id":"$UUID1","isOn":false,"localAddress":"localhost:8081","localPort":8081,"rewritesRedirects":true,"server":"https://staging.weatherly.dev","serverURL":"staging.weatherly.dev"}],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"connections"}
+reply {"result":{"clientCertificates":[],"reverseProxies":[{"id":"$UUID1","isOn":false,"localAddress":"localhost:8081","localPort":8081,"rewritesRedirects":true,"server":"https://staging.weatherly.dev","serverURL":"staging.weatherly.dev"}],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"removeReverseProxy","reverseProxy":"$UUID1"}
+reply {"result":{"clientCertificates":[],"reverseProxies":[],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"addClientCertificate","files":["$FOLDER/nowhere.p12"],"hosts":"api.bank.dev"}
+reply {"problem":{"code":"badRequest","message":"Reqly can't read this file as a certificate. Choose a .p12, .pfx or PEM file."}}
+
+call {"call":"addClientCertificate","files":["$FOLDER/client.pem"],"hosts":" "}
+reply {"problem":{"code":"badRequest","message":"Enter the hosts to present the certificate to, such as api.example.com."}}
+
+call {"call":"addClientCertificate","files":["$FOLDER/client.pem"],"hosts":"api.bank.dev, *.bank.dev","password":""}
+reply {"result":{"clientCertificates":[{"expires":2106402950,"hasExpired":false,"hosts":"api.bank.dev, *.bank.dev","id":"$UUID3","isMissing":false,"isOn":true,"issuer":"Reqly Test Client","name":"Reqly Test Client"}],"reverseProxies":[],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"setClientCertificateHosts","certificate":"$UUID3","hosts":"api.bank.dev"}
+reply {"result":{"clientCertificates":[{"expires":2106402950,"hasExpired":false,"hosts":"api.bank.dev","id":"$UUID3","isMissing":false,"isOn":true,"issuer":"Reqly Test Client","name":"Reqly Test Client"}],"reverseProxies":[],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"setClientCertificateHosts","certificate":"$UUID3","hosts":"bad/host"}
+reply {"problem":{"code":"badRequest","message":"“bad/host” isn't a host name or a pattern such as *.example.com."}}
+
+call {"call":"setClientCertificateOn","certificate":"$UUID3","isOn":false}
+reply {"result":{"clientCertificates":[{"expires":2106402950,"hasExpired":false,"hosts":"api.bank.dev","id":"$UUID3","isMissing":false,"isOn":false,"issuer":"Reqly Test Client","name":"Reqly Test Client"}],"reverseProxies":[],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"removeClientCertificate","certificate":"$UUID3"}
+reply {"result":{"clientCertificates":[],"reverseProxies":[],"upstreamProxy":{"bypass":"intranet.example.com","bypassesLocalAddresses":true,"host":"proxy.example.com","isOn":false,"password":"","port":"8080","username":""}}}
+
+call {"call":"openDevices","path":"$FOLDER/Devices.json"}
+reply {"result":{"addresses":[],"allowsNetworkDevices":false,"known":[],"waiting":[]}}
+
+call {"call":"devices"}
+reply {"result":{"addresses":[],"allowsNetworkDevices":false,"known":[],"waiting":[]}}
+
+call {"call":"setAllowsNetworkDevices","isOn":true}
+reply {"result":{"addresses":[],"allowsNetworkDevices":true,"known":[],"waiting":[]}}
+
+admit 192.168.1.20
+event {"address":"192.168.1.20","event":"deviceWaiting","id":"ip:192.168.1.20","waiting":1}
+
+call {"call":"devices"}
+reply {"result":{"addresses":[],"allowsNetworkDevices":true,"known":[],"waiting":[{"address":"192.168.1.20","id":"ip:192.168.1.20"}]}}
+
+call {"call":"decideDevice","device":"ip:192.168.1.20","allow":true,"name":" Phone "}
+reply {"result":{"addresses":[],"allowsNetworkDevices":true,"known":[{"address":"192.168.1.20","id":"ip:192.168.1.20","name":"Phone"}],"waiting":[]}}
+
+call {"call":"renameDevice","device":"ip:192.168.1.20","name":"Parsa's phone"}
+reply {"result":{"addresses":[],"allowsNetworkDevices":true,"known":[{"address":"192.168.1.20","id":"ip:192.168.1.20","name":"Parsa's phone"}],"waiting":[]}}
+
+admit 192.168.1.21
+event {"address":"192.168.1.21","event":"deviceWaiting","id":"ip:192.168.1.21","waiting":1}
+
+call {"call":"setAllowsNetworkDevices","isOn":false}
+reply {"result":{"addresses":[],"allowsNetworkDevices":false,"known":[{"address":"192.168.1.20","id":"ip:192.168.1.20","name":"Parsa's phone"}],"waiting":[]}}
+
+call {"call":"forgetDevice","device":"ip:192.168.1.20"}
+reply {"result":{"addresses":[],"allowsNetworkDevices":false,"known":[],"waiting":[]}}
+
+call {"call":"renameDevice","device":"ip:192.168.1.20","name":" "}
+reply {"problem":{"code":"badRequest","message":"Enter a name for the device."}}
+
+call {"call":"decideDevice","device":"ip:10.0.0.9","allow":false}
+reply {"result":{"addresses":[],"allowsNetworkDevices":false,"known":[],"waiting":[]}}
+
+call {"call":"emulators","port":9090}
+reply {"result":{"emulators":[],"hasAdb":false,"problem":"Reqly can't find adb. It comes with Android Studio, or with the Android SDK Platform Tools."}}
+
+call {"call":"setEmulatorUsesReqly","serial":"emulator-5554","isOn":true,"port":9090}
+reply {"problem":{"code":"notAvailable","message":"Reqly can't find adb. It comes with Android Studio, or with the Android SDK Platform Tools."}}
+
+call {"call":"copyCertificateToEmulator","serial":"emulator-5554","certificate":"AAAA"}
+reply {"problem":{"code":"notAvailable","message":"Reqly can't find adb. It comes with Android Studio, or with the Android SDK Platform Tools."}}

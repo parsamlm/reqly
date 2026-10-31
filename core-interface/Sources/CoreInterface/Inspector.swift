@@ -1,11 +1,12 @@
 import BodyKit
+import Capture
 import Foundation
 import Presentation
 import ProxyEngine
 import ReqlyModel
 
-// What the details pane shows besides the headers: gRPC, timing, rules, devices, cookies, raw
-// text, trees and WebSocket messages.
+// What the details pane shows besides the headers, as the replies carry it to the Windows app:
+// gRPC, timing, rules, devices, cookies, raw text, trees and WebSocket messages.
 
 /// A gRPC call's status.
 public struct WireGRPC: Codable, Sendable, Equatable {
@@ -56,15 +57,23 @@ public struct WireRule: Codable, Sendable, Equatable {
     /// Such as "Sent to https://staging.weatherly.dev/v2/forecast".
     public var detail: String
 
-    /// One line for each rule. A rule that acted more than once, such as on the request and then
-    /// on the response, gets everything it did on its line, as on the Mac.
+    /// One line for each rule, as `joinedByRule` joins them.
     static func joined(_ rules: [AppliedRule]) -> [WireRule] {
-        var joined: [WireRule] = []
-        for rule in rules {
-            if let index = joined.firstIndex(where: { $0.name == rule.name && $0.kind == rule.kind.rawValue }) {
+        rules.joinedByRule.map { WireRule(kind: $0.kind.rawValue, name: $0.name, detail: $0.detail) }
+    }
+}
+
+extension [AppliedRule] {
+    /// One line for each rule, as the details show them. A rule that acted more than once, such
+    /// as on the request and then on the response, gets everything it did on its line, as on the
+    /// Mac.
+    public var joinedByRule: [AppliedRule] {
+        var joined: [AppliedRule] = []
+        for rule in self {
+            if let index = joined.firstIndex(where: { $0.name == rule.name && $0.kind == rule.kind }) {
                 joined[index].detail += " " + rule.detail
             } else {
-                joined.append(WireRule(kind: rule.kind.rawValue, name: rule.name, detail: rule.detail))
+                joined.append(rule)
             }
         }
         return joined
@@ -94,13 +103,19 @@ public struct WireDeviceInfo: Codable, Sendable, Equatable {
         name = device.name
         kind = device.kind.rawValue
         address = device.address
-        fullName =
-            switch device.kind {
-            case .network:
-                device.address.map { $0 == device.name ? device.name : "\(device.name) · \($0)" } ?? device.name
-            case .simulator: "\(device.name) · Simulator"
-            case .emulator: "\(device.name) · Android emulator"
-            }
+        fullName = device.fullName
+    }
+}
+
+extension Device {
+    /// The device and what kind it is, such as "iPhone 17 Pro · Simulator", as the details and
+    /// the Mac's sidebar name it.
+    public var fullName: String {
+        switch kind {
+        case .network: address.map { $0 == name ? name : "\(name) · \($0)" } ?? name
+        case .simulator: "\(name) · Simulator"
+        case .emulator: "\(name) · Android emulator"
+        }
     }
 }
 
@@ -137,6 +152,12 @@ public struct WireRaw: Encodable, Sendable, Equatable {
     public var response: WireCode?
     /// Whether any header is a secret, such as a cookie, so the tab offers to show them.
     public var hasSecrets: Bool
+
+    init(_ raw: RawExchange) {
+        request = WireCode(text: raw.request.text, tokens: raw.request.tokens, isCode: false)
+        response = raw.response.map { WireCode(text: $0.text, tokens: $0.tokens, isCode: false) }
+        hasSecrets = raw.hasSecrets
+    }
 }
 
 /// Text with its syntax marked: each token is `[location, length, kind]`, in UTF-16 code units,
@@ -284,55 +305,7 @@ public struct WireMessage: Encodable, Sendable, Equatable {
         keptSize = message.data.count
         closeCode = message.closeCode
         text = message.text
-        preview = Self.preview(message)
-    }
-
-    /// As the Mac's message rows say it.
-    static func preview(_ message: WebSocketMessage) -> String {
-        if message.kind == .close {
-            let code =
-                message.closeCode.map { code in
-                    let meaning = closeMeaning(code)
-                    return meaning.isEmpty ? String(code) : "\(code) \(meaning)"
-                } ?? "No code"
-            let reason = message.text.flatMap { $0.isEmpty ? nil : $0 }
-            return reason.map { "\(code) · \($0)" } ?? code
-        }
-        if let text = message.text ?? readableControlText(message) {
-            let line = text.prefix(300).split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-            return line.isEmpty && !text.isEmpty ? "⏎" : line
-        }
-        return message.data.prefix(32).map { String(format: "%02x", $0) }.joined(separator: " ")
-    }
-
-    /// What a ping or a pong says, when it's text, as it often is.
-    private static func readableControlText(_ message: WebSocketMessage) -> String? {
-        guard message.kind == .ping || message.kind == .pong,
-            let text = String(data: message.data, encoding: .utf8),
-            !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control })
-        else { return nil }
-        return text
-    }
-
-    /// What a close code means, in a few words.
-    static func closeMeaning(_ code: Int) -> String {
-        switch code {
-        case 1000: "Normal"
-        case 1001: "Going away"
-        case 1002: "Protocol error"
-        case 1003: "Unsupported data"
-        case 1005: "No status"
-        case 1006: "Closed abnormally"
-        case 1007: "Invalid data"
-        case 1008: "Policy violation"
-        case 1009: "Too big"
-        case 1010: "Extension needed"
-        case 1011: "Server error"
-        case 1012: "Restarting"
-        case 1013: "Try again later"
-        case 1015: "TLS failed"
-        default: ""
-        }
+        preview = message.preview
     }
 }
 
@@ -352,43 +325,23 @@ public struct WireOutgoing: Codable, Sendable, Equatable {
     /// A body that isn't text, in base64. It's sent as it was.
     public var binaryBody: String?
 
-    /// Reqly sets these itself when it sends the request, from the URL and the body, and leaves
-    /// out the ones meant for a proxy.
-    static let framingHeaders: Set<String> = [
-        "host", "content-length", "transfer-encoding", "proxy-connection", "proxy-authorization",
-    ]
-
-    /// A draft filled in from an exchange, for Edit and Resend.
-    init(_ exchange: Exchange) {
-        method = exchange.request.method
-        url = exchange.request.url?.absoluteString ?? ""
-        headers = exchange.request.headers
-            .filter { !Self.framingHeaders.contains($0.name.lowercased()) }
-            .map { Header(name: $0.name, value: $0.value, isOn: true) }
-        if let text = String(data: exchange.requestBody, encoding: .utf8) {
+    init(_ draft: RequestDraft) {
+        method = draft.method
+        url = draft.url
+        headers = draft.headers.map { Header(name: $0.name, value: $0.value, isOn: $0.isOn) }
+        if let text = String(data: draft.body, encoding: .utf8) {
             body = text
         } else {
-            binaryBody = exchange.requestBody.base64EncodedString()
+            binaryBody = draft.body.base64EncodedString()
         }
     }
 
-    /// The request to send, or what to fix, as the Mac's composer says it.
-    func request() throws(Problem) -> OutgoingRequest {
-        var text = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty, !text.contains("://") {
-            text = "https://" + text
-        }
-        guard let url = URL(string: text), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-            let host = url.host(), !host.isEmpty
-        else {
-            throw Problem(.badRequest, "Enter a URL that starts with http:// or https://.")
-        }
-        let fields = headers.compactMap { header -> HeaderField? in
-            let name = header.name.trimmingCharacters(in: .whitespaces)
-            return header.isOn != false && !name.isEmpty ? HeaderField(name: name, value: header.value) : nil
-        }
-        let data = binaryBody.flatMap { Data(base64Encoded: $0) } ?? Data((body ?? "").utf8)
-        return OutgoingRequest(method: method, url: url, headers: Headers(fields), body: data)
+    /// The draft, with its body as bytes: `binaryBody`'s, or else `body`'s text.
+    var draft: RequestDraft {
+        RequestDraft(
+            method: method, url: url,
+            headers: headers.map { RequestDraft.Header(name: $0.name, value: $0.value, isOn: $0.isOn != false) },
+            body: binaryBody.flatMap { Data(base64Encoded: $0) } ?? Data((body ?? "").utf8))
     }
 }
 
@@ -451,4 +404,11 @@ public struct WireScriptTrial: Encodable, Sendable, Equatable {
     public var detail: String
     public var logs: [String]
     public var failed: Bool
+
+    init(_ trial: ScriptTrial) {
+        part = trial.part.rawValue
+        detail = trial.detail
+        logs = trial.logs
+        failed = trial.failed
+    }
 }
