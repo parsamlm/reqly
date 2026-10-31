@@ -71,6 +71,9 @@ public struct Options: Sendable, Equatable {
     public var smokeReport: String?
     /// The self-check's parts to run, or all of them.
     public var smokeParts: [String]?
+    /// An application ID of the run's own, in place of Reqly's, under which a test run is the
+    /// only one, as a real run is under Reqly's: the self-check starts two with the same ID.
+    public var appID: String?
     /// `--sets-system-proxy`, when it's given.
     private var setsSystemProxyOption: Bool?
 
@@ -132,16 +135,18 @@ public struct Options: Sendable, Equatable {
                 let parts = try value().split(separator: ",").map(String.init)
                 guard !parts.isEmpty else { throw UsageError("--smoke-parts needs the names of parts.") }
                 smokeParts = parts
+            case "--app-id": appID = try value()
             default:
                 throw UsageError("Reqly has no option \(name). See reqly --help.")
             }
         }
     }
 
-    /// Whether this is a test run: one given a stand-in, its own settings file or `--smoke`.
+    /// Whether this is a test run: one given a stand-in, its own settings file, its own
+    /// application ID or `--smoke`.
     public var isTestRun: Bool {
         proxySettingsStandIn != nil || rootStandIn != nil || secretsStandIn != nil || settingsFile != nil
-            || smokeReport != nil
+            || smokeReport != nil || appID != nil
     }
 
     /// Whether capturing points your desktop's proxy at Reqly, or the stand-in's: as
@@ -180,11 +185,12 @@ public struct Options: Sendable, Equatable {
           --trust-helper <program>          --allows-network-devices yes|no
           --checks-for-updates yes|no       --has-seen-welcome yes|no
           --theme light|dark                --smoke <report>
-          --smoke-parts <part>,<part>...
+          --smoke-parts <part>,<part>...    --app-id <id>
 
-        A run with a stand-in, its own settings file or --smoke is a test run: it runs beside the
-        Reqly that's open, and changes your desktop's own proxy only when given
-        --sets-system-proxy yes and no --proxy-settings-stand-in.
+        A run with a stand-in, its own settings file, --app-id or --smoke is a test run: it runs
+        beside the Reqly that's open, as the only run under its --app-id if it has one, and
+        changes your desktop's own proxy only when given --sets-system-proxy yes and no
+        --proxy-settings-stand-in.
 
         """
 }
