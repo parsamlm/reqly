@@ -216,6 +216,18 @@ final class SelfCheck {
         }
     }
 
+    /// Runs `body` once, as the window's next frame ends, once it's drawn: as far as can be from the
+    /// frame after, which lays out what `body` shows.
+    func atFrameEnd(_ body: @escaping @MainActor () -> Void) {
+        guard let clock = gtk_widget_get_frame_clock(window.window) else { return }
+        let handler = SignalHandler()
+        handler.id = connect(clock, "after-paint") {
+            g_signal_handler_disconnect(raw(clock), handler.id)
+            body()
+        }
+        gtk_widget_queue_draw(window.window)
+    }
+
     /// The live session, once it's open.
     func session() async throws -> SessionHost {
         try await until("the session to open") { model.session != nil || model.problem != nil }
@@ -227,6 +239,12 @@ final class SelfCheck {
     func activate(_ action: String) {
         g_action_group_activate_action(cast(app.application), action, nil)
     }
+}
+
+/// A signal handler's ID, for a handler that disconnects itself.
+@MainActor
+private final class SignalHandler {
+    var id: UInt = 0
 }
 
 /// How a part went: passed, or why it failed, from the part or from its time limit, whichever

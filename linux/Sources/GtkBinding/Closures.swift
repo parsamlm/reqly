@@ -127,6 +127,19 @@ public func idle(priority: Int32 = G_PRIORITY_DEFAULT_IDLE, _ body: @escaping @M
     g_idle_add_full(priority, sourceCall, Box<SourceBody>(body).retained(), releaseContext)
 }
 
+private let tickCall: GtkTickCallback = { _, _, context in
+    let body = Box<SourceBody>.from(context)
+    return cBool(MainActor.assumeIsolated { body() })
+}
+
+/// gtk_widget_add_tick_callback: `body` runs once each frame, at the start of the frame, before
+/// GTK lays out what changed since the last one, until it returns false. It runs only while
+/// `widget` is realized, as it is while it shows.
+@MainActor @discardableResult
+public func tick(_ widget: Widget, _ body: @escaping @MainActor () -> Bool) -> UInt32 {
+    gtk_widget_add_tick_callback(widget, tickCall, Box<SourceBody>(body).retained(), releaseContext)
+}
+
 /// g_unix_signal_add_full: `body` runs on the main thread each time the process gets `signal`,
 /// such as SIGTERM, until it returns false. Meanwhile the signal's own action, such as ending the
 /// process, doesn't happen.

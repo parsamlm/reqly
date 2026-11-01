@@ -45,7 +45,7 @@ final class SettingsDialog {
         for body in presenting {
             body()
         }
-        adw_dialog_present(cast(dialog), window)
+        presentKept(dialog, over: window)
     }
 
     /// Runs `body` each time Settings opens, such as to read what a page shows again.

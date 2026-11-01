@@ -16,6 +16,8 @@ final class HTTPSPage {
     let page: Widget
     /// The certificate's status, with Set Up HTTPS… until a place trusts it.
     let statusRow: Widget
+    /// Set Up HTTPS…, at the status row's end.
+    let setUpButton: Widget
     let keyRow: Widget
     /// Each place's row, with its status, its Trust… button, and for the computer's list a button
     /// that copies the commands that do it by hand; or the test run's stand-in's row.
@@ -27,6 +29,8 @@ final class HTTPSPage {
     /// Why the host typed can't join the list, in the session's words.
     let addProblem: Widget
     let removeButton: Widget
+    /// What's left after a removal that didn't finish, and why, with the copy button.
+    let removeLeft: Widget
     /// Copies the commands that take the certificate out of the computer's list by hand, beside
     /// what a removal left, when Reqly can't ask for the password.
     let removeCommandsButton: Widget
@@ -37,10 +41,8 @@ final class HTTPSPage {
 
     private weak var settings: SettingsDialog?
     private let https: HTTPSModel
-    private let setUpButton: Widget
-    /// What's left after a removal that didn't finish, and why, with the copy button.
+    /// Why a removal didn't finish, in ``removeLeft``.
     private let removeNote: Widget
-    private let removeLeft: Widget
     private let placesGroup: Widget
     private let hostsGroup: Widget
     private let hostList: Widget
@@ -379,7 +381,20 @@ final class HTTPSPage {
             let problem = await https.trust(kind)
             self?.waitingFor = nil
             self?.say(problem)
+            self?.focusAfterTrusting(kind)
         }
+    }
+
+    /// Gives the keyboard's focus back once Trust… is done, which GTK gave to nothing as the
+    /// button turned insensitive: to the button, or to its row once the button has gone, as the
+    /// place trusts the certificate.
+    private func focusAfterTrusting(_ kind: TrustPlace.Kind) {
+        guard let settings, let place = placeRows.first(where: { $0.kind == kind }) else { return }
+        refocus(place.buttons.first.flatMap { canFocus($0) ? $0 : nil } ?? place.row, in: settings.dialog)
+    }
+
+    private func canFocus(_ widget: Widget) -> Bool {
+        gtk_widget_get_visible(widget) != 0 && gtk_widget_get_sensitive(widget) != 0
     }
 
     /// Says what went wrong with Trust…. Closing the password dialog isn't a failure: the place
@@ -456,27 +471,59 @@ final class HTTPSPage {
             let left = await https.remove()
             guard let self else { return }
             waitingFor = nil
-            HTTPSWidgets.say(removeNote, left)
-            gtk_widget_set_visible(removeLeft, cBool(left != nil))
-            gtk_widget_set_visible(removeCommandsButton, cBool(left != nil && https.commandsToRemoveByHand != nil))
-            show()
-            if left != nil {
-                showWhatsLeft()
+            showLeft(left, withCommands: https.commandsToRemoveByHand != nil)
+        }
+    }
+
+    /// Shows what a removal left, and why, below Remove Certificate…, with the button that copies
+    /// the commands that finish it by hand when there are some; or nothing, once the certificate
+    /// has gone. Then gives the keyboard's focus back, which GTK gave to nothing as Remove
+    /// Certificate… turned insensitive, so Escape still closes Settings.
+    func showLeft(_ left: String?, withCommands: Bool) {
+        HTTPSWidgets.say(removeNote, left)
+        gtk_widget_set_visible(removeLeft, cBool(left != nil))
+        gtk_widget_set_visible(removeCommandsButton, cBool(left != nil && withCommands))
+        show()
+        guard left != nil else {
+            // Set Up HTTPS…, which shows again, by the status that says HTTPS isn't set up.
+            afterLayout(of: statusRow) { [weak self] in
+                guard let self, let settings else { return }
+                refocus(canFocus(setUpButton) ? setUpButton : statusRow, in: settings.dialog)
+            }
+            return
+        }
+        showWhatsLeft()
+    }
+
+    /// Gives the focus to the copy button, or to Remove Certificate… when there are no commands,
+    /// then scrolls the page to what a removal left, at the page's end, the message and its
+    /// button: last, since the focus scrolls the page to the button alone.
+    private func showWhatsLeft() {
+        afterLayout(of: removeLeft) { [weak self] in
+            guard let self else { return }
+            if let settings {
+                refocus(canFocus(removeCommandsButton) ? removeCommandsButton : removeButton, in: settings.dialog)
+            }
+            if let viewport = gtk_widget_get_ancestor(removeLeft, gtk_viewport_get_type()) {
+                gtk_viewport_scroll_to(cast(viewport), removeLeft, nil)
             }
         }
     }
 
-    /// Scrolls the page to what's left after a removal, below the button, at the page's end, and
-    /// gives the copy button the focus when it shows. It waits for the page to lay it out first.
-    private func showWhatsLeft() {
-        idle { [weak self] in
-            guard let self else { return false }
-            if let viewport = gtk_widget_get_ancestor(removeLeft, gtk_viewport_get_type()) {
-                gtk_viewport_scroll_to(cast(viewport), removeLeft, nil)
+    /// Runs `body` once GTK has laid out `widget`, which has just shown. A scroll before then
+    /// would aim at a widget with no size yet, at its parent's top, in a page not yet long enough
+    /// to reach it. GTK lays out what changed in the next frame, after that frame's tick, so
+    /// `body` runs at the second tick at the earliest, once `widget` has a size. It gives up
+    /// after about a second, or once `widget` is hidden again, as when Settings opens again.
+    private func afterLayout(of widget: Widget, _ body: @escaping @MainActor () -> Void) {
+        var frames = 0
+        tick(widget) {
+            frames += 1
+            guard gtk_widget_get_visible(widget) != 0, frames <= 60 else { return false }
+            guard frames >= 2, gtk_widget_get_mapped(widget) != 0, gtk_widget_get_height(widget) > 0 else {
+                return true
             }
-            if gtk_widget_get_visible(removeCommandsButton) != 0 {
-                gtk_widget_grab_focus(removeCommandsButton)
-            }
+            body()
             return false
         }
     }

@@ -132,7 +132,7 @@ final class SetUpDialog {
         statusRow = nil
         resultRows = []
         showWhetherItCanStart()
-        adw_dialog_present(cast(dialog), window)
+        presentKept(dialog, over: window)
         let opening = opening
         Task { [weak self] in await self?.load(opening) }
     }
@@ -159,8 +159,7 @@ final class SetUpDialog {
     }
 
     /// Shows each place in its row. A place keeps its row from one opening to the next, changed
-    /// in place: libadwaita's dialog remembers the row that had the focus, and one made again in
-    /// its place would leave it remembering a row that's gone.
+    /// in place, so a row that has the keyboard's focus as the places are read again keeps it.
     private func showPlaces() {
         var rows: [Widget] = []
         if https.isStandIn {
@@ -234,6 +233,9 @@ final class SetUpDialog {
                 .map(\.kind))
         let cancellation = Cancellation()
         self.cancellation = cancellation
+        // Cancel, which stops the wait, takes the focus from Continue and the places, which GTK
+        // would give to nothing as they turn insensitive.
+        refocus(cancelButton, in: dialog)
         gtk_widget_set_sensitive(continueButton, 0)
         for (_, row) in switches {
             gtk_widget_set_sensitive(row, 0)
@@ -279,6 +281,10 @@ final class SetUpDialog {
             HTTPSWidgets.say(self.failure, failure)
             showPlaces()
             showWhetherItCanStart()
+            // Continue again, to try again.
+            if gtk_widget_get_sensitive(continueButton) != 0 {
+                refocus(continueButton, in: dialog)
+            }
             return
         }
         showResults(result)
@@ -287,6 +293,7 @@ final class SetUpDialog {
         gtk_widget_set_sensitive(continueButton, 1)
         gtk_widget_set_visible(cancelButton, 0)
         gtk_stack_set_visible_child_name(cast(stack), "results")
+        refocus(continueButton, in: dialog)
     }
 
     /// How it went: whether Reqly decrypts now, each place, and where the key is.

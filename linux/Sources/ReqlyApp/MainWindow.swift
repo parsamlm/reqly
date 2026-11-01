@@ -175,11 +175,21 @@ final class MainWindow {
     }
 
     /// Once a dialog has closed and given the focus back, the window has a widget with it that
-    /// shows, or the list takes it: a widget that's gone, or one in the closed menu, would leave
-    /// the window's shortcuts and Tab doing nothing.
+    /// shows: in the dialog still open under it, such as Settings under Set Up HTTPS…, or else
+    /// the list or the switch. A widget that's gone, or one in the closed menu, would leave the
+    /// window's shortcuts and Tab doing nothing, and Settings' Escape.
     func keepFocusAfterDialog() {
         idle { [weak self] in
             guard let self else { return false }
+            if let dialog = visibleDialog(over: window) {
+                if !hasFocus(inside: dialog) {
+                    // From nothing: the dialog would take a hidden widget libadwaita gave the focus
+                    // back to as its own, and give it the focus again.
+                    gtk_root_set_focus(cast(window), nil)
+                    gtk_widget_grab_focus(dialog)
+                }
+                return false
+            }
             let focus = gtk_root_get_focus(cast(window))
             if focus.map({ gtk_widget_get_mapped($0) == 0 }) ?? true, gtk_widget_grab_focus(list.view) == 0 {
                 gtk_widget_grab_focus(captureSwitch)

@@ -10,7 +10,9 @@ extension SelfCheck {
     /// trusted, the hosts to decrypt, and removing it.
     static let httpsParts: [Part] = [
         Part(name: "https-setup") { try await $0.checkHTTPSSetup() },
+        Part(name: "dialog-focus") { try await $0.checkDialogFocus() },
         Part(name: "https-page") { try await $0.checkHTTPSPage() },
+        Part(name: "https-whats-left") { try await $0.checkWhatsLeft() },
         Part(name: "https-remove") { try await $0.checkHTTPSRemove() },
     ]
 
@@ -61,10 +63,95 @@ extension SelfCheck {
         try require(second.failure?.hasPrefix("Reqly is still busy") == true, "the second setup ran too")
     }
 
+    /// The keyboard's focus is in Set Up HTTPS… and in Settings each time they open, however they
+    /// closed before, and stays in Set Up while it sets up, then goes to Done; and it's back in
+    /// Settings once Set Up, opened from it, closes. libadwaita 1.7 and later don't focus a
+    /// dialog Reqly closed itself as it opens again, and GTK gives the focus to nothing when the
+    /// button that has it turns insensitive, as Continue does. Escape wouldn't close the dialog.
+    func checkDialogFocus() async throws {
+        let https = try await standInHTTPS()
+        // Set Up HTTPS… shows in Settings only until HTTPS is set up.
+        if https.hasCertificate {
+            let left = await https.remove()
+            try require(left == nil && !https.hasCertificate, left ?? "the certificate stayed")
+        }
+        let page = try await openHTTPSPage()
+        let settings = try present(window.settings?.dialog, "Settings didn't open")
+        await settle()
+        try requireFocus(in: settings, "Settings, open")
+        try require(gtk_widget_get_visible(page.setUpButton) != 0, "Settings › HTTPS has no Set Up HTTPS…")
+        gtk_widget_grab_focus(page.setUpButton)
+        gtk_widget_activate(page.setUpButton)
+        let setUp = try await waitForSetUp()
+        await settle()
+        try requireFocus(in: setUp.dialog, "Set Up HTTPS, over Settings")
+        // Continue from the keyboard, then Done.
+        gtk_widget_grab_focus(setUp.continueButton)
+        gtk_widget_activate(setUp.continueButton)
+        // A button pressed from the keyboard says it's clicked a moment later.
+        try await until("Continue to start") { gtk_widget_get_sensitive(setUp.continueButton) == 0 || setUp.isDone }
+        if !setUp.isDone {
+            try requireFocus(in: setUp.dialog, "Set Up HTTPS, while it sets up")
+        }
+        try await until("HTTPS to be set up") { setUp.isDone }
+        await settle()
+        let done = gtk_root_get_focus(cast(window.window))
+        note("Set Up HTTPS, once set up: the focus is on \(focusName(done))")
+        try require(done == setUp.continueButton, "once set up, the focus is on \(focusName(done)), not Done")
+        gtk_widget_activate(setUp.continueButton)
+        try await until("Set Up HTTPS to close") { !setUp.isShowing && gtk_widget_get_parent(setUp.dialog) == nil }
+        await settle()
+        try requireFocus(in: settings, "Settings, once Set Up HTTPS has closed")
+
+        // Closed as the window's close closes it, then opened again.
+        adw_dialog_close(cast(settings))
+        try await until("Settings to close") {
+            window.settings?.isShowing == false && gtk_widget_get_parent(settings) == nil
+        }
+        activate("settings")
+        try await until("Settings to open again") { window.settings?.isShowing == true }
+        await settle()
+        try requireFocus(in: settings, "Settings, opened again after it was closed")
+        try await closeSettings()
+
+        // From the menu, after Done, then after Cancel.
+        for after in ["Done", "Cancel"] {
+            let again = try await openSetUp()
+            await settle()
+            try requireFocus(in: again.dialog, "Set Up HTTPS, opened again after \(after)")
+            gtk_widget_activate(again.cancelButton)
+            try await until("Set Up HTTPS to close") { !again.isShowing && gtk_widget_get_parent(again.dialog) == nil }
+            await settle()
+        }
+    }
+
+    /// Fails unless the keyboard's focus is on a widget in `dialog`, and notes where it is.
+    private func requireFocus(in dialog: Widget, _ when: String) throws {
+        let focus = gtk_root_get_focus(cast(window.window))
+        note("\(when): the focus is on \(focusName(focus))")
+        try require(hasFocus(inside: dialog), "\(when), the focus is on \(focusName(focus))")
+    }
+
+    /// A widget with the focus, by its type, and a button by its label or tooltip, and whether it
+    /// shows.
+    private func focusName(_ focus: Widget?) -> String {
+        guard let focus else { return "nothing" }
+        let label =
+            typeName(raw(focus)) == "GtkButton"
+            ? string(gtk_button_get_label(cast(focus))) ?? string(gtk_widget_get_tooltip_text(focus)) : nil
+        return typeName(raw(focus)) + (label.map { " '\($0)'" } ?? "")
+            + (gtk_widget_get_mapped(focus) == 0 ? ", which doesn't show" : "")
+    }
+
     /// Opens Set Up HTTPS…, once it has read the places.
     private func openSetUp() async throws -> SetUpDialog {
-        let window = window
         activate("set-up-https")
+        return try await waitForSetUp()
+    }
+
+    /// Set Up HTTPS…, once it shows and has read the places.
+    private func waitForSetUp() async throws -> SetUpDialog {
+        let window = window
         try await until("Set Up HTTPS to open") {
             window.setUp.map { $0.isShowing && gtk_widget_get_mapped($0.dialog) != 0 } ?? false
         }
@@ -141,6 +228,8 @@ extension SelfCheck {
         let page = try await openHTTPSPage()
         try require(gtk_widget_get_visible(page.removeButton) != 0, "there's no Remove Certificate…")
         await settle()
+        // From the keyboard, as the removal takes the focus from the button.
+        gtk_widget_grab_focus(page.removeButton)
         gtk_widget_activate(page.removeButton)
         try await until("Remove Certificate… to ask") {
             page.removeConfirmation.map { gtk_widget_get_mapped($0) != 0 } ?? false
@@ -160,6 +249,47 @@ extension SelfCheck {
         try require(gtk_widget_get_visible(page.keyRow) == 0, "the key's line stays")
         if let standIn = model.options.rootStandIn {
             try require(!FileManager.default.fileExists(atPath: standIn), "the stand-in certificate's file stays")
+        }
+        let settings = try present(window.settings?.dialog, "Settings has gone")
+        try await until("the focus back in Settings", seconds: 2) { hasFocus(inside: settings) }
+        note("then the focus is on \(focusName(gtk_root_get_focus(cast(window.window))))")
+        try await closeSettings()
+    }
+
+    /// What a removal leaves shows whole, at the page's end, below Remove Certificate…, however far
+    /// up the page was, with the focus on its copy button, or on Remove Certificate… when there are
+    /// no commands. GTK lays the line out in the frame after it shows, so a scroll before then
+    /// stopped short. It shows as a frame ends, the furthest from the next layout, as a removal's
+    /// spinner can have it.
+    func checkWhatsLeft() async throws {
+        let https = try await standInHTTPS()
+        try await setUpIfNeeded(https)
+        let page = try await openHTTPSPage()
+        let viewport = try present(
+            gtk_widget_get_ancestor(page.removeLeft, gtk_viewport_get_type()), "Settings › HTTPS doesn't scroll")
+        let adjustment = gtk_scrollable_get_vadjustment(cast(viewport))
+        let left =
+            "You closed the password dialog, so these still trust Reqly's certificate: your browsers' shared "
+            + "certificate database; Firefox's profile; this computer's list of certificates."
+        for withCommands in [true, false] {
+            gtk_adjustment_set_value(adjustment, 0)
+            await settle()
+            atFrameEnd { page.showLeft(left, withCommands: withCommands) }
+            try await until("the line to show") { gtk_widget_get_visible(page.removeLeft) != 0 }
+            await settle()
+            var bounds = graphene_rect_t()
+            try require(gtk_widget_compute_bounds(page.removeLeft, viewport, &bounds) != 0, "the line has no place")
+            let top = Int(bounds.origin.y.rounded())
+            let bottom = Int((bounds.origin.y + bounds.size.height).rounded())
+            let visible = Int(gtk_widget_get_height(viewport))
+            let focus = gtk_root_get_focus(cast(window.window))
+            note(
+                "\(withCommands ? "with" : "without") commands: the line at \(top) to \(bottom) of \(visible) px "
+                    + "shown, scrolled to \(Int(gtk_adjustment_get_value(adjustment))) px, the focus on "
+                    + focusName(focus))
+            try require(top >= 0 && bottom <= visible, "the line is at \(top) to \(bottom), outside 0 to \(visible)")
+            let expected = withCommands ? page.removeCommandsButton : page.removeButton
+            try require(focus == expected, "the focus is on \(focusName(focus)), not \(focusName(expected))")
         }
         try await closeSettings()
     }
