@@ -4,13 +4,15 @@ import Foundation
 import GtkBinding
 
 /// The logout part's stand-in for your desktop's session manager, on a D-Bus of its own: it
-/// serves what GTK asks the session manager as Reqly starts, then, as a logout does, asks whether
-/// the session may end, and ends it. Each kind is what one GTK follows:
+/// serves what Reqly and GTK ask the session manager as Reqly starts, then, as a logout does,
+/// asks whether the session may end, and ends it, or calls the logout off. Each kind is one way
+/// to hear it:
 ///
+/// - gnome-session: its client interface, as gnome-session and Cinnamon's session manager serve
+///   it, which Reqly registers with itself. Like gnome-session as the session ends, it never
+///   answers UnregisterClient.
 /// - The portal: xdg-desktop-portal's Inhibit, whose session states GTK 4.18 and later follow, as
 ///   on Debian 13's GNOME and Cinnamon and on Ubuntu 26.04. GTK 4.22 also wants its registry.
-/// - gnome-session: its client interface, which GTK 4.14 and 4.18 follow where there's no portal,
-///   as on Ubuntu 24.04. Like gnome-session as the session ends, it never answers UnregisterClient.
 @MainActor
 final class SessionStandIn {
     enum Kind: String {
@@ -22,9 +24,10 @@ final class SessionStandIn {
     }
 
     let kind: Kind
-    /// The client GTK registered, by its unique name on the bus, once it has.
+    /// The client that registered, Reqly or GTK, by its unique name on the bus, once it has.
     private(set) var client: String?
-    /// When the client answered the question, in monotonic microseconds.
+    /// When the client answered the last question, in monotonic microseconds: whether the
+    /// session may end, or, with gnome-session's stand-in, the session's end.
     private(set) var answered: Int?
     /// What `atAnswer` found as the answer came.
     private(set) var foundAtAnswer: [String] = []
@@ -32,13 +35,18 @@ final class SessionStandIn {
     private(set) var clientLeft = false
     /// Whether the client asked to leave the session, as GTK does once the session has ended.
     private(set) var unregistered = false
-    /// Runs as the answer comes, before anything else can happen, and says what isn't so yet.
+    /// The app ID of each client that registered with gnome-session's stand-in.
+    private(set) var registrations: [String] = []
+    /// Runs as the answer comes, before anything else can happen, and says what it found amiss.
     var atAnswer: (@MainActor () -> [String])?
     /// Whether it ends the session as the answer comes, before the client has left the bus, as
     /// gnome-session does once the last app has answered, and the portal once every one has.
     var endsAtAnswer = false
 
     private let connection: OpaquePointer
+    /// The session state the portal's stand-in gives a new monitor: 1 as the session runs, or 3,
+    /// as a portal left from an earlier session still says that one ends.
+    private let firstState: UInt32
     private var objects: [UInt32] = []
     private var watch: UInt32 = 0
     /// The portal's session with the client, as GTK named it.
@@ -48,10 +56,11 @@ final class SessionStandIn {
     private static let portalPath = "/org/freedesktop/portal/desktop"
     private static let clientPath = "/org/gnome/SessionManager/Client1"
 
-    /// Connects to the bus at `address` and takes the session manager's name there, so GTK finds
-    /// it as it starts.
-    init(_ kind: Kind, address: String) throws {
+    /// Connects to the bus at `address` and takes the session manager's name there, so Reqly and
+    /// GTK find it as they start.
+    init(_ kind: Kind, address: String, firstState: UInt32 = 1) throws {
         self.kind = kind
+        self.firstState = firstState
         var error: UnsafeMutablePointer<GError>?
         let flags = GDBusConnectionFlags(
             rawValue: G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT.rawValue
@@ -104,7 +113,7 @@ final class SessionStandIn {
 
     /// Asks the client whether the session may end, as a logout starts.
     func askToEnd() {
-        isAsking = true
+        expectAnswer()
         if kind == .portal {
             sendState(2)
         } else {
@@ -112,13 +121,38 @@ final class SessionStandIn {
         }
     }
 
-    /// Ends the session, as the logout goes on.
+    /// Ends the session, as the logout goes on. gnome-session then waits for the client's answer,
+    /// and the portal waits for nobody.
     func end() {
+        if kind == .gnomeSession {
+            expectAnswer()
+        }
+        sendEnd()
+    }
+
+    /// Calls the logout off, as Cancel in the confirmation does.
+    func cancel() {
+        isAsking = false
+        if kind == .portal {
+            sendState(1)
+        } else {
+            emit(to: nil, Self.clientPath, "org.gnome.SessionManager.ClientPrivate", "CancelEndSession", "()")
+        }
+    }
+
+    private func sendEnd() {
         if kind == .portal {
             sendState(3)
         } else {
             emit(to: nil, Self.clientPath, "org.gnome.SessionManager.ClientPrivate", "EndSession", "(uint32 0,)")
         }
+    }
+
+    /// Forgets the last answer, for the next question's.
+    private func expectAnswer() {
+        isAsking = true
+        answered = nil
+        foundAtAnswer = []
     }
 
     /// Leaves the bus.
@@ -149,13 +183,17 @@ final class SessionStandIn {
             session = "\(Self.portalPath)/session/\(escaped)/\(token)"
             reply(invocation, "(objectpath '\(Self.portalPath)/request/\(escaped)/\(token)',)")
             registered(sender)
-            // As the portal does, it says the session runs.
+            // As the portal does, it says how the session is.
             idle { [weak self] in
-                self?.sendState(1)
+                self?.sendState(self?.firstState ?? 1)
                 return false
             }
         case "RegisterClient":
             reply(invocation, "(objectpath '\(Self.clientPath)',)")
+            let parameters = call.variant(5)
+            let appID = parameters.flatMap { g_variant_get_child_value($0, 0) }
+            defer { appID.map { g_variant_unref($0) } }
+            registrations.append(appID.flatMap { GtkBinding.string(g_variant_get_string($0, nil)) } ?? "")
             registered(sender)
         case "QueryEndResponse", "EndSessionResponse":
             reply(invocation, nil)
@@ -163,7 +201,7 @@ final class SessionStandIn {
                 answered = monotonicMicroseconds()
                 foundAtAnswer = atAnswer?() ?? []
                 if endsAtAnswer {
-                    end()
+                    sendEnd()
                 }
             }
         case "UnregisterClient":

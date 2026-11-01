@@ -18,7 +18,7 @@ extension SelfCheck {
         Part(name: "general") { try await $0.checkGeneral() },
         Part(name: "restore") { try await $0.checkRestore() },
         Part(name: "signals") { try await $0.checkSignals() },
-        Part(name: "logout", seconds: 60) { try await $0.checkLogout() },
+        Part(name: "logout", seconds: 90) { try await $0.checkLogout() },
         Part(name: "single-instance", seconds: 45) { try await $0.checkSingleInstance() },
         Part(name: "terminal") { try await $0.checkTerminal() },
         Part(name: "icons") { try await $0.checkIcons() },
@@ -352,40 +352,185 @@ extension SelfCheck {
         note("SIGTERM: it ended with status 0, the stand-in back as it was, and no session left")
     }
 
-    /// Logging out: the session manager asks whether the session may end, and Reqly closes before
-    /// it answers, as quitting does: capturing stops, which puts the stand-in back, the restore
-    /// file goes, and the session's folder goes. Then it ends, with status 0 and nothing from GTK
-    /// in its log, before the session's end and before the display goes, which would end it at
-    /// once, with status 1. A copy of Reqly runs on a D-Bus and an X server of its own, with a
-    /// stand-in for the session manager, each that this GTK follows: gnome-session's below GTK
-    /// 4.22, and the portal's from GTK 4.18.
+    /// Logging out. A copy of Reqly runs on a D-Bus and an X server of its own, with stand-ins for
+    /// the session manager, and the X server goes as the session ends, which would end the copy
+    /// at once, with status 1. Each logout must leave it ended with status 0, nothing from GTK in
+    /// its log, and nothing open: the stand-in back as it was, no restore file, no session's
+    /// folder.
     ///
-    /// Each logs out twice: once as above, and once with a close that takes longer than the
-    /// session manager waits, which then ends the session at once, while Reqly still closes after
-    /// its main loop has ended. That close must finish just the same, with nothing from GTK: the
-    /// session's end must never reach what GTK has freed by then.
+    /// - With gnome-session's stand-in, as on GNOME and Cinnamon, Reqly is its client. It answers
+    ///   whether the session may end at once, and keeps capturing, so a logout called off, as
+    ///   Cancel in the confirmation does, leaves it as it was. At the session's end, it closes
+    ///   before it answers, which gnome-session waits for. Once more with a close of 1.5 s, which
+    ///   it waits for too. From GTK 4.18, also with a portal beside it, which GTK 4.22 follows,
+    ///   whose word that the session ends doesn't end Reqly, and with a portal left from an
+    ///   earlier session, which says so as GTK starts, and never asks.
+    /// - With the portal's stand-in alone, from GTK 4.18, GTK follows the session, and Reqly
+    ///   closes before it answers whether the session may end, then quits, before the session's
+    ///   end. Once more with a close that takes longer than the portal waits, which then ends the
+    ///   session at once, while Reqly still closes after its main loop has ended: that close must
+    ///   finish just the same, with nothing from GTK.
     func checkLogout() async throws {
-        let minor = gtk_get_minor_version()
-        let kinds: [SessionStandIn.Kind] = (minor < 22 ? [.gnomeSession] : []) + (minor >= 18 ? [.portal] : [])
+        var logouts: [Logout] = [.sessionManager(.absent, slowly: false), .sessionManager(.absent, slowly: true)]
+        if gtk_get_minor_version() >= 18 {
+            logouts += [
+                .sessionManager(.relaying, slowly: false), .sessionManager(.leftOver, slowly: false),
+                .portalAlone(slowly: false), .portalAlone(slowly: true),
+            ]
+        }
         var failures: [String] = []
-        for kind in kinds {
-            for slowly in [false, true] {
-                do {
-                    try await logOut(through: kind, slowly: slowly)
-                } catch {
-                    failures.append("\(kind.rawValue)\(slowly ? ", closing slowly" : ""): \(error)")
+        for logout in logouts {
+            do {
+                switch logout {
+                case .sessionManager(let portal, let slowly):
+                    try await logOut(beside: portal, slowly: slowly, name: logout.name)
+                case .portalAlone(let slowly):
+                    try await logOutThroughThePortal(slowly: slowly, name: logout.name)
                 }
+            } catch {
+                failures.append("\(logout.name): \(error)")
             }
         }
         try require(failures.isEmpty, failures.joined(separator: "; "))
     }
 
-    /// One logout, through the stand-in of `kind`, and `slowly`: the copy's close takes 1.5 s, so
-    /// it's still under way once the session manager has stopped waiting and ended the session.
-    private func logOut(through kind: SessionStandIn.Kind, slowly: Bool) async throws {
+    /// One of the logout part's logouts.
+    private enum Logout {
+        /// Through gnome-session's stand-in, with a portal beside it or none, and `slowly`: the
+        /// copy's close takes 1.5 s.
+        case sessionManager(PortalBeside, slowly: Bool)
+        /// Through the portal's stand-in alone, and `slowly`.
+        case portalAlone(slowly: Bool)
+
+        var name: String {
+            switch self {
+            case .sessionManager(let portal, let slowly):
+                let beside =
+                    switch portal {
+                    case .absent: ""
+                    case .relaying: " and the portal"
+                    case .leftOver: " and a portal left from an earlier session"
+                    }
+                return "gnome-session\(beside)\(slowly ? ", closing slowly" : "")"
+            case .portalAlone(let slowly):
+                return "the portal alone\(slowly ? ", closing slowly" : "")"
+            }
+        }
+    }
+
+    /// The portal beside gnome-session's stand-in: none, one that says what gnome-session says,
+    /// as on GNOME, or one left from an earlier session, which says that one ends, and nothing
+    /// more.
+    private enum PortalBeside {
+        case absent, relaying, leftOver
+    }
+
+    /// A logout through gnome-session's stand-in: you click Log Out, and gnome-session asks, then
+    /// shows its confirmation; you press Cancel; you log out again and confirm, and gnome-session
+    /// ends the session, waits for each app's answer, and then the display goes.
+    private func logOut(beside portal: PortalBeside, slowly: Bool, name: String) async throws {
         let files = try ChildFiles("logout", in: scratch)
         try JSONEncoder().encode(Self.yourProxySettings).write(to: files.standIn)
-        let bus = try await ChildServer.bus(in: files.folder, activatable: kind == .portal ? [kind.name] : [])
+        let portalName = SessionStandIn.Kind.portal.name
+        let bus = try await ChildServer.bus(in: files.folder, activatable: portal == .absent ? [] : [portalName])
+        let screen = try await ChildServer.screen()
+        let manager = try SessionStandIn(.gnomeSession, address: bus.firstLine)
+        defer { manager.stop() }
+        let portals =
+            try portal == .absent
+            ? nil : SessionStandIn(.portal, address: bus.firstLine, firstState: portal == .leftOver ? 3 : 1)
+        defer { portals?.stop() }
+        let appID = "net.reqly.SelfCheck.Logout\(getpid())"
+        let child = try ChildRun(
+            files.arguments() + ["--app-id", appID, "--starts-capturing", "yes", "--port", "0"]
+                + (slowly ? ["--close-delay", "1500"] : []),
+            // Without an accessibility bus, which this bus doesn't have, GTK would warn.
+            environment: ["DBUS_SESSION_BUS_ADDRESS": bus.firstLine, "DISPLAY": screen.display, "GTK_A11Y": "none"])
+        defer { child.stop() }
+        try await until("Reqly \(child.identifier) to register with the gnome-session stand-in", seconds: 20) {
+            manager.client != nil
+        }
+        try await until("Reqly \(child.identifier) to capture", seconds: 20) { capturingPort(files) != nil }
+        let stillCaptures = { [unowned self] in !manager.clientLeft && capturingPort(files) != nil }
+        // GTK 4.22 follows the portal whatever an app does, and 4.18 only for one that registers
+        // with GTK, which Reqly doesn't.
+        if let portals, gtk_get_minor_version() >= 22 {
+            try await until("GTK to follow the portal", seconds: 5) { portals.client != nil }
+            if portal == .leftOver {
+                try await Task.sleep(for: .milliseconds(300))
+                try require(stillCaptures(), "the portal left from an earlier session ended Reqly as it started")
+                note("\(name): GTK followed the portal, which said the session ends; 300 ms later Reqly still captured")
+            }
+        }
+
+        // You click Log Out: the question, then the confirmation.
+        manager.atAnswer = { [unowned self] in capturingPort(files) == nil ? ["it had stopped capturing"] : [] }
+        let relays = portal == .relaying ? portals : nil
+        var asked = monotonicMicroseconds()
+        relays?.askToEnd()
+        manager.askToEnd()
+        try await until("Reqly's answer", seconds: 2) { manager.answered != nil }
+        var answered = ((manager.answered ?? asked) - asked) / 1000
+        try require(answered < 1000, "Reqly answered after \(answered) ms, once gnome-session stopped waiting")
+        try require(
+            manager.foundAtAnswer.isEmpty,
+            "when Reqly answered whether the session may end, \(manager.foundAtAnswer.joined(separator: ", "))")
+        note("\(name): Reqly \(child.identifier) answered whether the session may end after \(answered) ms, capturing")
+        // You press Cancel.
+        relays?.cancel()
+        manager.cancel()
+        try await Task.sleep(for: .milliseconds(300))
+        try require(stillCaptures(), "once you called the logout off, Reqly no longer captured")
+        note("    you called it off: 300 ms later it still captured")
+
+        // You log out again, and confirm.
+        asked = monotonicMicroseconds()
+        relays?.askToEnd()
+        manager.askToEnd()
+        try await until("Reqly's second answer", seconds: 2) { manager.answered != nil }
+        answered = ((manager.answered ?? asked) - asked) / 1000
+        try require(
+            answered < 1000 && manager.foundAtAnswer.isEmpty,
+            "the second time, Reqly answered after \(answered) ms; \(manager.foundAtAnswer.joined(separator: ", "))")
+        if let relays, relays.client != nil {
+            // The portal answers the session's end for its apps at once, so its word may come
+            // first; only gnome-session's ends Reqly.
+            relays.end()
+            try await Task.sleep(for: .milliseconds(300))
+            try require(stillCaptures(), "the portal's word that the session ends ended Reqly")
+            note("    GTK followed the portal, which said the session ends first; 300 ms later Reqly still captured")
+        }
+        manager.atAnswer = { [unowned self] in
+            let open = whatsOpen(files)
+            // gnome-session ends the session, display and all, once the last app has answered.
+            screen.kill()
+            return open
+        }
+        let ending = monotonicMicroseconds()
+        manager.end()
+        try await until("Reqly's answer to the session's end", seconds: 10) { manager.answered != nil }
+        let closed = ((manager.answered ?? ending) - ending) / 1000
+        let open = manager.foundAtAnswer
+        note(
+            "    the session ended: Reqly answered after \(closed) ms, "
+                + (open.isEmpty ? "closed by then" : "with \(open.joined(separator: ", "))"))
+        try require(open.isEmpty, "when Reqly answered the session's end, \(open.joined(separator: ", "))")
+        if slowly {
+            try require(
+                closed >= 1500, "Reqly answered the session's end after \(closed) ms, before its close of 1.5 s ended")
+        }
+        let status = await child.wait()
+        try requireEndedCleanly(files, status: status, manager: manager)
+        try require(manager.registrations == [appID], "the clients that registered: \(manager.registrations)")
+    }
+
+    /// A logout through the portal's stand-in alone, and `slowly`: the copy's close takes 1.5 s,
+    /// so it's still under way once the portal has stopped waiting and ended the session.
+    private func logOutThroughThePortal(slowly: Bool, name: String) async throws {
+        let files = try ChildFiles("logout", in: scratch)
+        try JSONEncoder().encode(Self.yourProxySettings).write(to: files.standIn)
+        let kind = SessionStandIn.Kind.portal
+        let bus = try await ChildServer.bus(in: files.folder, activatable: [kind.name])
         let screen = try await ChildServer.screen()
         let manager = try SessionStandIn(kind, address: bus.firstLine)
         defer { manager.stop() }
@@ -400,7 +545,6 @@ extension SelfCheck {
             manager.client != nil
         }
         try await until("Reqly \(child.identifier) to capture", seconds: 20) { capturingPort(files) != nil }
-        let name = "\(kind.rawValue)\(slowly ? ", closing slowly" : "")"
         manager.endsAtAnswer = slowly
 
         manager.atAnswer = { [unowned self] in whatsOpen(files) }
@@ -430,6 +574,12 @@ extension SelfCheck {
             status = await child.wait()
             note("    it left the bus \(left) ms after answering")
         }
+        try requireEndedCleanly(files, status: status, manager: manager)
+    }
+
+    /// That a copy of Reqly that logged out ended with status 0, with nothing from GTK in its log,
+    /// having never unregistered, and with nothing left open.
+    private func requireEndedCleanly(_ files: ChildFiles, status: Int32?, manager: SessionStandIn) throws {
         // Without Mesa's notes on Xvfb, such as "libEGL warning: DRI3 error".
         let log = ((try? String(contentsOf: files.folder.appending(path: "Reqly.log"), encoding: .utf8)) ?? "")
             .split(separator: "\n").filter { !$0.hasPrefix("libEGL ") }
@@ -438,7 +588,7 @@ extension SelfCheck {
         note("    it ended with \(ending); its log: \(log.joined(separator: " | "))")
         try require(status == 0, "it ended with \(ending)")
         try require(complaints.isEmpty, "its log has \(complaints.joined(separator: " | "))")
-        try require(!manager.unregistered, "GTK unregistered as the session ended")
+        try require(!manager.unregistered, "it unregistered as the session ended")
         let stillOpen = whatsOpen(files)
         try require(stillOpen.isEmpty, "once it ended, \(stillOpen.joined(separator: ", "))")
     }
