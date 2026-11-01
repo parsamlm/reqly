@@ -33,6 +33,8 @@ final class HTTPSPage {
     let removeButton: Widget
     /// What's left after a removal that didn't finish, and why, with the copy button.
     let removeLeft: Widget
+    /// Why a removal didn't finish, in ``removeLeft``, or what Chromium's own list keeps.
+    let removeNote: Widget
     /// Copies the commands that take the certificate out of the computer's list by hand, beside
     /// what a removal left, when Reqly can't ask for the password.
     let removeCommandsButton: Widget
@@ -43,8 +45,6 @@ final class HTTPSPage {
 
     private weak var settings: SettingsDialog?
     private let https: HTTPSModel
-    /// Why a removal didn't finish, in ``removeLeft``.
-    private let removeNote: Widget
     private let placesGroup: Widget
     private let hostsGroup: Widget
     private let hostList: Widget
@@ -455,17 +455,12 @@ final class HTTPSPage {
     }
 
     private func confirmRemoval() {
-        // What you imported in Chromium stays, since Reqly can't change Chromium's own list.
-        let chromium = https.chromiumCopies.reminder.map { " " + $0 } ?? ""
+        let isKeyGone = https.isKeyGone
         let alert: Widget = cast(
             adw_alert_dialog_new(
-                "Remove Reqly's Certificate?",
-                https.isStandIn
-                    ? "Reqly stops decrypting HTTPS, and removes this test run's certificate. Nothing on this "
-                        + "computer changes. You can set up HTTPS again at any time."
-                    : "Reqly stops decrypting HTTPS, and removes its certificate from your browsers, this computer's "
-                        + "list and its key. Removing it from the computer's list asks for an administrator's "
-                        + "password.\(chromium) You can set up HTTPS again at any time."))
+                isKeyGone ? "Remove Reqly's Old Certificate?" : "Remove Reqly's Certificate?",
+                Self.removalQuestion(
+                    isStandIn: https.isStandIn, isKeyGone: isKeyGone, reminder: https.chromiumCopies.reminder)))
         adw_alert_dialog_add_response(cast(alert), "cancel", "Cancel")
         adw_alert_dialog_add_response(cast(alert), "remove", "Remove Certificate")
         adw_alert_dialog_set_response_appearance(cast(alert), "remove", ADW_RESPONSE_DESTRUCTIVE)
@@ -479,6 +474,26 @@ final class HTTPSPage {
         connect(alert, "closed") { [weak self] in self?.removeConfirmation = nil }
         removeConfirmation = alert
         adw_dialog_present(cast(alert), page)
+    }
+
+    /// What Remove Certificate…'s question says: of a test run's stand-in; of a certificate whose
+    /// key has gone from your keyring, which Reqly can't decrypt with, so only its old certificate
+    /// goes, by its record; or of the certificate Reqly decrypts with. Then Chromium's `reminder`,
+    /// while its own list trusts it, since what you imported there stays.
+    nonisolated static func removalQuestion(isStandIn: Bool, isKeyGone: Bool, reminder: String?) -> String {
+        if isStandIn {
+            return "Reqly stops decrypting HTTPS, and removes this test run's certificate. Nothing on this computer "
+                + "changes. You can set up HTTPS again at any time."
+        }
+        let chromium = reminder.map { " " + $0 } ?? ""
+        let what =
+            isKeyGone
+            ? "Reqly's key isn't in your keyring any more, so Reqly removes its old certificate from your browsers "
+                + "and this computer's list."
+            : "Reqly stops decrypting HTTPS, and removes its certificate from your browsers, this computer's list and "
+                + "its key."
+        return what + " Removing it from the computer's list asks for an administrator's password.\(chromium) You can "
+            + "set up HTTPS again at any time."
     }
 
     /// Removes the certificate. If you close the password dialog, the places that still trust it
@@ -518,14 +533,16 @@ final class HTTPSPage {
     }
 
     /// Gives the focus to the copy button, or to Remove Certificate… when there are no commands,
-    /// or to Set Up HTTPS… once the certificate has gone, then scrolls the page to what a removal
-    /// left, at the page's end, the message and its button: last, since the focus scrolls the
-    /// page to the button alone.
+    /// or, once the certificate has gone and only Chromium's note is left, to the note itself,
+    /// which a screen reader then reads: Set Up HTTPS…, at the page's top, would be out of sight.
+    /// Then scrolls the page to what a removal left, at the page's end, the message and its
+    /// button: last, since the focus scrolls the page to the button alone.
     private func showWhatsLeft() {
         afterLayout(of: removeLeft) { [weak self] in
             guard let self else { return }
             if let settings {
-                let next = [removeCommandsButton, removeButton, setUpButton].first(where: canFocus) ?? statusRow
+                // A selectable label, which takes the focus.
+                let next = [removeCommandsButton, removeButton].first(where: canFocus) ?? removeNote
                 refocus(next, in: settings.dialog)
             }
             if let viewport = gtk_widget_get_ancestor(removeLeft, gtk_viewport_get_type()) {

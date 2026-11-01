@@ -111,7 +111,7 @@ import Testing
             snap.contains(
                 "in Chromium's Settings › Privacy and security › Security › Manage certificates › Local certificates "
                     + "› Installed by you, click Import beside Trusted Certificates, then type or paste this path"))
-        #expect(snap.contains("delete it there too when you remove it from Reqly"))
+        #expect(snap.contains("when you remove Reqly's certificate, delete it there too."))
         #expect(!snap.contains("trust it to identify websites"))
     }
 }

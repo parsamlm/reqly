@@ -77,7 +77,8 @@ struct KeyGoneTests {
     }
 
     /// A key kept in the file, with the keyring left alone, isn't missing when the keyring has
-    /// nothing: Reqly never asked it. Once the file has gone, the certificate is an old one too.
+    /// nothing: Reqly never asked it. Once the file has gone, the key is missing, and the
+    /// certificate is an old one too.
     @Test func aKeyInTheFileIsntGone() throws {
         try withStore { store, keyring, _ in
             keyring.problem.withLock { $0 = .unavailable("No Secret Service.") }
@@ -87,9 +88,11 @@ struct KeyGoneTests {
             #expect(try store.load()?.certificateDER == root.certificateDER)
             #expect(store.trust(root, in: [.browsers]).isEmpty)
             #expect(store.places(for: nil).first?.status == .trusted)
+            #expect(!store.isKeyMissing())
 
             try FileManager.default.removeItem(at: store.file)
             #expect(try store.load() == nil && !store.isKeyGone())
+            #expect(store.isKeyMissing())
             #expect(store.places(for: nil).first?.status == .trustsOldCertificate)
         }
     }
@@ -98,25 +101,29 @@ struct KeyGoneTests {
     /// doesn't answer, or a key kept in the file, isn't gone, and a new setup keeps a new one.
     @Test func saysWhetherTheKeyIsGoneWithoutAskingForIt() throws {
         try withStore { store, keyring, _ in
-            #expect(!store.isKeyGone())
+            #expect(!store.isKeyGone() && !store.isKeyMissing())
             let old = try Fixtures.root(minute: 54)
             try store.save(old)
-            #expect(!store.isKeyGone())
+            #expect(!store.isKeyGone() && !store.isKeyMissing())
+            // Locked, and you closed its question: the item is there still.
+            keyring.problem.withLock { $0 = .dismissed }
+            #expect(!store.isKeyGone() && !store.isKeyMissing())
+            keyring.problem.withLock { $0 = nil }
             keyring.secret.withLock { $0 = nil }
-            #expect(store.isKeyGone())
+            #expect(store.isKeyGone() && store.isKeyMissing())
             for problem in [KeyringProblem.timedOut, .unavailable("No Secret Service.")] {
                 keyring.problem.withLock { $0 = problem }
-                #expect(!store.isKeyGone(), "\(problem)")
+                #expect(!store.isKeyGone() && !store.isKeyMissing(), "\(problem)")
             }
             keyring.problem.withLock { $0 = nil }
             try store.save(try Fixtures.root(minute: 55))
-            #expect(!store.isKeyGone())
+            #expect(!store.isKeyGone() && !store.isKeyMissing())
         }
         try withStore { store, keyring, _ in
             keyring.problem.withLock { $0 = .unavailable("No Secret Service.") }
             try store.save(try Fixtures.root(minute: 56))
             keyring.problem.withLock { $0 = nil }
-            #expect(store.keyPlace == .file && !store.isKeyGone())
+            #expect(store.keyPlace == .file && !store.isKeyGone() && !store.isKeyMissing())
         }
     }
 

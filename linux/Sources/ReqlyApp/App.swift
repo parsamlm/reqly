@@ -1,4 +1,5 @@
 import AppSetup
+import CGio
 import CGtk
 import Foundation
 import GtkBinding
@@ -84,16 +85,30 @@ final class App {
     /// You're logging out: the session manager asks whether the session may end, and waits for
     /// the answer, which GTK sends once this returns. So Reqly closes now, as quitting does:
     /// capturing stops, which puts your proxy settings back, and the session's folder goes. Then
-    /// the main loop ends, before the session's end reaches GTK, and before your desktop goes,
-    /// which would end Reqly at once. If the logout is called off, Reqly has quit, as apps do on
-    /// a Mac.
+    /// the main loop ends, before your desktop goes, which would end Reqly at once. If the logout
+    /// is called off, Reqly has quit, as apps do on a Mac.
     func sessionEnding() {
         AppLog.write("the session is ending, so Reqly closes")
         isQuitting = true
+        stopHearingTheSessionManager()
         // gnome-session and the portal wait a second for the answer, then go on without it, and
         // gnome-session says Reqly isn't responding.
         close(within: 0.75)
         g_application_quit(cast(application))
+    }
+
+    /// From the question on, what the session manager says reaches GTK no more: the session's
+    /// end, which comes once every app has answered, a stop, or a logout called off. Reqly quits
+    /// whatever it says. GTK's handler for gnome-session's client signals keeps a pointer to the
+    /// object GTK frees as Reqly quits, and never lets go of it, so the session's end would reach
+    /// freed memory whenever the main loop runs after that: while Reqly's close still runs, when
+    /// it took longer than the session manager waits, and while GTK hands a clipboard Reqly owns
+    /// to X11's clipboard manager. Nor does GTK's own handling of the session's end run, which
+    /// logs a warning with GTK 4.14 and a critical with 4.18, even when a session manager ends
+    /// the session while Reqly still closes, before it has answered.
+    private func stopHearingTheSessionManager() {
+        guard let connection = g_application_get_dbus_connection(cast(application)) else { return }
+        g_dbus_connection_add_filter(connection, dropSessionManagerSignals, nil, nil)
     }
 
     /// Closes the model, unless it's closed, and waits for it at most `seconds`, running the main
@@ -199,4 +214,22 @@ final class App {
 @MainActor
 private final class Closing {
     var isDone = false
+}
+
+/// The interfaces the session manager's signals to an app come on: gnome-session's to a client,
+/// which Cinnamon's and MATE's session managers share, Xfce's, and the portal's session states.
+private let sessionManagerInterfaces: Set<String> = [
+    "org.gnome.SessionManager.ClientPrivate", "org.xfce.Session.Client", "org.freedesktop.portal.Inhibit",
+]
+
+/// A filter on the session bus that drops the session manager's signals before GDBus hands them
+/// on. GDBus runs it on a thread of its own, for every message in or out.
+private let dropSessionManagerSignals: GDBusMessageFilterFunction = { _, message, incoming, _ in
+    guard incoming != 0, let message, g_dbus_message_get_message_type(message) == G_DBUS_MESSAGE_TYPE_SIGNAL,
+        let interface = g_dbus_message_get_interface(message),
+        sessionManagerInterfaces.contains(String(cString: interface))
+    else { return message }
+    // The filter owns what it's handed, and drops a message by releasing it.
+    g_object_unref(raw(message))
+    return nil
 }

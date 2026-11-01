@@ -82,6 +82,18 @@ public struct LinuxRootStore: RootStore {
         return !isKept(record, askingTheKeyring: true)
     }
 
+    /// Whether the key isn't where the record says any more: gone from your keyring, as
+    /// ``isKeyGone()`` says, or its file gone, as when you deleted it. The places then show the
+    /// certificate as an old one, and a new setup keeps a new key, as at the first. It asks you
+    /// nothing.
+    public func isKeyMissing() -> Bool {
+        switch readRecord()?.key {
+        case .keyring?: isKeyGone()
+        case .file?: !FileManager.default.fileExists(atPath: file.path)
+        case nil: false
+        }
+    }
+
     /// Keeps the key, in the keyring if it can, and writes the certificate next to it. A root
     /// that's kept already stays where it is, so saving it again asks nothing. A new root, made
     /// because the old one's key was gone, takes the old one's place: the old certificate leaves

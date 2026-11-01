@@ -61,6 +61,9 @@ final class HTTPSModel {
     /// Whether the key has gone from your keyring, though the record says it's there, as last
     /// read: Reqly can't use its certificate, and setting up again makes a new one.
     private(set) var isKeyGone = false
+    /// Whether the key isn't where the record says any more, as last read: gone from your
+    /// keyring, or its file gone, as when you deleted it.
+    private(set) var isKeyMissing = false
     /// What Chromium's own lists say of the certificate, or of the old one whose key has gone, as
     /// last read.
     private(set) var chromiumCopies = ChromiumCopies()
@@ -115,9 +118,35 @@ final class HTTPSModel {
         }
     }
 
-    /// Whether the key is kept where the record says, so keeping it asks nothing: not before
-    /// there's one, and not once it has gone from your keyring.
-    var isKeyKept: Bool { keyPlace != nil && !isKeyGone }
+    /// The key, as Set Up HTTPS finds it, which says what keeping it involves.
+    enum KeyStatus: Sendable, Equatable {
+        /// There's none to use: none yet, or it isn't where the record says any more, gone from
+        /// your keyring or its file. Setting up keeps a new one, which your keyring may ask about,
+        /// as at the first setup.
+        case new
+        /// It's in your keyring, which Reqly couldn't read it from, as when you closed the question
+        /// that unlocks it: setting up reads it, which asks to unlock it again.
+        case unread
+        /// It's where the record says, and Reqly read it, so setting up asks nothing about it.
+        case kept
+
+        /// The key's status, from where the record says it is, whether it's missing from there,
+        /// and whether the session could read the certificate.
+        init(place: KeyPlace?, isMissing: Bool, couldRead: Bool) {
+            if place == nil || isMissing {
+                self = .new
+            } else {
+                self = place == .keyring && !couldRead ? .unread : .kept
+            }
+        }
+
+        /// Whether your keyring may ask something before setting up has the key, which Set Up
+        /// HTTPS asks the keyring about first, to say so.
+        var asksTheKeyring: Bool { self != .kept }
+    }
+
+    /// The key, as last read.
+    var keyStatus: KeyStatus { KeyStatus(place: keyPlace, isMissing: isKeyMissing, couldRead: readProblem == nil) }
 
     /// Where the key is kept, as Set Up HTTPS and Settings › HTTPS say it, or nil before there's
     /// one.
@@ -127,8 +156,9 @@ final class HTTPSModel {
             return hasCertificate ? "In this test run's file: \(standIn.file.path)" : nil
         case .linux(let store):
             switch keyPlace {
-            case .keyring? where isKeyGone: return "Not in your keyring any more"
+            case .keyring? where isKeyMissing: return "Not in your keyring any more"
             case .keyring?: return "In your keyring"
+            case .file? where isKeyMissing: return "Not in its file any more: \(HTTPSWidgets.shortPath(store.file))"
             case .file?: return "In a file only you can read: \(HTTPSWidgets.shortPath(store.file))"
             case nil: return nil
             }
@@ -243,8 +273,8 @@ final class HTTPSModel {
         }
     }
 
-    /// Reads each place again, where the key is, whether it's gone from your keyring, and what
-    /// Chromium's own lists say of the certificate.
+    /// Reads each place again, where the key is, whether it's gone from your keyring or its file,
+    /// and what Chromium's own lists say of the certificate.
     func readPlaces() async {
         guard case .linux(let store) = store else { return }
         let known = root
@@ -252,21 +282,23 @@ final class HTTPSModel {
         let read = await onOwnThread { () -> (RootIdentity?, [TrustPlace], KeyPlace?, Bool, ChromiumCopies) in
             // The session read the certificate as it opened, so the keyring is open by now.
             let root = known ?? (hasCertificate ? try? store.load() : nil)
-            let isKeyGone = root == nil && store.isKeyGone()
+            let isKeyMissing = root == nil && store.isKeyMissing()
             // Without the certificate, the one the record is about, as when its key has gone.
             let der = (try? root?.certificateDER) ?? store.recordedCertificate?.der
             let copies = der.map { store.chromiumCopies(of: $0) } ?? ChromiumCopies()
-            return (root, store.places(for: root), store.keyPlace, isKeyGone, copies)
+            return (root, store.places(for: root), store.keyPlace, isKeyMissing, copies)
         }
-        (root, places, keyPlace, isKeyGone, chromiumCopies) = read
+        (root, places, keyPlace, isKeyMissing, chromiumCopies) = read
+        isKeyGone = isKeyMissing && keyPlace == .keyring
         changed()
     }
 
     /// What keeping the key in your keyring involves, for Set Up HTTPS to say before Linux asks,
-    /// or nil when nothing will ask: for a key that's kept already, or a test run's stand-in. A
-    /// key gone from your keyring is kept again, as at the first setup.
+    /// or nil when nothing will ask: for a key that's kept and read already, or a test run's
+    /// stand-in. A key gone from your keyring or its file is kept again, as at the first setup,
+    /// and one your keyring has, locked, is read, which asks to unlock it.
     func keyringState() async -> KeyringState? {
-        guard case .linux(let store) = store, !isKeyKept else { return nil }
+        guard case .linux(let store) = store, keyStatus.asksTheKeyring else { return nil }
         return await onOwnThread { store.keyringState() }
     }
 

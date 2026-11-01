@@ -28,10 +28,10 @@ public struct UncoveredApp: Sendable, Equatable {
         let snap = UncoveredApp(
             name: chromiumSnapName,
             detail: "It brings an older NSS than this computer's, which can't read the trust Reqly adds to its "
-                + "certificate database. Add Reqly's certificate in Chromium's own settings instead, and delete it "
-                + "there too when you remove it from Reqly, which can't change them: in Chromium's "
-                + "\(ChromiumCopies.path), click Import beside Trusted Certificates, then type or paste this path in "
-                + "the file chooser:",
+                + "certificate database. Add Reqly's certificate in Chromium's own settings instead. Reqly can't "
+                + "change those, so when you remove Reqly's certificate, delete it there too. To add it: in "
+                + "Chromium's \(ChromiumCopies.path), click Import beside Trusted Certificates, then type or paste "
+                + "this path in the file chooser:",
             fix: pemFile.path)
         return (chromiumSnap ? [snap] : []) + [
             UncoveredApp(

@@ -85,6 +85,17 @@ import Testing
         #expect(throws: Options.UsageError.self) { try Options(["--trust-helper", "packaging/reqly-trust"]) }
     }
 
+    /// The self-check's logout part has a copy of Reqly close slowly. The delay alone doesn't make
+    /// a test run, and only a test run waits.
+    @Test func takesACloseDelay() throws {
+        let options = try Options(["--close-delay", "1500"])
+        #expect(options.closeDelay == 1500 && !options.isTestRun)
+        #expect(throws: Options.UsageError("--close-delay takes milliseconds, from 0 to 60000, not soon.")) {
+            try Options(["--close-delay", "soon"])
+        }
+        #expect(throws: Options.UsageError.self) { try Options(["--close-delay", "-1"]) }
+    }
+
     /// A real run sets your desktop's proxy; a test run sets only a stand-in's, unless it's told
     /// otherwise.
     @Test func setsTheDesktopsProxyOnlyForARealRun() throws {

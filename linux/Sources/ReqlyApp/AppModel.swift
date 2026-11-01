@@ -156,6 +156,10 @@ final class AppModel {
     func close() async {
         isClosing = true
         defer { isClosed = true }
+        // A test run's slow close, as the self-check's logout part asks for.
+        if options.isTestRun, let delay = options.closeDelay {
+            try? await Task.sleep(for: .milliseconds(delay))
+        }
         await opening?.value
         await captureChange?.value
         guard let session else { return }

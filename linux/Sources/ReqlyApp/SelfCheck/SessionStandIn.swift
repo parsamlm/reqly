@@ -34,6 +34,9 @@ final class SessionStandIn {
     private(set) var unregistered = false
     /// Runs as the answer comes, before anything else can happen, and says what isn't so yet.
     var atAnswer: (@MainActor () -> [String])?
+    /// Whether it ends the session as the answer comes, before the client has left the bus, as
+    /// gnome-session does once the last app has answered, and the portal once every one has.
+    var endsAtAnswer = false
 
     private let connection: OpaquePointer
     private var objects: [UInt32] = []
@@ -159,6 +162,9 @@ final class SessionStandIn {
             if isAsking, answered == nil, sender == client {
                 answered = monotonicMicroseconds()
                 foundAtAnswer = atAnswer?() ?? []
+                if endsAtAnswer {
+                    end()
+                }
             }
         case "UnregisterClient":
             // Never answered: GTK's call waits until the stand-in leaves the bus.

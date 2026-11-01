@@ -207,15 +207,21 @@ final class SetUpDialog {
         if https.isStandIn {
             return "In the test run's stand-in file, with the certificate"
         }
-        return Self.keyText(kept: https.isKeyKept ? https.keyDescription : nil, keyring: keyring)
+        return Self.keyText(key: https.keyStatus, kept: https.keyDescription, keyring: keyring)
     }
 
-    /// Where the key goes, or where it's `kept` already, which asks nothing. A key that has gone
-    /// from your keyring isn't kept: the keyring asks as it does at the first setup, as `keyring`
-    /// says.
-    nonisolated static func keyText(kept: String?, keyring: KeyringState?) -> String {
-        if let kept {
-            return kept
+    /// Where the key goes, as `key` says: where it's `kept` already, which asks nothing, unless
+    /// your keyring has it locked, which asks to unlock it as setting up reads it, as `keyring`
+    /// says. A key that has gone from your keyring or its file is kept again, which the keyring
+    /// asks about as it does at the first setup.
+    nonisolated static func keyText(key: HTTPSModel.KeyStatus, kept: String?, keyring: KeyringState?) -> String {
+        switch (key, keyring) {
+        case (.unread, .locked?), (.unread, .needsNewKeyring?):
+            return "\(kept ?? "In your keyring"). Linux will ask for your keyring's password, to read Reqly's key."
+        case (.unread, _), (.kept, _):
+            return kept ?? "In your keyring"
+        case (.new, _):
+            break
         }
         let orFile = " If you close it, Reqly keeps the key in a file only you can read."
         switch keyring {
@@ -250,7 +256,7 @@ final class SetUpDialog {
         HTTPSWidgets.say(failure, nil)
         HTTPSWidgets.show(
             progress,
-            Self.startText(keyring: keyring, keyIsKept: https.isKeyKept, trustsComputer: kinds.contains(.computer)))
+            Self.startText(keyring: keyring, key: https.keyStatus, trustsComputer: kinds.contains(.computer)))
         let https = https
         let opening = opening
         Task { [weak self] in
@@ -267,10 +273,20 @@ final class SetUpDialog {
     }
 
     /// What the progress line says as Continue starts: the question Linux asks first, which is the
-    /// keyring's, as `keyring` says, unless the key is kept already. A key that has gone from your
-    /// keyring isn't, so a new one is kept as at the first setup.
-    nonisolated static func startText(keyring: KeyringState?, keyIsKept: Bool, trustsComputer: Bool) -> String {
-        progressText(keyring: keyIsKept ? nil : keyring, keyKept: false, trustsComputer: trustsComputer)
+    /// keyring's, as `keyring` says, unless `key` is kept and read already. A key that has gone
+    /// from your keyring or its file isn't, so a new one is kept as at the first setup; and one
+    /// your keyring has, locked, is read, which asks for your keyring's password.
+    nonisolated static func startText(keyring: KeyringState?, key: HTTPSModel.KeyStatus, trustsComputer: Bool)
+        -> String
+    {
+        let asks: KeyringState? =
+            switch (key, keyring) {
+            case (.kept, _): nil
+            case (.unread, .locked?), (.unread, .needsNewKeyring?): .locked
+            case (.unread, _): nil
+            case (.new, _): keyring
+            }
+        return progressText(keyring: asks, keyKept: false, trustsComputer: trustsComputer)
     }
 
     /// What the progress line says while Reqly sets up HTTPS, naming the question Linux asks at

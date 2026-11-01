@@ -68,6 +68,9 @@ extension SelfCheck {
     /// Settings once Set Up, opened from it, closes. libadwaita 1.7 and later don't focus a
     /// dialog Reqly closed itself as it opens again, and GTK gives the focus to nothing when the
     /// button that has it turns insensitive, as Continue does. Escape wouldn't close the dialog.
+    /// libadwaita 1.5, as Ubuntu 24.04 and the build image have, focuses a dialog that opens again
+    /// by itself, so the steps that open one again check presentKept(_:over:) only where this runs
+    /// with libadwaita 1.7 or later, as on Debian 13 and Ubuntu 26.04.
     func checkDialogFocus() async throws {
         let https = try await standInHTTPS()
         // Set Up HTTPS… shows in Settings only until HTTPS is set up.
@@ -261,8 +264,8 @@ extension SelfCheck {
     /// no commands. GTK lays the line out in the frame after it shows, so a scroll before then
     /// stopped short. It shows as a frame ends, the furthest from the next layout, as a removal's
     /// spinner can have it. Once the certificate has gone, Chromium's own list may still trust it,
-    /// which shows the same way, with the focus on Set Up HTTPS…, since Remove Certificate… has
-    /// gone.
+    /// which shows the same way, with the focus on the note itself, since Remove Certificate… has
+    /// gone, and Set Up HTTPS…, at the page's top, would be out of sight.
     func checkWhatsLeft() async throws {
         let https = try await standInHTTPS()
         try await setUpIfNeeded(https)
@@ -299,7 +302,7 @@ extension SelfCheck {
                     + "\(Int(gtk_adjustment_get_value(adjustment))) px, the focus on \(focusName(focus))")
             try require(top >= 0 && bottom <= visible, "the line is at \(top) to \(bottom), outside 0 to \(visible)")
             let expected =
-                withCommands.map { $0 ? page.removeCommandsButton : page.removeButton } ?? page.setUpButton
+                withCommands.map { $0 ? page.removeCommandsButton : page.removeButton } ?? page.removeNote
             try require(focus == expected, "the focus is on \(focusName(focus)), not \(focusName(expected))")
         }
         try await closeSettings()

@@ -10,7 +10,8 @@ import Foundation
 ///
 /// Reqly only reads it, to say when Chromium still trusts its certificate, and only from a copy in
 /// memory: Chromium keeps the file open and locked while it runs, and could be changing it, so
-/// Reqly never opens it, and never writes anything beside it.
+/// Reqly reads its bytes, taking no lock, and opens only that copy with SQLite, never the file.
+/// Reqly never writes the file, or anything beside it.
 public struct ChromiumStore: Sendable, Equatable {
     public enum Browser: Sendable, Equatable {
         /// The Chromium snap, in `~/snap/chromium/common/chromium`.
@@ -266,8 +267,8 @@ public struct ChromiumCopies: Sendable, Equatable {
                 + "Certificates."
         }
         lines += Self.names(unread).filter { !trustingNames.contains($0) }.map { name in
-            "\(name): couldn't read its own list of certificates. If you imported Reqly's certificate there, delete "
-                + "it in its \(Self.path), under Trusted Certificates."
+            "\(name): Reqly couldn't read \(name)'s own list of certificates. If you imported Reqly's certificate "
+                + "there, delete it there too: \(Self.path), under Trusted Certificates."
         }
         return lines
     }

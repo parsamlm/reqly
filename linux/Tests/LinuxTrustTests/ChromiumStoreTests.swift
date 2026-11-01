@@ -218,8 +218,8 @@ import Testing
                 + "delete it there too: in Chromium's \(path), under Trusted Certificates.")
         #expect(
             unread.lines(certificate: nil) == [
-                "Chromium: couldn't read its own list of certificates. If you imported Reqly's certificate there, "
-                    + "delete it in its \(path), under Trusted Certificates."
+                "Chromium: Reqly couldn't read Chromium's own list of certificates. If you imported Reqly's "
+                    + "certificate there, delete it there too: \(path), under Trusted Certificates."
             ])
         #expect(unread.reminder == nil)
         // A browser said to trust it isn't said to be unread too.

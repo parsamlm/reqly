@@ -18,7 +18,7 @@ extension SelfCheck {
         Part(name: "general") { try await $0.checkGeneral() },
         Part(name: "restore") { try await $0.checkRestore() },
         Part(name: "signals") { try await $0.checkSignals() },
-        Part(name: "logout", seconds: 45) { try await $0.checkLogout() },
+        Part(name: "logout", seconds: 60) { try await $0.checkLogout() },
         Part(name: "single-instance", seconds: 45) { try await $0.checkSingleInstance() },
         Part(name: "terminal") { try await $0.checkTerminal() },
         Part(name: "icons") { try await $0.checkIcons() },
@@ -359,22 +359,30 @@ extension SelfCheck {
     /// once, with status 1. A copy of Reqly runs on a D-Bus and an X server of its own, with a
     /// stand-in for the session manager, each that this GTK follows: gnome-session's below GTK
     /// 4.22, and the portal's from GTK 4.18.
+    ///
+    /// Each logs out twice: once as above, and once with a close that takes longer than the
+    /// session manager waits, which then ends the session at once, while Reqly still closes after
+    /// its main loop has ended. That close must finish just the same, with nothing from GTK: the
+    /// session's end must never reach what GTK has freed by then.
     func checkLogout() async throws {
         let minor = gtk_get_minor_version()
         let kinds: [SessionStandIn.Kind] = (minor < 22 ? [.gnomeSession] : []) + (minor >= 18 ? [.portal] : [])
         var failures: [String] = []
         for kind in kinds {
-            do {
-                try await logOut(through: kind)
-            } catch {
-                failures.append("\(kind.rawValue): \(error)")
+            for slowly in [false, true] {
+                do {
+                    try await logOut(through: kind, slowly: slowly)
+                } catch {
+                    failures.append("\(kind.rawValue)\(slowly ? ", closing slowly" : ""): \(error)")
+                }
             }
         }
         try require(failures.isEmpty, failures.joined(separator: "; "))
     }
 
-    /// One logout, through the stand-in of `kind`.
-    private func logOut(through kind: SessionStandIn.Kind) async throws {
+    /// One logout, through the stand-in of `kind`, and `slowly`: the copy's close takes 1.5 s, so
+    /// it's still under way once the session manager has stopped waiting and ended the session.
+    private func logOut(through kind: SessionStandIn.Kind, slowly: Bool) async throws {
         let files = try ChildFiles("logout", in: scratch)
         try JSONEncoder().encode(Self.yourProxySettings).write(to: files.standIn)
         let bus = try await ChildServer.bus(in: files.folder, activatable: kind == .portal ? [kind.name] : [])
@@ -384,7 +392,7 @@ extension SelfCheck {
         let child = try ChildRun(
             files.arguments() + [
                 "--app-id", "net.reqly.SelfCheck.Logout\(getpid())", "--starts-capturing", "yes", "--port", "0",
-            ],
+            ] + (slowly ? ["--close-delay", "1500"] : []),
             // Without an accessibility bus, which this bus doesn't have, GTK would warn.
             environment: ["DBUS_SESSION_BUS_ADDRESS": bus.firstLine, "DISPLAY": screen.display, "GTK_A11Y": "none"])
         defer { child.stop() }
@@ -392,6 +400,8 @@ extension SelfCheck {
             manager.client != nil
         }
         try await until("Reqly \(child.identifier) to capture", seconds: 20) { capturingPort(files) != nil }
+        let name = "\(kind.rawValue)\(slowly ? ", closing slowly" : "")"
+        manager.endsAtAnswer = slowly
 
         manager.atAnswer = { [unowned self] in whatsOpen(files) }
         let asked = monotonicMicroseconds()
@@ -400,24 +410,33 @@ extension SelfCheck {
         let answered = ((manager.answered ?? asked) - asked) / 1000
         let open = manager.foundAtAnswer
         note(
-            "\(kind.rawValue): Reqly \(child.identifier) answered the question after \(answered) ms, "
+            "\(name): Reqly \(child.identifier) answered the question after \(answered) ms, "
                 + (open.isEmpty ? "closed by then" : "with \(open.joined(separator: ", "))"))
-        try require(open.isEmpty, "when Reqly answered, \(open.joined(separator: ", "))")
         try require(answered < 1000, "Reqly answered after \(answered) ms, once the session manager stopped waiting")
-        try await until("Reqly to leave the bus", seconds: 2) { manager.clientLeft }
-        let left = (monotonicMicroseconds() - asked) / 1000 - answered
-        // The session ends, and the display with it, at once.
-        manager.end()
-        screen.kill()
-        let status = await child.wait()
+        let status: Int32?
+        if slowly {
+            try require(!open.isEmpty, "Reqly had closed when it answered, though its close takes 1.5 s")
+            // The session ended as it answered, and its close goes on after its main loop ended.
+            status = await child.wait()
+            let ended = (monotonicMicroseconds() - asked) / 1000
+            note("    the session ended as it answered; it ended \(ended) ms after the question")
+        } else {
+            try require(open.isEmpty, "when Reqly answered, \(open.joined(separator: ", "))")
+            try await until("Reqly to leave the bus", seconds: 2) { manager.clientLeft }
+            let left = (monotonicMicroseconds() - asked) / 1000 - answered
+            // The session ends, and the display with it, at once.
+            manager.end()
+            screen.kill()
+            status = await child.wait()
+            note("    it left the bus \(left) ms after answering")
+        }
         // Without Mesa's notes on Xvfb, such as "libEGL warning: DRI3 error".
         let log = ((try? String(contentsOf: files.folder.appending(path: "Reqly.log"), encoding: .utf8)) ?? "")
             .split(separator: "\n").filter { !$0.hasPrefix("libEGL ") }
         let complaints = log.filter { $0.contains("-CRITICAL **") || $0.contains("-WARNING **") }
-        note(
-            "    it left the bus \(left) ms after answering, then ended with "
-                + "\(status.map { "status \($0)" } ?? "a signal"); its log: \(log.joined(separator: " | "))")
-        try require(status == 0, "it ended with \(status.map { "status \($0)" } ?? "a signal")")
+        let ending = status.map { "status \($0)" } ?? "a signal"
+        note("    it ended with \(ending); its log: \(log.joined(separator: " | "))")
+        try require(status == 0, "it ended with \(ending)")
         try require(complaints.isEmpty, "its log has \(complaints.joined(separator: " | "))")
         try require(!manager.unregistered, "GTK unregistered as the session ended")
         let stillOpen = whatsOpen(files)

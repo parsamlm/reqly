@@ -87,6 +87,9 @@ public struct Options: Sendable, Equatable {
     /// An application ID of the run's own, in place of Reqly's, under which a test run is the
     /// only one, as a real run is under Reqly's: the self-check starts two with the same ID.
     public var appID: String?
+    /// How long a test run's close waits before it starts, in milliseconds, as a close that takes
+    /// long does, such as at logout on a busy computer: the self-check's logout part makes one.
+    public var closeDelay: Int?
     /// `--sets-system-proxy`, when it's given.
     private var setsSystemProxyOption: Bool?
 
@@ -156,6 +159,12 @@ public struct Options: Sendable, Equatable {
                 guard !parts.isEmpty else { throw UsageError("--smoke-parts needs the names of parts.") }
                 smokeParts = parts
             case "--app-id": appID = try value()
+            case "--close-delay":
+                let text = try value()
+                guard let number = Int(text), (0...60000).contains(number) else {
+                    throw UsageError("--close-delay takes milliseconds, from 0 to 60000, not \(text).")
+                }
+                closeDelay = number
             case let file where !file.hasPrefix("-"):
                 files.append(file)
             default:
@@ -208,7 +217,7 @@ public struct Options: Sendable, Equatable {
           --root-file <file>                --root-stand-in <file>
           --trust-helper <full path>        --theme light|dark
           --smoke <report>                  --smoke-parts <part>,<part>...
-          --app-id <id>
+          --app-id <id>                     --close-delay <milliseconds>
 
         Taken for the same command lines as Windows', and used once Reqly for Linux opens files
         and has rules, connections, devices, the welcome guide, crash reports and updates:
