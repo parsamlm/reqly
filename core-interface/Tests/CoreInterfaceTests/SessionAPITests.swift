@@ -132,6 +132,14 @@ final class SessionEvents: Sendable {
             total += 1
             #expect(await events.waitForRows(shown: total))
             #expect(await events.mirror(host))
+        #else
+            // Self.get is written for POSIX sockets, so it isn't built on Windows. A row of another
+            // host and method lets the search, the sidebar and the filter below narrow the list
+            // there too.
+            _ = try await host.send(RequestDraft(url: "forecast.invalid/today"))
+            total += 1
+            #expect(await events.waitForRows(shown: total))
+            #expect(await events.mirror(host))
         #endif
         // .invalid never resolves, so nothing leaves the computer.
         let sent = try await host.send(
