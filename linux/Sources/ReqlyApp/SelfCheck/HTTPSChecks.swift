@@ -260,7 +260,9 @@ extension SelfCheck {
     /// up the page was, with the focus on its copy button, or on Remove Certificate… when there are
     /// no commands. GTK lays the line out in the frame after it shows, so a scroll before then
     /// stopped short. It shows as a frame ends, the furthest from the next layout, as a removal's
-    /// spinner can have it.
+    /// spinner can have it. Once the certificate has gone, Chromium's own list may still trust it,
+    /// which shows the same way, with the focus on Set Up HTTPS…, since Remove Certificate… has
+    /// gone.
     func checkWhatsLeft() async throws {
         let https = try await standInHTTPS()
         try await setUpIfNeeded(https)
@@ -271,10 +273,18 @@ extension SelfCheck {
         let left =
             "You closed the password dialog, so these still trust Reqly's certificate: your browsers' shared "
             + "certificate database; Firefox's profile; this computer's list of certificates."
-        for withCommands in [true, false] {
+        let snap = ChromiumStore(browser: .chromiumSnap, file: URL(filePath: "/home/ana/ServerCertificate"))
+        let chromium = try present(
+            ChromiumCopies(trusting: [snap]).note(certificate: "Reqly CA 2026-11-01 16:37"), "Chromium has no note")
+        for withCommands in [true, false, nil] {
+            // The certificate gone, and only Chromium's note left.
+            if withCommands == nil {
+                _ = await https.remove()
+                try require(https.state?.status == .notSetUp, "the certificate stays")
+            }
             gtk_adjustment_set_value(adjustment, 0)
             await settle()
-            atFrameEnd { page.showLeft(left, withCommands: withCommands) }
+            atFrameEnd { page.showLeft(withCommands == nil ? chromium : left, withCommands: withCommands ?? false) }
             try await until("the line to show") { gtk_widget_get_visible(page.removeLeft) != 0 }
             await settle()
             var bounds = graphene_rect_t()
@@ -283,12 +293,13 @@ extension SelfCheck {
             let bottom = Int((bounds.origin.y + bounds.size.height).rounded())
             let visible = Int(gtk_widget_get_height(viewport))
             let focus = gtk_root_get_focus(cast(window.window))
+            let which = withCommands.map { $0 ? "with commands" : "without commands" } ?? "Chromium's note, removed"
             note(
-                "\(withCommands ? "with" : "without") commands: the line at \(top) to \(bottom) of \(visible) px "
-                    + "shown, scrolled to \(Int(gtk_adjustment_get_value(adjustment))) px, the focus on "
-                    + focusName(focus))
+                "\(which): the line at \(top) to \(bottom) of \(visible) px shown, scrolled to "
+                    + "\(Int(gtk_adjustment_get_value(adjustment))) px, the focus on \(focusName(focus))")
             try require(top >= 0 && bottom <= visible, "the line is at \(top) to \(bottom), outside 0 to \(visible)")
-            let expected = withCommands ? page.removeCommandsButton : page.removeButton
+            let expected =
+                withCommands.map { $0 ? page.removeCommandsButton : page.removeButton } ?? page.setUpButton
             try require(focus == expected, "the focus is on \(focusName(focus)), not \(focusName(expected))")
         }
         try await closeSettings()

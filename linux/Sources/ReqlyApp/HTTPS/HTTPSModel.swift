@@ -34,6 +34,9 @@ final class HTTPSModel {
         var problems: [TrustPlace.Kind: TrustProblem] = [:]
         /// Why the certificate couldn't be made or kept, when it couldn't.
         var failure: String?
+        /// Where Chromium's own list still trusts the old certificate, whose key had gone, which
+        /// only you can delete, when it does.
+        var leftInChromium: String?
     }
 
     /// The app's HTTPS model, once the app has made it, for ``terminalCertificates()``. Reqly has
@@ -55,6 +58,12 @@ final class HTTPSModel {
     private(set) var places: [TrustPlace] = []
     /// Where the key is kept, as last read, or nil before there's a certificate.
     private(set) var keyPlace: KeyPlace?
+    /// Whether the key has gone from your keyring, though the record says it's there, as last
+    /// read: Reqly can't use its certificate, and setting up again makes a new one.
+    private(set) var isKeyGone = false
+    /// What Chromium's own lists say of the certificate, or of the old one whose key has gone, as
+    /// last read.
+    private(set) var chromiumCopies = ChromiumCopies()
     /// Whether Reqly is setting up, trusting or removing the certificate.
     private(set) var isWorking = false
     /// The certificate, once read, so reading the places again asks the keyring nothing.
@@ -106,6 +115,10 @@ final class HTTPSModel {
         }
     }
 
+    /// Whether the key is kept where the record says, so keeping it asks nothing: not before
+    /// there's one, and not once it has gone from your keyring.
+    var isKeyKept: Bool { keyPlace != nil && !isKeyGone }
+
     /// Where the key is kept, as Set Up HTTPS and Settings › HTTPS say it, or nil before there's
     /// one.
     var keyDescription: String? {
@@ -114,6 +127,7 @@ final class HTTPSModel {
             return hasCertificate ? "In this test run's file: \(standIn.file.path)" : nil
         case .linux(let store):
             switch keyPlace {
+            case .keyring? where isKeyGone: return "Not in your keyring any more"
             case .keyring?: return "In your keyring"
             case .file?: return "In a file only you can read: \(HTTPSWidgets.shortPath(store.file))"
             case nil: return nil
@@ -137,8 +151,9 @@ final class HTTPSModel {
     /// there and Reqly can't ask for an administrator's password, since its helper or pkexec is
     /// missing, as when you added it with ``commandsToTrustByHand``. Nil otherwise.
     var commandsToRemoveByHand: String? {
-        guard case .linux(let store) = store, hasCertificate, store.helper.unavailableReason != nil,
-            places.first(where: { $0.kind == .computer })?.status == .trusted
+        guard case .linux(let store) = store, hasCertificate || isKeyGone, store.helper.unavailableReason != nil,
+            let computer = places.first(where: { $0.kind == .computer }),
+            computer.status == .trusted || computer.status == .trustsOldCertificate
         else { return nil }
         return ComputerList.commandsToRemove(uid: store.helper.uid)
     }
@@ -148,6 +163,15 @@ final class HTTPSModel {
     var isChromiumSnapOutOfReach: Bool {
         guard case .linux(let store) = store else { return false }
         return store.locations.isChromiumSnapOutOfReach
+    }
+
+    /// The Chromium snap's status under Not Covered, once you imported the certificate there:
+    /// "Trusted", or "Old Certificate" for one whose key has gone. Nil while its own list doesn't
+    /// trust it, as far as Reqly could read.
+    var chromiumSnapStatus: String? {
+        guard chromiumCopies.trusting.contains(where: { $0.browser == .chromiumSnap }) else { return nil }
+        // A keyring that's only locked still has the key.
+        return hasCertificate || (readProblem != nil && !isKeyGone) ? "Trusted" : "Old Certificate"
     }
 
     /// The certificate's files for a terminal set up for Reqly, once HTTPS is set up and both are
@@ -219,24 +243,30 @@ final class HTTPSModel {
         }
     }
 
-    /// Reads each place again, and where the key is.
+    /// Reads each place again, where the key is, whether it's gone from your keyring, and what
+    /// Chromium's own lists say of the certificate.
     func readPlaces() async {
         guard case .linux(let store) = store else { return }
         let known = root
         let hasCertificate = hasCertificate
-        let read = await onOwnThread { () -> (RootIdentity?, [TrustPlace], KeyPlace?) in
+        let read = await onOwnThread { () -> (RootIdentity?, [TrustPlace], KeyPlace?, Bool, ChromiumCopies) in
             // The session read the certificate as it opened, so the keyring is open by now.
             let root = known ?? (hasCertificate ? try? store.load() : nil)
-            return (root, store.places(for: root), store.keyPlace)
+            let isKeyGone = root == nil && store.isKeyGone()
+            // Without the certificate, the one the record is about, as when its key has gone.
+            let der = (try? root?.certificateDER) ?? store.recordedCertificate?.der
+            let copies = der.map { store.chromiumCopies(of: $0) } ?? ChromiumCopies()
+            return (root, store.places(for: root), store.keyPlace, isKeyGone, copies)
         }
-        (root, places, keyPlace) = read
+        (root, places, keyPlace, isKeyGone, chromiumCopies) = read
         changed()
     }
 
     /// What keeping the key in your keyring involves, for Set Up HTTPS to say before Linux asks,
-    /// or nil when nothing will ask: for a key that's kept already, or a test run's stand-in.
+    /// or nil when nothing will ask: for a key that's kept already, or a test run's stand-in. A
+    /// key gone from your keyring is kept again, as at the first setup.
     func keyringState() async -> KeyringState? {
-        guard case .linux(let store) = store, keyPlace == nil else { return nil }
+        guard case .linux(let store) = store, !isKeyKept else { return nil }
         return await onOwnThread { store.keyringState() }
     }
 
@@ -259,30 +289,37 @@ final class HTTPSModel {
         var result = SetupResult()
         switch store {
         case .linux(let store):
-            let made = await onOwnThread { () -> Result<(RootIdentity, [TrustPlace.Kind: TrustProblem]), Failure> in
+            typealias Made = (root: RootIdentity, problems: [TrustPlace.Kind: TrustProblem], leftInChromium: String?)
+            let made = await onOwnThread { () -> Result<Made, Failure> in
                 do {
                     // With its key gone, the old certificate makes way for a new one, which saving
-                    // takes it out of your browsers for.
+                    // takes it out of your browsers for, but not out of Chromium's own list.
                     let kept: RootIdentity?
                     do {
                         kept = try store.load()
                     } catch is LinuxRootStore.KeyGone {
                         kept = nil
                     }
+                    // A record without the root is about the old certificate.
+                    var leftInChromium: String?
+                    if kept == nil, let old = store.recordedCertificate {
+                        leftInChromium = store.chromiumCopies(of: old.der).note(certificate: old.name, old: true)
+                    }
                     let root = try kept ?? RootIdentity.create()
                     try store.save(root)
                     Task { @MainActor in keyKept() }
                     // Cancelled while the keyring asked: the certificate is kept, and trusted nowhere.
-                    guard !cancellation.isCancelled else { return .success((root, [:])) }
-                    return .success((root, store.trust(root, in: kinds, cancellation: cancellation)))
+                    guard !cancellation.isCancelled else { return .success((root, [:], leftInChromium)) }
+                    return .success((root, store.trust(root, in: kinds, cancellation: cancellation), leftInChromium))
                 } catch {
                     return .failure(Failure(error))
                 }
             }
             switch made {
-            case .success(let (root, problems)):
-                self.root = root
-                result.problems = problems
+            case .success(let made):
+                self.root = made.root
+                result.problems = made.problems
+                result.leftInChromium = made.leftInChromium
             case .failure(let failure):
                 result.failure = "Reqly couldn't set up HTTPS. \(failure.reason)"
             }
@@ -323,8 +360,10 @@ final class HTTPSModel {
     }
 
     /// Removes the certificate from every place, and its key, through the session, which stops
-    /// decrypting. Returns what's left and why, when something is: the places that still trust
-    /// it after you closed the password dialog, or what went wrong.
+    /// decrypting; or, once its key has gone, by its record, which the session can't. Returns
+    /// what's left and why, when something is: the places that still trust it after you closed
+    /// the password dialog, what went wrong, or Chromium's own lists that still trust it, which
+    /// only you can change.
     func remove() async -> String? {
         guard let session = app.session else { return nil }
         guard !isWorking else { return Self.busy }
@@ -335,22 +374,51 @@ final class HTTPSModel {
             changed()
         }
         var left: String?
-        do {
-            state = try await session.removeHTTPS()
-        } catch {
-            left = error.message
+        let wasKeyGone = isKeyGone
+        var recorded: (der: [UInt8], name: String?)?
+        if case .linux(let store) = store {
+            recorded = await onOwnThread { store.recordedCertificate }
+        }
+        let name = recorded?.name ?? state?.certificateName
+        if case .linux(let store) = store, wasKeyGone {
+            left = await onOwnThread { () -> String? in
+                do {
+                    try store.removeWithoutKey()
+                    return nil
+                } catch CertificateStoreError.cancelled {
+                    return nil
+                } catch CertificateStoreError.failed(let reasons) {
+                    return "Reqly couldn't remove its certificate. \(reasons)"
+                } catch {
+                    return "Reqly couldn't remove its certificate. \(Failure(error).reason)"
+                }
+            }
+            state = await session.reloadHTTPS()
+        } else {
+            do {
+                state = try await session.removeHTTPS()
+            } catch {
+                left = error.message
+            }
         }
         if !hasCertificate {
             root = nil
         }
         await readPlaces()
-        if left == nil, hasCertificate {
-            let trusting = places.filter { $0.status == .trusted }.map(\.name)
+        let isLeft = hasCertificate || isKeyGone
+        if left == nil, isLeft {
+            let trusting = places.filter { $0.status == .trusted || $0.status == .trustsOldCertificate }.map(\.name)
+            let certificate = wasKeyGone ? "Reqly's old certificate" : "Reqly's certificate"
             left =
                 trusting.isEmpty
                 ? "You closed the password dialog, so Reqly kept its certificate."
-                : "You closed the password dialog, so these still trust Reqly's certificate: "
+                : "You closed the password dialog, so these still trust \(certificate): "
                     + trusting.joined(separator: "; ") + "."
+        }
+        // Once the rest has gone, what you imported in Chromium is all that's left, yours to delete.
+        if !isLeft, case .linux(let store) = store, let der = recorded?.der {
+            let copies = await onOwnThread { store.chromiumCopies(of: der) }
+            left = copies.note(certificate: name, old: wasKeyGone)
         }
         return left
     }

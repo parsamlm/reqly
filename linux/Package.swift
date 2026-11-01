@@ -13,12 +13,15 @@ import PackageDescription
 //   little C that Swift can't write (GObject's macros, one signal marshaller, and the source that
 //   runs Swift's main actor from GLib's main loop), and Swift helpers over both.
 // - CGio, CSecret: GIO (GSettings and D-Bus) and libsecret, the system's own, through pkg-config.
+// - CSQLite: SQLite, the system's, which the core links already, for reading a copy of Chromium's
+//   own list of certificates.
 // - CLinux: the little C that Swift can't write cleanly: asking the kernel who owns a socket,
 //   waiting for a process to end, and starting one that inherits none of Reqly's descriptors.
 // - LinuxDesktop: your desktop's proxy setting, GNOME's and KDE's, the watcher that puts it back,
 //   the login entry, and the terminal set up for Reqly.
 // - LinuxTrust: where Reqly's certificate is kept and trusted: its key in your keyring or a file,
-//   the browsers' NSS databases, Firefox's profiles, and the computer's list, through the helper.
+//   the browsers' NSS databases, Firefox's profiles, and the computer's list, through the helper;
+//   and whether Chromium's own list, which only you can change, still trusts it.
 // - LinuxApps: which app opened a connection, this computer's addresses and its neighbors'.
 // - LinuxSystem: SystemParts.linux, from the three, and the folders Reqly keeps its files in.
 let package = Package(
@@ -40,6 +43,8 @@ let package = Package(
             pkgConfig: "libsecret-1",
             providers: [.apt(["libsecret-1-dev"])]
         ),
+        // Linked as the core's GRDB links it, with no pkg-config file.
+        .systemLibrary(name: "CSQLite", providers: [.apt(["libsqlite3-dev"])]),
         // Only the floor's headers, so anything newer needs a version check and a lookup.
         .systemLibrary(
             name: "CGtk",
@@ -56,7 +61,7 @@ let package = Package(
         .target(
             name: "LinuxTrust",
             dependencies: [
-                "CGio", "CSecret", "CLinux",
+                "CGio", "CSecret", "CSQLite", "CLinux",
                 .product(name: "CertificateAuthority", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
             ]
@@ -121,7 +126,7 @@ let package = Package(
         .testTarget(
             name: "LinuxTrustTests",
             dependencies: [
-                "LinuxTrust",
+                "LinuxTrust", "CSQLite",
                 .product(name: "CertificateAuthority", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
             ]

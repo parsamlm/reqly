@@ -24,6 +24,12 @@ final class FakeKeyring: Keyring {
         return secret.withLock { $0 }
     }
 
+    /// A locked keyring, whose question you closed, still says whether it has the item.
+    func isKept() throws(KeyringProblem) -> Bool {
+        if let problem = problem.withLock({ $0 }), problem != .dismissed { throw problem }
+        return secret.withLock { $0 } != nil
+    }
+
     func save(_ secret: Data) throws(KeyringProblem) {
         if let problem = problem.withLock({ $0 }) { throw problem }
         saves.withLock { $0 += 1 }

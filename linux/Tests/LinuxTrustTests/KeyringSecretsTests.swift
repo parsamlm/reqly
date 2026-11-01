@@ -160,6 +160,7 @@ final class LockedKeyring: Keyring {
 
     func state() -> KeyringState { .locked }
     func load() throws(KeyringProblem) -> Data? { try keyring.load() }
+    func isKept() throws(KeyringProblem) -> Bool { try keyring.isKept() }
 
     func save(_ secret: Data) throws(KeyringProblem) {
         Issue.record("A locked keyring was asked to save.")

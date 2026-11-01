@@ -11,6 +11,9 @@ public protocol Keyring: Sendable {
     func state() -> KeyringState
     /// The secret saved earlier, or `nil` when there's none.
     func load() throws(KeyringProblem) -> Data?
+    /// Whether the secret is in a keyring, locked or not, which asks you nothing, not even to
+    /// unlock it.
+    func isKept() throws(KeyringProblem) -> Bool
     func save(_ secret: Data) throws(KeyringProblem)
     func remove() throws(KeyringProblem)
 }
@@ -138,6 +141,12 @@ public struct SecretServiceKeyring: Keyring {
                 }
                 return .success(secret)
             }
+        }.get()
+    }
+
+    public func isKept() throws(KeyringProblem) -> Bool {
+        try Self.call(timeLimit: min(timeLimit, 10)) { [item] cancellable -> Result<Bool, KeyringProblem> in
+            Self.withSchema(item) { schema, attributes in Self.isKept(schema, attributes, cancellable) }
         }.get()
     }
 

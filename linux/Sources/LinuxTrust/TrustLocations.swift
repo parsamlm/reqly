@@ -1,8 +1,8 @@
 import Foundation
 
 /// Where your browsers keep the certificates they trust, in your home folder: the NSS databases
-/// that Chrome and browsers built on it share, and Firefox's profiles. Finding them reads a few
-/// files and runs nothing.
+/// that Chrome and browsers built on it share, Firefox's profiles, and Chromium's own lists of the
+/// certificates you imported in it. Finding them reads a few files and runs nothing.
 public struct TrustLocations: Sendable {
     public var home: URL
     /// `XDG_DATA_HOME`, or `~/.local/share`.
@@ -61,9 +61,37 @@ public struct TrustLocations: Sendable {
 
     /// The Chromium snap's databases when it can't read the trust certutil adds, so Reqly leaves
     /// them out of the browsers' place. You import the certificate in Chromium's settings
-    /// instead, as Settings › HTTPS says under Not Covered, and Reqly still removes it from them.
+    /// instead, as Settings › HTTPS says under Not Covered, which Chromium 156 keeps in its own
+    /// list, not in these: see ``chromiumStores()``. Reqly still counts and removes its certificate
+    /// in these, for one you added there yourself.
     public func chromiumSnapDatabasesOutOfReach() -> [URL] {
         chromiumSnapReadsCertutilTrust ? [] : chromiumSnapDatabases()
+    }
+
+    /// Chromium's and Google Chrome's own lists of the certificates you imported in them, one in
+    /// each profile that has run: `ServerCertificate` in each profile's folder, in the snap's
+    /// `~/snap/chromium/common/chromium`, and in `chromium` and `google-chrome` (or its `-beta` or
+    /// `-unstable`) in `XDG_CONFIG_HOME`.
+    public func chromiumStores() -> [ChromiumStore] {
+        let folders: [(ChromiumStore.Browser, URL)] =
+            [
+                (.chromiumSnap, home.appending(path: "snap/chromium/common/chromium", directoryHint: .isDirectory)),
+                (.chromium, configHome.appending(path: "chromium", directoryHint: .isDirectory)),
+            ]
+            + ["google-chrome", "google-chrome-beta", "google-chrome-unstable"].map {
+                (.chrome, configHome.appending(path: $0, directoryHint: .isDirectory))
+            }
+        var stores: [ChromiumStore] = []
+        for (browser, folder) in folders {
+            for profile in (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.sorted() ?? [] {
+                let file = folder.appending(path: profile).appending(path: "ServerCertificate")
+                var isFolder: ObjCBool = false
+                if FileManager.default.fileExists(atPath: file.path, isDirectory: &isFolder), !isFolder.boolValue {
+                    stores.append(ChromiumStore(browser: browser, file: file))
+                }
+            }
+        }
+        return stores
     }
 
     /// Whether the Chromium snap is installed, and can't read the trust certutil adds.

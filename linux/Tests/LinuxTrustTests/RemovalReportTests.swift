@@ -120,6 +120,53 @@ import Testing
         }
     }
 
+    /// Chromium's own list, which only you can change, still trusts the certificate you imported
+    /// there: removing the rest says so, and how to delete it there, and still finishes, since its
+    /// key goes with the rest. A list it couldn't read is said too; one without it isn't.
+    @Test func saysWhenChromiumStillTrustsIt() throws {
+        let root = try Fixtures.root(minute: 45)
+        let der = try root.certificateDER
+        let path =
+            "Settings › Privacy and security › Security › Manage certificates › Local certificates › Installed by you"
+        try withStore { store, _ in
+            let file = store.locations.home.appending(path: "snap/chromium/common/chromium/Default/ServerCertificate")
+            try ChromiumStoreTests.withList(at: file, rows: [(der, ChromiumStoreTests.trusted)])
+            try store.save(root)
+            let report = RemovalReport.remove(from: store)
+            #expect(report.outcome == .removed && report.isComplete)
+            #expect(
+                report.lines == [
+                    "Chrome and other browsers built on it: nothing to remove.",
+                    "Firefox: nothing to remove.",
+                    "Command-line tools and most other apps: didn't trust it.",
+                    "Its key: deleted from \(store.file.path).",
+                    "Chromium: still trusts it, since you imported it in its own settings, which Reqly can't change. "
+                        + "Delete \"\(root.name)\" there: \(path), under Trusted Certificates.",
+                    "Removed Reqly's certificate.",
+                ])
+
+            // Being changed, as far as Reqly can tell.
+            try store.save(root)
+            try Data(repeating: 1, count: 64).write(to: URL(filePath: file.path + "-journal"))
+            #expect(
+                RemovalReport.remove(from: store).lines.suffix(2) == [
+                    "Chromium: couldn't read its own list of certificates. If you imported Reqly's certificate "
+                        + "there, delete it in its \(path), under Trusted Certificates.",
+                    "Removed Reqly's certificate.",
+                ])
+
+            // Another certificate, not Reqly's.
+            try FileManager.default.removeItem(at: file.deletingLastPathComponent())
+            let decoy = try Fixtures.root(minute: 45).certificateDER
+            try ChromiumStoreTests.withList(at: file, rows: [(decoy, ChromiumStoreTests.trusted)])
+            try store.save(root)
+            #expect(
+                RemovalReport.remove(from: store).lines.suffix(2) == [
+                    "Its key: deleted from \(store.file.path).", "Removed Reqly's certificate.",
+                ])
+        }
+    }
+
     @Test func saysWhenItCantReadTheKey() throws {
         try withStore { store, _ in
             try store.save(try Fixtures.root(minute: 43))

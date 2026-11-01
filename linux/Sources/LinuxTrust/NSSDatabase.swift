@@ -41,19 +41,18 @@ struct NSSDatabase: Sendable {
         let name = Self.nickname(of: root)
         let found = try certificates(named: name)
         guard found.contains(der) else { return .absent }
-        // Every certificate under that name shares its line, so if one of them is trusted for
-        // websites, Reqly counts its own as trusted; trusting it again sets it anyway.
-        let listed = try certutil(["-L", "-d", location])
-        guard listed.status == 0 else { throw failure("read", listed) }
-        // Each line is the name, then the trust flags for websites, email and code, such as "C,,".
-        let trusted = String(decoding: listed.output, as: UTF8.self).split(separator: "\n").contains { line in
-            let line = line.trimmingCharacters(in: .whitespaces)
-            guard let flags = line.split(whereSeparator: \.isWhitespace).last else { return false }
-            let nickname = line.dropLast(flags.count).trimmingCharacters(in: .whitespaces)
-            let websites = flags.split(separator: ",", omittingEmptySubsequences: false).first ?? ""
-            return nickname == name && websites.contains("C")
+        return try isTrustedForWebsites(name) ? .trusted : .untrusted
+    }
+
+    /// Whether the database has the certificate `der` under one of Reqly's names, and trusts it
+    /// to identify websites, as for one whose key has gone, which Reqly knows by its bytes alone.
+    func holdingReqlyCertificate(der: [UInt8]) throws(TrustFailure) -> Holding {
+        for name in try nicknames() where name.hasPrefix("Reqly CA") {
+            if try certificates(named: name).contains(der) {
+                return try isTrustedForWebsites(name) ? .trusted : .untrusted
+            }
         }
-        return trusted ? .trusted : .untrusted
+        return .absent
     }
 
     /// Adds the certificate, from its PEM file, trusted to identify websites, or trusts it when
@@ -124,6 +123,22 @@ struct NSSDatabase: Sendable {
             }
         }
         return names
+    }
+
+    /// Whether the certificates filed under `name` are trusted to identify websites. Every
+    /// certificate under a name shares its line, so if one of them is trusted for websites, Reqly
+    /// counts its own as trusted; trusting it again sets it anyway.
+    private func isTrustedForWebsites(_ name: String) throws(TrustFailure) -> Bool {
+        let listed = try certutil(["-L", "-d", location])
+        guard listed.status == 0 else { throw failure("read", listed) }
+        // Each line is the name, then the trust flags for websites, email and code, such as "C,,".
+        return String(decoding: listed.output, as: UTF8.self).split(separator: "\n").contains { line in
+            let line = line.trimmingCharacters(in: .whitespaces)
+            guard let flags = line.split(whereSeparator: \.isWhitespace).last else { return false }
+            let nickname = line.dropLast(flags.count).trimmingCharacters(in: .whitespaces)
+            let websites = flags.split(separator: ",", omittingEmptySubsequences: false).first ?? ""
+            return nickname == name && websites.contains("C")
+        }
     }
 
     /// The database as certutil names it: its folder, in SQLite's format.

@@ -207,7 +207,14 @@ final class SetUpDialog {
         if https.isStandIn {
             return "In the test run's stand-in file, with the certificate"
         }
-        if let kept = https.keyDescription {
+        return Self.keyText(kept: https.isKeyKept ? https.keyDescription : nil, keyring: keyring)
+    }
+
+    /// Where the key goes, or where it's `kept` already, which asks nothing. A key that has gone
+    /// from your keyring isn't kept: the keyring asks as it does at the first setup, as `keyring`
+    /// says.
+    nonisolated static func keyText(kept: String?, keyring: KeyringState?) -> String {
+        if let kept {
             return kept
         }
         let orFile = " If you close it, Reqly keeps the key in a file only you can read."
@@ -241,9 +248,9 @@ final class SetUpDialog {
             gtk_widget_set_sensitive(row, 0)
         }
         HTTPSWidgets.say(failure, nil)
-        let asks = https.keyDescription == nil ? keyring : nil
         HTTPSWidgets.show(
-            progress, Self.progressText(keyring: asks, keyKept: false, trustsComputer: kinds.contains(.computer)))
+            progress,
+            Self.startText(keyring: keyring, keyIsKept: https.isKeyKept, trustsComputer: kinds.contains(.computer)))
         let https = https
         let opening = opening
         Task { [weak self] in
@@ -257,6 +264,13 @@ final class SetUpDialog {
             guard let self, opening == self.opening else { return }
             finish(result)
         }
+    }
+
+    /// What the progress line says as Continue starts: the question Linux asks first, which is the
+    /// keyring's, as `keyring` says, unless the key is kept already. A key that has gone from your
+    /// keyring isn't, so a new one is kept as at the first setup.
+    nonisolated static func startText(keyring: KeyringState?, keyIsKept: Bool, trustsComputer: Bool) -> String {
+        progressText(keyring: keyIsKept ? nil : keyring, keyKept: false, trustsComputer: trustsComputer)
     }
 
     /// What the progress line says while Reqly sets up HTTPS, naming the question Linux asks at
@@ -346,6 +360,12 @@ final class SetUpDialog {
         let key = adw_preferences_group_new()!
         adw_preferences_group_add(cast(key), HTTPSWidgets.row("Reqly's Key", https.keyDescription ?? "Not kept yet"))
         resultGroups.append(key)
+        // The old certificate, whose key had gone, which Chromium's own list still trusts.
+        if let left = result.leftInChromium {
+            let old = adw_preferences_group_new()!
+            adw_preferences_group_add(cast(old), HTTPSWidgets.row("Reqly's Old Certificate", left))
+            resultGroups.append(old)
+        }
         for group in resultGroups {
             adw_preferences_page_add(cast(results), cast(group))
         }

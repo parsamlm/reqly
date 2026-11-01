@@ -8,7 +8,9 @@ import LinuxTrust
 /// `reqly --remove-certificate`: removes Reqly's certificate for your account, with no window, for
 /// scripts or before uninstalling Reqly: from your browsers, Firefox and the computer's list,
 /// which asks for an administrator's password, and its key from your keyring or its file. It says
-/// how each place went, and returns 0 once nothing of the certificate is left for your account.
+/// how each place went, and returns 0 once nothing of the certificate is left for your account
+/// that Reqly can change: Chromium's own list, which only you can, gets a line that says how to
+/// delete it there.
 /// Where Reqly can't ask for the password, it gives the commands that take the certificate out of
 /// the computer's list by hand. With `--root-stand-in`, only the stand-in file goes.
 func removeCertificateFromCommandLine(options: Options) -> Int32 {

@@ -4,7 +4,9 @@ import Foundation
 /// Reqly's root on Linux. Its certificate and key stay in your keyring, or in a file only you can
 /// read when there's no keyring to use. Apps trust the certificate in three places, which Reqly
 /// adds it to: the browsers' NSS databases and Firefox's profiles, through certutil, and the
-/// computer's list, through the helper, which asks for an administrator's password.
+/// computer's list, through the helper, which asks for an administrator's password. Chromium's
+/// own list, where you import it for the Chromium snap, is yours alone to change: Reqly only
+/// reads it, to say when it still trusts the certificate.
 ///
 /// Next to the key's file, Reqly keeps the certificate itself, `Reqly CA.pem`, for the terminal and
 /// devices; the computer's list with it added, `ca-certificates.crt`, for the terminal; and a
@@ -72,6 +74,14 @@ public struct LinuxRootStore: RootStore {
         }
     }
 
+    /// Whether ``load()`` would throw ``KeyGone``: the record says your keyring has the key, and
+    /// the keyring has no such item. It asks the keyring only whether it has the item, which asks
+    /// you nothing. A keyring that doesn't answer, or isn't there, doesn't count as without it.
+    public func isKeyGone() -> Bool {
+        guard let record = readRecord(), record.key == .keyring, keys.keyring != nil else { return false }
+        return !isKept(record, askingTheKeyring: true)
+    }
+
     /// Keeps the key, in the keyring if it can, and writes the certificate next to it. A root
     /// that's kept already stays where it is, so saving it again asks nothing. A new root, made
     /// because the old one's key was gone, takes the old one's place: the old certificate leaves
@@ -89,21 +99,25 @@ public struct LinuxRootStore: RootStore {
             }
             record?.key = saved.place
         }
+        record?.name = root.name
         try writeRecord(record)
         try writeCertificate(root)
     }
 
-    /// Whether at least one place trusts the certificate, which is when Reqly decrypts: the
-    /// Chromium snap's database counts too, once you imported the certificate there yourself.
+    /// Whether at least one place trusts the certificate, which is when Reqly decrypts. Chromium's
+    /// own list counts too, once you imported the certificate there, as Settings › HTTPS says to
+    /// for the Chromium snap, and so does the snap's NSS database, for a certificate you added
+    /// there yourself.
     public func isTrusted(_ root: RootIdentity) -> Bool {
         guard let der = try? root.certificateDER else { return false }
         if ComputerList.contains(der, bundle: computerBundle) { return true }
-        guard let certutil = certutil else { return false }
-        let folders =
-            locations.browserDatabases() + locations.firefoxProfiles() + locations.chromiumSnapDatabasesOutOfReach()
-        return folders.contains { folder in
-            (try? database(folder, certutil).holding(root)) == .trusted
+        if let certutil = certutil {
+            let folders =
+                locations.browserDatabases() + locations.firefoxProfiles()
+                + locations.chromiumSnapDatabasesOutOfReach()
+            if folders.contains(where: { (try? database($0, certutil).holding(root)) == .trusted }) { return true }
         }
+        return locations.chromiumStores().contains { (try? $0.trust(of: der)) == .trusted }
     }
 
     /// Adds the certificate to every place that doesn't trust it yet, which is what Set Up HTTPS
@@ -133,23 +147,47 @@ public struct LinuxRootStore: RootStore {
 
     // MARK: Places
 
-    /// Each place, and whether it trusts `root`, or what it would take before there's a root.
+    /// Each place, and whether it trusts `root`. Without one, as when your keyring stayed locked
+    /// or its key has gone, whether it trusts the certificate the record is about, which is the
+    /// old one once its key has gone; and with no record either, what it would take.
     public func places(for root: RootIdentity?) -> [TrustPlace] {
+        if let root {
+            return places(der: try? root.certificateDER, trusted: .trusted) { database throws(TrustFailure) in
+                try database.holding(root)
+            }
+        }
+        guard let record = readRecord(), let der = Data(base64Encoded: record.certificate).map(Array.init) else {
+            return places(der: nil, trusted: .trusted, holding: nil)
+        }
+        // A keyring that's only locked still has the key; without it, the certificate is an old one.
+        return places(der: der, trusted: isKept(record, askingTheKeyring: true) ? .trusted : .trustsOldCertificate) {
+            database throws(TrustFailure) in try database.holdingReqlyCertificate(der: der)
+        }
+    }
+
+    /// Each place, and whether it trusts the certificate `der`, which `holding` finds in a
+    /// database, saying `trusted` where it does; or what it would take, with no certificate.
+    private func places(
+        der: [UInt8]?, trusted: TrustPlace.Status,
+        holding: ((NSSDatabase) throws(TrustFailure) -> NSSDatabase.Holding)?
+    ) -> [TrustPlace] {
         let certutil = certutil
         func status(of folders: [URL]) -> TrustPlace.Status {
             guard let certutil else { return .unavailable(Self.needsCertutil) }
-            guard let root else { return .notTrusted }
+            guard let holding else { return .notTrusted }
             var holdings: [NSSDatabase.Holding] = []
             var failure: String?
             for folder in folders {
                 do {
-                    holdings.append(try database(folder, certutil).holding(root))
+                    holdings.append(try holding(database(folder, certutil)))
                 } catch {
                     failure = error.message
                 }
             }
             if holdings.isEmpty, let failure { return .unavailable(failure) }
-            return failure == nil && holdings.allSatisfy { $0 == .trusted } ? .trusted : .notTrusted
+            // An old certificate is still trusted wherever one database has it.
+            if trusted == .trustsOldCertificate { return holdings.contains(.trusted) ? trusted : .notTrusted }
+            return failure == nil && holdings.allSatisfy { $0 == .trusted } ? trusted : .notTrusted
         }
 
         // With no database, as before Chrome or another browser built on it first runs, there's
@@ -159,8 +197,8 @@ public struct LinuxRootStore: RootStore {
         let profiles = locations.firefoxProfiles()
         let firefoxStatus: TrustPlace.Status = profiles.isEmpty ? .notFound : status(of: profiles)
         let computerStatus: TrustPlace.Status
-        if let der = try? root?.certificateDER, ComputerList.contains(der, bundle: computerBundle) {
-            computerStatus = .trusted
+        if let der, ComputerList.contains(der, bundle: computerBundle) {
+            computerStatus = trusted
         } else if !FileManager.default.fileExists(atPath: computerBundle) {
             computerStatus = .unavailable("This computer keeps no list of certificates at \(computerBundle).")
         } else if let reason = helper.unavailableReason {
@@ -191,6 +229,7 @@ public struct LinuxRootStore: RootStore {
             return Dictionary(uniqueKeysWithValues: kinds.map { ($0, .failed(error.localizedDescription)) })
         }
         var record = recordAbout(certificate)
+        record.name = root.name
         defer { try? writeRecord(record) }
 
         func add(to folders: [URL], _ certutil: String) -> TrustProblem? {
@@ -273,7 +312,8 @@ public struct LinuxRootStore: RootStore {
         var left: [String] = []
 
         // The databases it was added to, and any others it's found in now, such as the Chromium
-        // snap's after you imported it there.
+        // snap's, where you may have added it yourself. Chromium's own list, where you import it
+        // for the snap, is Chromium's alone to change: see chromiumCopies(of:).
         var seen = Set<String>()
         let folders =
             (record.databases.map { URL(filePath: $0, directoryHint: .isDirectory) }
@@ -346,6 +386,31 @@ public struct LinuxRootStore: RootStore {
     /// Where the key is kept, for Settings › HTTPS, or `nil` before there's one.
     public var keyPlace: KeyPlace? { readRecord()?.key }
 
+    /// The certificate the record is about, in DER, with its name, such as "Reqly CA 2026-11-01
+    /// 16:37", as for one whose key has gone; or nil when there's no record. A record an earlier
+    /// Reqly wrote has no name.
+    public var recordedCertificate: (der: [UInt8], name: String?)? {
+        guard let record = readRecord(), let der = Data(base64Encoded: record.certificate) else { return nil }
+        return ([UInt8](der), record.name)
+    }
+
+    /// What Chromium's and Google Chrome's own lists say of the certificate `der`: the ones that
+    /// trust it, after you imported it there, which Reqly can't change or remove, and the ones it
+    /// couldn't read. Reqly reads each from a copy, and never changes Chromium's files.
+    public func chromiumCopies(of der: [UInt8]) -> ChromiumCopies {
+        var copies = ChromiumCopies()
+        for store in locations.chromiumStores() {
+            do {
+                if try store.trust(of: der) == .trusted {
+                    copies.trusting.append(store)
+                }
+            } catch {
+                copies.unread.append(store)
+            }
+        }
+        return copies
+    }
+
     /// What saving in the keyring involves, for Set Up HTTPS to explain before the first save,
     /// such as a question about a new keyring's password.
     public func keyringState() -> KeyringState {
@@ -371,6 +436,9 @@ public struct LinuxRootStore: RootStore {
     struct Record: Codable, Equatable {
         /// The certificate it's about, in DER, base64.
         var certificate: String
+        /// The certificate's name, for what Reqly says of it once its key has gone. Records an
+        /// earlier Reqly wrote have none.
+        var name: String?
         var key: KeyPlace?
         /// The NSS databases it was added to: the browsers' and Firefox profiles'.
         var databases: [String] = []
@@ -397,10 +465,11 @@ public struct LinuxRootStore: RootStore {
     }
 
     /// Whether the key the record names is still where it says, as far as can be told without
-    /// asking the keyring.
-    private func isKept(_ record: Record?) -> Bool {
+    /// asking the keyring, or, `askingTheKeyring`, by asking it only whether it has the item, which
+    /// asks you nothing. A keyring that doesn't answer counts as having it.
+    private func isKept(_ record: Record?, askingTheKeyring: Bool = false) -> Bool {
         switch record?.key {
-        case .keyring: true
+        case .keyring: !askingTheKeyring || keys.keyring.map { (try? $0.isKept()) != false } ?? false
         case .file: FileManager.default.fileExists(atPath: file.path)
         case nil: false
         }

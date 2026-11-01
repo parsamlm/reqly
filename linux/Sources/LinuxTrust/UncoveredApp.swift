@@ -16,16 +16,22 @@ public struct UncoveredApp: Sendable, Equatable {
         self.fix = fix
     }
 
+    /// The Chromium snap's name, as its row's title.
+    public static let chromiumSnapName = "Chromium From the Snap Store"
+
     /// Each, with its fix for the certificate in `pemFile`, `Reqly CA.pem`, and the computer's list
     /// with it added in `bundleFile`, as LinuxRootStore keeps them. With `chromiumSnap`, the
     /// Chromium snap comes first: see ``TrustLocations/isChromiumSnapOutOfReach``.
     public static func all(pemFile: URL, bundleFile: URL, chromiumSnap: Bool = false) -> [UncoveredApp] {
         let pem = ComputerList.quoted(pemFile.path)
+        // Chromium 156 keeps what you import in its own list, which Reqly can't change: see ChromiumStore.
         let snap = UncoveredApp(
-            name: "Chromium From the Snap Store",
+            name: chromiumSnapName,
             detail: "It brings an older NSS than this computer's, which can't read the trust Reqly adds to its "
-                + "certificate database. Import Reqly's certificate in Chromium's own certificate settings, and "
-                + "trust it to identify websites, from this file:",
+                + "certificate database. Add Reqly's certificate in Chromium's own settings instead, and delete it "
+                + "there too when you remove it from Reqly, which can't change them: in Chromium's "
+                + "\(ChromiumCopies.path), click Import beside Trusted Certificates, then type or paste this path in "
+                + "the file chooser:",
             fix: pemFile.path)
         return (chromiumSnap ? [snap] : []) + [
             UncoveredApp(

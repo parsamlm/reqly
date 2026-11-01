@@ -24,6 +24,8 @@ final class HTTPSPage {
     private(set) var placeRows: [(kind: TrustPlace.Kind?, row: Widget, status: Widget, buttons: [Widget])] = []
     /// The fix for each app no place reaches, with its copy button.
     private(set) var uncovered: [(app: UncoveredApp, copy: Widget)] = []
+    /// The Chromium snap's status under Not Covered, once you imported the certificate in it.
+    private var chromiumSnapStatus: Widget?
     let everyHostRow: Widget
     let newHostRow: Widget
     /// Why the host typed can't join the list, in the session's words.
@@ -163,6 +165,11 @@ final class HTTPSPage {
         for app in apps {
             let row = HTTPSWidgets.row(app.name, app.detail + "\n" + app.fix)
             adw_action_row_set_subtitle_selectable(cast(row), 1)
+            if app.name == UncoveredApp.chromiumSnapName {
+                let status = HTTPSWidgets.suffixLabel()
+                adw_action_row_add_suffix(cast(row), status)
+                chromiumSnapStatus = status
+            }
             let copy = HTTPSWidgets.copyButton(app.fix, label: "Copy the fix for \(app.name)") { [weak self] in
                 self?.settings?.toast("Copied")
             }
@@ -212,8 +219,14 @@ final class HTTPSPage {
             showPlaces()
         }
         showHosts()
+        if let chromiumSnapStatus {
+            let status = https.chromiumSnapStatus
+            gtk_label_set_text(cast(chromiumSnapStatus), status ?? "")
+            gtk_widget_set_visible(chromiumSnapStatus, cBool(status != nil))
+        }
         let isWorking = https.isWorking
-        gtk_widget_set_visible(removeButton, cBool(https.hasCertificate))
+        // With its key gone, the old certificate goes by its record.
+        gtk_widget_set_visible(removeButton, cBool(https.hasCertificate || https.isKeyGone))
         gtk_widget_set_sensitive(removeButton, cBool(!isWorking))
         gtk_widget_set_sensitive(setUpButton, cBool(!isWorking))
         HTTPSWidgets.show(progress, isWorking ? waitingFor ?? "Setting up HTTPS…" : nil)
@@ -230,7 +243,11 @@ final class HTTPSPage {
         case .notTrusted:
             status = "Not trusted. Reqly decrypts nothing until a place below trusts its certificate."
         case .notSetUp:
-            if let unread = https.readProblem {
+            if https.isKeyGone {
+                status =
+                    "Reqly's key isn't in your keyring any more, so Reqly can't use its certificate. Set up HTTPS "
+                    + "again to make a new one in its place."
+            } else if let unread = https.readProblem {
                 status = "Reqly couldn't read its certificate. \(unread) It tries again each time you open Settings."
             } else {
                 status =
@@ -241,8 +258,9 @@ final class HTTPSPage {
             status = https.problem ?? "Checking Reqly's certificate…"
         }
         adw_action_row_set_subtitle(cast(statusRow), status)
-        // Setting up while the certificate can't be read would only fail the same way.
-        let canSetUp = https.state.map { $0.status != .trusted && $0.readProblem == nil } ?? false
+        // Setting up while the certificate can't be read would only fail the same way, unless its
+        // key has gone, and setting up makes a new one.
+        let canSetUp = https.state.map { $0.status != .trusted && ($0.readProblem == nil || https.isKeyGone) } ?? false
         gtk_widget_set_visible(setUpButton, cBool(canSetUp))
         let key = https.keyDescription
         adw_action_row_set_subtitle(cast(keyRow), key ?? "")
@@ -437,6 +455,8 @@ final class HTTPSPage {
     }
 
     private func confirmRemoval() {
+        // What you imported in Chromium stays, since Reqly can't change Chromium's own list.
+        let chromium = https.chromiumCopies.reminder.map { " " + $0 } ?? ""
         let alert: Widget = cast(
             adw_alert_dialog_new(
                 "Remove Reqly's Certificate?",
@@ -445,7 +465,7 @@ final class HTTPSPage {
                         + "computer changes. You can set up HTTPS again at any time."
                     : "Reqly stops decrypting HTTPS, and removes its certificate from your browsers, this computer's "
                         + "list and its key. Removing it from the computer's list asks for an administrator's "
-                        + "password. You can set up HTTPS again at any time."))
+                        + "password.\(chromium) You can set up HTTPS again at any time."))
         adw_alert_dialog_add_response(cast(alert), "cancel", "Cancel")
         adw_alert_dialog_add_response(cast(alert), "remove", "Remove Certificate")
         adw_alert_dialog_set_response_appearance(cast(alert), "remove", ADW_RESPONSE_DESTRUCTIVE)
@@ -462,7 +482,8 @@ final class HTTPSPage {
     }
 
     /// Removes the certificate. If you close the password dialog, the places that still trust it
-    /// stay, with the key, and Remove Certificate… with them.
+    /// stay, with the key, and Remove Certificate… with them. Chromium's own lists that still trust
+    /// it once the rest has gone are said below too.
     private func remove() {
         waitingFor = "Removing Reqly's certificate…"
         HTTPSWidgets.say(removeNote, nil)
@@ -477,8 +498,9 @@ final class HTTPSPage {
 
     /// Shows what a removal left, and why, below Remove Certificate…, with the button that copies
     /// the commands that finish it by hand when there are some; or nothing, once the certificate
-    /// has gone. Then gives the keyboard's focus back, which GTK gave to nothing as Remove
-    /// Certificate… turned insensitive, so Escape still closes Settings.
+    /// has gone, unless Chromium's own list still trusts it. Then gives the keyboard's focus back,
+    /// which GTK gave to nothing as Remove Certificate… turned insensitive, so Escape still closes
+    /// Settings.
     func showLeft(_ left: String?, withCommands: Bool) {
         HTTPSWidgets.say(removeNote, left)
         gtk_widget_set_visible(removeLeft, cBool(left != nil))
@@ -496,13 +518,15 @@ final class HTTPSPage {
     }
 
     /// Gives the focus to the copy button, or to Remove Certificate… when there are no commands,
-    /// then scrolls the page to what a removal left, at the page's end, the message and its
-    /// button: last, since the focus scrolls the page to the button alone.
+    /// or to Set Up HTTPS… once the certificate has gone, then scrolls the page to what a removal
+    /// left, at the page's end, the message and its button: last, since the focus scrolls the
+    /// page to the button alone.
     private func showWhatsLeft() {
         afterLayout(of: removeLeft) { [weak self] in
             guard let self else { return }
             if let settings {
-                refocus(canFocus(removeCommandsButton) ? removeCommandsButton : removeButton, in: settings.dialog)
+                let next = [removeCommandsButton, removeButton, setUpButton].first(where: canFocus) ?? statusRow
+                refocus(next, in: settings.dialog)
             }
             if let viewport = gtk_widget_get_ancestor(removeLeft, gtk_viewport_get_type()) {
                 gtk_viewport_scroll_to(cast(viewport), removeLeft, nil)

@@ -45,6 +45,20 @@ import Testing
                 TrustPlace(kind: .computer, status: .trusted, locations: Self.computer), "Trusted", false,
                 "It's in this computer's list, for every account on it."
             ),
+            // Its key gone: setting up again takes the old one out, so the switch stays on.
+            (
+                TrustPlace(kind: .firefox, status: .trustsOldCertificate, locations: Self.profiles), "Old Certificate",
+                true,
+                "It still trusts Reqly's old certificate, which Reqly can't use without its key. Setting up HTTPS "
+                    + "again takes it out."
+            ),
+            (
+                TrustPlace(kind: .computer, status: .trustsOldCertificate, locations: Self.computer),
+                "Old Certificate", true,
+                "It still trusts Reqly's old certificate, for every account on it, though Reqly can't use it without "
+                    + "its key. Setting up HTTPS again puts the new one in its place, and Linux asks for an "
+                    + "administrator's password."
+            ),
         ]
         for (place, status, canTrust, detail) in places {
             #expect(place.statusName == status, "\(place.kind) \(place.status)")
@@ -59,7 +73,7 @@ import Testing
 
     /// The fix for each app none of the places reaches, with the certificate's paths quoted for
     /// the shell, since `Reqly CA.pem` has a space and a home folder may have a quote.
-    @Test func givesTheFixForEachAppNoPlaceReaches() {
+    @Test func givesTheFixForEachAppNoPlaceReaches() throws {
         let folder = URL(filePath: "/home/o'neil/.local/share/reqly")
         let apps = UncoveredApp.all(
             pemFile: folder.appending(path: "Reqly CA.pem"), bundleFile: folder.appending(path: "ca-certificates.crt"))
@@ -91,5 +105,13 @@ import Testing
         #expect(withSnap.first?.name == "Chromium From the Snap Store")
         #expect(withSnap.first?.fix == "/home/o'neil/.local/share/reqly/Reqly CA.pem")
         #expect(withSnap.first?.detail.hasSuffix(":") == true)
+        // Chromium 156's own import, which asks nothing about trust, and its way back out.
+        let snap = try #require(withSnap.first?.detail)
+        #expect(
+            snap.contains(
+                "in Chromium's Settings › Privacy and security › Security › Manage certificates › Local certificates "
+                    + "› Installed by you, click Import beside Trusted Certificates, then type or paste this path"))
+        #expect(snap.contains("delete it there too when you remove it from Reqly"))
+        #expect(!snap.contains("trust it to identify websites"))
     }
 }

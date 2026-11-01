@@ -21,6 +21,9 @@ public struct TrustPlace: Sendable, Equatable {
         case notFound
         /// Reqly can't change it, for this reason, such as a missing package.
         case unavailable(String)
+        /// It trusts Reqly's old certificate, whose key has gone from your keyring, so Reqly can't
+        /// use it. Setting up HTTPS again takes it out, or puts the new one in its place.
+        case trustsOldCertificate
     }
 
     public var kind: Kind
@@ -51,8 +54,9 @@ public struct TrustPlace: Sendable, Equatable {
     public var needsPassword: Bool { kind == .computer }
 
     /// Whether Reqly can add the certificate to it now, as Set Up HTTPS and Trust… do: there's
-    /// something to add it to, Reqly can change it, and it doesn't trust the certificate yet.
-    public var canTrust: Bool { status == .notTrusted }
+    /// something to add it to, Reqly can change it, and it doesn't trust the certificate yet, but
+    /// maybe the old one.
+    public var canTrust: Bool { status == .notTrusted || status == .trustsOldCertificate }
 
     /// Its status in a word or two, as Settings › HTTPS shows it beside its name, a label with
     /// header capitalization.
@@ -62,12 +66,21 @@ public struct TrustPlace: Sendable, Equatable {
         case .notTrusted: "Not Trusted"
         case .notFound: "Not Found"
         case .unavailable: "Unavailable"
+        case .trustsOldCertificate: "Old Certificate"
         }
     }
 
     /// A sentence about it, for the app to show under its name.
     public var detail: String {
         if case .unavailable(let reason) = status { return reason }
+        if status == .trustsOldCertificate {
+            return kind == .computer
+                ? "It still trusts Reqly's old certificate, for every account on it, though Reqly can't use it without "
+                    + "its key. Setting up HTTPS again puts the new one in its place, and Linux asks for an "
+                    + "administrator's password."
+                : "It still trusts Reqly's old certificate, which Reqly can't use without its key. Setting up HTTPS "
+                    + "again takes it out."
+        }
         switch kind {
         case .browsers:
             return switch locations.count {
