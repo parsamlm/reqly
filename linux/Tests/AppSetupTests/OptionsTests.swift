@@ -52,9 +52,21 @@ import Testing
         #expect(removal.rootStandIn == "/t/Root.dat")
     }
 
+    /// Desktops pass files even though the desktop file's Exec takes none, as Open With does: the
+    /// run takes them, and opens Reqly's window, or brings back the one that's open.
+    @Test func takesTheFilesADesktopPasses() throws {
+        let options = try Options(["/home/ana/Documents/note.txt", "file:///etc/hostname"])
+        #expect(options.command == .open)
+        #expect(options.files == ["/home/ana/Documents/note.txt", "file:///etc/hostname"])
+        #expect(!options.isTestRun)
+        let mixed = try Options(["--port", "9191", "session.reqly"])
+        #expect(mixed.port == 9191 && mixed.files == ["session.reqly"])
+        #expect(try Options([]).files.isEmpty)
+    }
+
     @Test func refusesWhatItCantFollow() {
         #expect(throws: Options.UsageError.self) { try Options(["--no-such-option", "1"]) }
-        #expect(throws: Options.UsageError.self) { try Options(["session.reqly"]) }
+        #expect(throws: Options.UsageError.self) { try Options(["-x"]) }
         #expect(throws: Options.UsageError.self) { try Options(["--settings-file"]) }
         #expect(throws: Options.UsageError.self) { try Options(["--port", "nine"]) }
         #expect(throws: Options.UsageError.self) { try Options(["--port", "70000"]) }

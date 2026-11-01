@@ -18,6 +18,8 @@ final class DesktopProxy {
     private(set) var proxySet: ProxyParts = []
     /// Whether capturing stopped after pointing GNOME's setting at Reqly, until it starts again.
     private(set) var stoppedAfterSettingGNOME = false
+    /// Whether capturing has stopped in this run, until it starts again.
+    private(set) var hasStopped = false
 
     init(options: Options, folders: AppFolders, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.options = options
@@ -53,6 +55,7 @@ final class DesktopProxy {
     /// Capturing started on `port`: reads which parts now point at Reqly.
     func captureStarted(port: Int) async {
         stoppedAfterSettingGNOME = false
+        hasStopped = false
         guard options.setsSystemProxy else {
             proxySet = []
             return
@@ -66,6 +69,7 @@ final class DesktopProxy {
     /// Capturing stopped, and your setting is back.
     func captureStopped() {
         stoppedAfterSettingGNOME = proxySet.contains(.gnome)
+        hasStopped = true
         proxySet = []
     }
 

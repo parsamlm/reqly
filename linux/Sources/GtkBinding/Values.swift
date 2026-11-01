@@ -47,6 +47,26 @@ public func set(_ object: OpaquePointer?, _ property: String, _ value: Value) {
     set(raw(object), property, value)
 }
 
+/// g_object_get for one string property, such as GtkSettings' `gtk-icon-theme-name`.
+@MainActor
+public func stringProperty(_ object: UnsafeMutableRawPointer?, _ property: String) -> String? {
+    var value = GValue()
+    g_value_init(&value, reqly_type_string())
+    defer { g_value_unset(&value) }
+    g_object_get_property(cast(object), property, &value)
+    return string(g_value_get_string(&value))
+}
+
+/// g_object_get for one boolean property.
+@MainActor
+public func boolProperty(_ object: UnsafeMutableRawPointer?, _ property: String) -> Bool {
+    var value = GValue()
+    g_value_init(&value, reqly_type_boolean())
+    defer { g_value_unset(&value) }
+    g_object_get_property(cast(object), property, &value)
+    return g_value_get_boolean(&value) != 0
+}
+
 /// A GError's message, freeing it.
 public func message(_ error: UnsafeMutablePointer<GError>?) -> String {
     guard let error else { return "no error" }

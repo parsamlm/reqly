@@ -98,10 +98,38 @@ import Testing
         let fixture = try Fixture()
         let lookup = try lookup(fixture)
         let packagekit = try fixture.cgroup("/system.slice/packagekit.service", processes: [900])
-        let other = SocketOwner(uid: 0, inode: 9001, cgroupID: packagekit)
+        // Another user's: the tests run as root.
+        let other = SocketOwner(uid: getuid() == 1 ? 2 : 1, inode: 9001, cgroupID: packagekit)
         #expect(lookup.origin(of: other) == Origin(source: Source(name: "packagekit.service")))
         // An ID no cgroup has.
         #expect(lookup.origin(of: owner(9002, cgroup: 1)) == nil)
+    }
+
+    /// A quick command `systemd-run` ran as your own service, gone by the time Reqly asks, isn't
+    /// credited to the made-up name of its unit.
+    @Test func namesNothingForYourOwnServiceWhoseProcessIsGone() throws {
+        let fixture = try Fixture()
+        let lookup = try lookup(fixture)
+        let unit = try fixture.cgroup(user + "/run-p12651-i12951.service", processes: [])
+        #expect(lookup.origin(of: owner(9101, cgroup: unit)) == nil)
+        // While its process is there, it's credited to the program.
+        let curl = try fixture.cgroup(user + "/run-p12652-i12952.service", processes: [910])
+        try fixture.process(910, program: "/usr/bin/curl", arguments: ["curl", "example.com"], sockets: [9102])
+        #expect(
+            lookup.origin(of: owner(9102, cgroup: curl)) == Origin(source: Source(name: "curl", path: "/usr/bin/curl")))
+    }
+
+    /// A process that hides its open files may hold a socket only when it's the socket's user's:
+    /// GDM's root session worker, in a login's session scope, never holds an app's.
+    @Test func countsOnlyTheSocketUsersHiddenProcesses() throws {
+        let fixture = try Fixture()
+        try fixture.write("proc/700/status", "Name:\tgdm-session-wor\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n")
+        try fixture.write("proc/701/status", "Name:\tssh-agent\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\n")
+        #expect(Processes.uid(of: 700, in: fixture.path("proc")) == 0)
+        #expect(Processes.uid(of: 701, in: fixture.path("proc")) == 1000)
+        #expect(Processes.uid(of: 702, in: fixture.path("proc")) == nil)
+        #expect(AppLookup.mayHold([700, 701, 702], uid: 1000, in: fixture.path("proc")) == [701])
+        #expect(AppLookup.mayHold([700], uid: 1000, in: fixture.path("proc")).isEmpty)
     }
 
     @Test func walksCgroups() throws {

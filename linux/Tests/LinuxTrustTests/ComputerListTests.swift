@@ -49,7 +49,10 @@ import Testing
 
     /// Runs the helper through a pkexec that prints `said` to standard error and exits with
     /// `status`, after saving its arguments and standard input.
-    func run(status: Int32, said: String = "", remove: Bool = false, asksInTerminal: Bool = false) throws -> Ran {
+    func run(
+        status: Int32, said: String = "", remove: Bool = false, asksInTerminal: Bool = false,
+        environment: [String: String] = [:]
+    ) throws -> Ran {
         try Fixtures.withFolder { folder throws in
             let bin = folder.appending(path: "bin")
             try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -67,7 +70,7 @@ import Testing
             try Fixtures.script("#!/bin/sh\nexit 0\n", at: helper)
             var trustHelper = TrustHelper(
                 path: helper.path, pkexec: bin.appending(path: "pkexec").path,
-                environment: ["PATH": "/usr/bin:/bin"], uid: 1000)
+                environment: environment.merging(["PATH": "/usr/bin:/bin"]) { $1 }, uid: 1000)
             trustHelper.asksInTerminal = asksInTerminal
             let result = Result { () throws(TrustProblem) in
                 if remove {
@@ -111,6 +114,27 @@ import Testing
     @Test func notAllowedIsNotAllowed() throws {
         let said = "Error executing command as another user: Not authorized"
         #expect(throws: TrustProblem.notAllowed) { try run(status: 127, said: said).result.get() }
+        // Over SSH, even with a display forwarded.
+        let overSSH = ["DISPLAY": "localhost:10.0", "SSH_CONNECTION": "192.168.1.2 50000 192.168.1.3 22"]
+        #expect(throws: TrustProblem.notAllowed) {
+            try run(status: 127, said: said, environment: overSSH).result.get()
+        }
+    }
+
+    /// KDE's password dialog makes pkexec say "Not authorized" when you cancel it, which on the
+    /// desktop you're using means the dialog said no, not that polkit doesn't allow it.
+    @Test func onTheDesktopNotAuthorizedIsARefusal() throws {
+        let said = "Error executing command as another user: Not authorized"
+        for desktop in [["WAYLAND_DISPLAY": "wayland-0"], ["DISPLAY": ":0"]] {
+            #expect(throws: TrustProblem.refused) {
+                try run(status: 127, said: said, environment: desktop).result.get()
+            }
+        }
+        #expect(TrustProblem.refused.isDeclined && TrustProblem.cancelled.isDeclined)
+        #expect(!TrustProblem.notAllowed.isDeclined)
+        #expect(
+            LinuxRootStore.removalProblem(.refused, uid: 1000)
+                == "The password dialog was closed, or the password wasn't accepted.")
     }
 
     @Test func withNoPasswordDialogItGivesTheCommands() throws {

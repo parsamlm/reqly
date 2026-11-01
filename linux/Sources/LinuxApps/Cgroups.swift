@@ -60,6 +60,17 @@ public final class CgroupIndex: Sendable {
         }
     }
 
+    /// Walks your own slice, as the app lookup does as it's made, so the first connection finds
+    /// the cgroups there known already.
+    public func walkYourSlice(uid: UInt32) {
+        let folder = "/user.slice/user-\(uid).slice"
+        walking.withLock { _ in
+            guard claimWalk(of: folder) else { return }
+            let found = walk(folder)
+            state.withLock { $0.paths.merge(found) { _, new in new } }
+        }
+    }
+
     /// The processes in a cgroup, from its `cgroup.procs`, which anyone may read.
     public func processes(in path: String) -> [Int32] {
         let file = (path == "/" ? root : root + path) + "/cgroup.procs"

@@ -9,6 +9,8 @@ extension SelfCheck {
         Part(name: "settings") { try await $0.checkSettings() },
         Part(name: "about") { try await $0.checkAbout() },
         Part(name: "events") { try await $0.checkEvents() },
+        Part(name: "symbolic-icons") { try await $0.checkSymbolicIcons() },
+        Part(name: "menu-dialogs") { try await $0.checkMenuDialogs() },
     ]
 
     /// The menu's actions, which App.swift registers.
@@ -127,6 +129,73 @@ extension SelfCheck {
         note("list: \(window.list.total) requests")
         try require(inOrder, "the rows events came out of order")
         try require(seen.offMainThread == 0, "\(seen.offMainThread) rows events came off the main thread")
+    }
+
+    /// Reqly's own symbolic icons stand in where the icon theme has none, as Debian Cinnamon's
+    /// `gnome` theme hasn't: with only hicolor, every one is found, not drawn as a broken image.
+    func checkSymbolicIcons() async throws {
+        let theme = try present(gtk_icon_theme_get_for_display(gdk_display_get_default()), "there's no icon theme")
+        let settings = try present(gtk_settings_get_default(), "there are no GTK settings")
+        let before = stringProperty(raw(settings), "gtk-icon-theme-name") ?? ""
+        set(raw(settings), "gtk-icon-theme-name", .string("hicolor"))
+        defer { gtk_settings_reset_property(settings, "gtk-icon-theme-name") }
+        let missing = Icons.symbolic.map(\.name).filter { gtk_icon_theme_has_icon(theme, $0) == 0 }
+        note("icon theme: hicolor, instead of \(before.isEmpty ? "the default" : before)")
+        note("found: \(Icons.symbolic.map(\.name).filter { !missing.contains($0) }.joined(separator: ", "))")
+        try require(missing.isEmpty, "with only hicolor, there's no \(missing.joined(separator: ", "))")
+    }
+
+    /// A dialog opened from the main menu's entry, from the keyboard, leaves the window's focus
+    /// on a widget that shows once it closes, so its shortcuts and Tab still work: libadwaita 1.5
+    /// gave it back to the entry, in the closed menu. The Method column has room for CONNECT.
+    func checkMenuDialogs() async throws {
+        let window = window
+        let menuButton: OpaquePointer = cast(window.menuButton)
+        let popover = try present(gtk_menu_button_get_popover(menuButton), "the menu has no popover")
+        for entry in ["Settings", "About Reqly", "Settings"] {
+            gtk_menu_button_popup(menuButton)
+            try await until("the menu to open") { gtk_widget_get_mapped(cast(popover)) != 0 }
+            let item = try present(
+                descendants(of: cast(popover)).first {
+                    typeName(raw($0)) == "GtkModelButton" && stringProperty(raw($0), "text") == entry
+                }, "the menu has no \(entry)")
+            gtk_widget_grab_focus(item)
+            gtk_widget_activate(item)
+            let dialog: () -> Widget? = { entry == "Settings" ? window.settings?.dialog : window.about }
+            try await until("\(entry) to open") { dialog().map { gtk_widget_get_mapped($0) != 0 } ?? false }
+            await settle()
+            adw_dialog_close(cast(dialog()))
+            try await until("\(entry) to close") {
+                entry == "Settings" ? window.settings?.isShowing == false : window.about == nil
+            }
+            await settle()
+            let focus = gtk_root_get_focus(cast(window.window))
+            note("after \(entry): the focus is on \(focus.map { typeName(raw($0)) } ?? "nothing")")
+            try require(focus.map { gtk_widget_get_mapped($0) != 0 } ?? false, "the focus isn't on a widget that shows")
+        }
+
+        let columns = gtk_column_view_get_columns(cast(window.list.view))
+        let method: OpaquePointer? = cast(g_list_model_get_item(columns, 1))
+        defer { g_object_unref(raw(method)) }
+        let width = gtk_column_view_column_get_fixed_width(method)
+        let layout = gtk_widget_create_pango_layout(window.list.view, "CONNECT")
+        var needed: Int32 = 0
+        pango_layout_get_pixel_size(layout, &needed, nil)
+        g_object_unref(raw(layout))
+        note("Method column: \(width) px, CONNECT \(needed) px")
+        try require(width >= needed + 12, "the Method column, \(width) px, cuts CONNECT, \(needed) px")
+    }
+
+    /// Every widget under `root`, depth first.
+    private func descendants(of root: Widget) -> [Widget] {
+        var found: [Widget] = []
+        var child = gtk_widget_get_first_child(root)
+        while let widget = child {
+            found.append(widget)
+            found += descendants(of: widget)
+            child = gtk_widget_get_next_sibling(widget)
+        }
+        return found
     }
 
     /// The label and action of each entry in a menu of sections.

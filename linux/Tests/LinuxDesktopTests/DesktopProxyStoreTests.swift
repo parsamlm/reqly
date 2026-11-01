@@ -50,6 +50,28 @@ import Testing
         #expect(back.httpsHost.isDefault && back.httpsPort.isDefault)
     }
 
+    /// A SOCKS or FTP host you left with the mode at none would come on with manual mode, so it's
+    /// cleared while Reqly captures, and comes back after.
+    @Test func clearsADormantSOCKSHostWhileCapturing() throws {
+        let store = GNOMEProxyStore()
+        let yours = GNOMEProxy(socksHost: .set("socks.example.test"), ftpHost: .set("ftp.example.test"))
+        try store.write(yours)
+        #expect(try store.read() == yours)
+        let capturing = yours.capturing(port: 9090)
+        try store.write(capturing)
+        let read = try #require(try store.read())
+        #expect(read.socksHost == GSettingsValue("", isDefault: true))
+        #expect(read.ftpHost == GSettingsValue("", isDefault: true))
+        let restored = try #require(read.restoring(yours, port: 9090))
+        try store.write(restored)
+        #expect(try store.read() == yours)
+        // Settings from an earlier Reqly's restore file, which don't know the host, leave it.
+        var unknown = GNOMEProxy()
+        unknown.socksHost = nil
+        try store.write(unknown)
+        #expect(try store.read()?.socksHost == .set("socks.example.test"))
+    }
+
     @Test func leavesKeysItDoesntChange() throws {
         let store = GNOMEProxyStore()
         try store.write(GNOMEProxy(httpHost: .set("proxy.corp")))
@@ -92,8 +114,8 @@ import Testing
         #expect(signals.count == 2)
     }
 
-    /// You turned GNOME's proxy off yourself while Reqly captured: that stays, and KDE's, still
-    /// Reqly's, goes back.
+    /// You turned GNOME's proxy off yourself while Reqly captured: that stays, Reqly's hosts and
+    /// ports there go back, and so does KDE's, still Reqly's.
     @Test func putsBackOnlyThePartStillPointingAtReqly() async throws {
         let folder = try TestEnvironment.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -104,12 +126,13 @@ import Testing
         let restoreFile = folder.appending(path: "ProxyRestore.json")
         let proxy = UserProxySwitch(settings: store, restoreFile: restoreFile)
         try await proxy.enable(port: 9090)
-        let yoursSince = GNOMEProxy(mode: .set("none"), httpHost: .set("127.0.0.1"), httpPort: .set(9090))
+        var yoursSince = try #require(try gnome.read())
+        yoursSince.mode = .set("none")
         try gnome.write(yoursSince)
 
         // As after a crash.
         #expect(try UserProxySwitch.restoreLeftBehind(settings: store, restoreFile: restoreFile))
-        #expect(try gnome.read() == yoursSince)
+        #expect(try gnome.read() == GNOMEProxy(mode: .set("none")))
         // Reqly made kioslaverc, so it's gone again.
         #expect(!kde.fileExists)
         #expect(try store.read().kde == KDEProxy(fileExists: false))

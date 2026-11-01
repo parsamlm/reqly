@@ -6,11 +6,11 @@ import Testing
 @Suite struct CaptureStatusTests {
     static func status(
         _ capture: AppModel.Capture, proxySet: ProxyParts = [], chrome: ChromeProxySetting = .gnome,
-        terminals: [String] = [], problem: String? = nil
+        terminals: [String] = [], openedTerminals: Bool = false, problem: String? = nil
     ) -> String {
         CaptureStatus(
             capture: capture, port: 9090, problem: problem, proxySet: proxySet, chrome: chrome,
-            terminalsKeepingProxy: terminals
+            terminalsKeepingProxy: terminals, openedTerminalsKeepProxy: openedTerminals
         ).text
     }
 
@@ -40,14 +40,23 @@ import Testing
 
     @Test func namesTheTerminalsThatKeepTheProxyOnceCapturingStops() {
         #expect(Self.status(.stopped) == "Not capturing · Port 9090")
+        // A new tab copies the variables of the tab it's opened from, so a new window it is.
         #expect(
             Self.status(.stopped, terminals: ["GNOME Terminal"])
                 == "Not capturing · Port 9090 · GNOME Terminal tabs opened while capturing still point at Reqly, "
-                + "so open a new tab")
+                + "so open a new window")
         #expect(
             Self.status(.stopped, terminals: ["GNOME Terminal", "Ptyxis"])
                 == "Not capturing · Port 9090 · GNOME Terminal and Ptyxis tabs opened while capturing still point "
-                + "at Reqly, so open a new tab")
+                + "at Reqly, so open a new window")
+        // The terminals Open Terminal opened keep the variables too, as Konsole's do on KDE.
+        #expect(
+            Self.status(.stopped, openedTerminals: true)
+                == "Not capturing · Port 9090 · The terminals Reqly opened still point at Reqly, so open a new window")
+        #expect(
+            Self.status(.stopped, terminals: ["GNOME Terminal"], openedTerminals: true)
+                == "Not capturing · Port 9090 · GNOME Terminal tabs opened while capturing, and the terminals Reqly "
+                + "opened, still point at Reqly, so open a new window")
         #expect(CaptureStatus.terminalsFollowingGNOME.map(\.name) == ["GNOME Terminal", "Ptyxis", "GNOME Console"])
     }
 

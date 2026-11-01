@@ -73,6 +73,10 @@ public struct Options: Sendable, Equatable {
     public var checksForUpdates: Bool?
     /// Whether the welcome guide counts as seen, so it stays closed.
     public var hasSeenWelcome: Bool?
+    /// Files to open, which desktops pass even to a desktop file whose `Exec` takes none, as Open
+    /// With and a drop on the dock do. Taken, so such a launch brings back Reqly's window, and
+    /// opened once Step 5 opens sessions.
+    public var files: [String] = []
 
     /// Light or dark, whatever your desktop uses, for pictures of both.
     public var theme: Theme?
@@ -152,6 +156,8 @@ public struct Options: Sendable, Equatable {
                 guard !parts.isEmpty else { throw UsageError("--smoke-parts needs the names of parts.") }
                 smokeParts = parts
             case "--app-id": appID = try value()
+            case let file where !file.hasPrefix("-"):
+                files.append(file)
             default:
                 throw UsageError("Reqly has no option \(name). See reqly --help.")
             }
@@ -204,8 +210,9 @@ public struct Options: Sendable, Equatable {
           --smoke <report>                  --smoke-parts <part>,<part>...
           --app-id <id>
 
-        Taken for the same command lines as Windows', and used once Reqly for Linux has rules,
-        connections, devices, the welcome guide, crash reports and updates:
+        Taken for the same command lines as Windows', and used once Reqly for Linux opens files
+        and has rules, connections, devices, the welcome guide, crash reports and updates:
+          <file>...                         as Open With passes them
           --rules-file <file>               --connections-file <file>
           --protobuf-file <file>            --devices-file <file>
           --secrets-stand-in <file>         --crash-reports-folder <folder>

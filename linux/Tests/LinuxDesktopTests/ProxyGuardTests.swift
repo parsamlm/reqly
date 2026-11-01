@@ -130,8 +130,12 @@ import Testing
     @Test func writesTheLoginEntry() throws {
         let folder = try TestEnvironment.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let entry = LoginEntry(environment: ["HOME": "/home/ana", "XDG_CONFIG_HOME": folder.path])
+        let entry = LoginEntry(
+            environment: [
+                "HOME": "/home/ana", "XDG_CONFIG_HOME": folder.path, "XDG_STATE_HOME": folder.path + "/state",
+            ])
         #expect(entry.file.path == folder.path + "/autostart/net.reqly.Reqly-restore-proxy.desktop")
+        #expect(entry.folderNote?.path == folder.path + "/state/reqly/MadeAutostartFolder")
         #expect(
             LoginEntry(environment: ["HOME": "/home/ana"]).file.path
                 == "/home/ana/.config/autostart/net.reqly.Reqly-restore-proxy.desktop")
@@ -152,6 +156,36 @@ import Testing
                 """)
         entry.remove()
         #expect(!entry.exists)
+    }
+
+    /// The autostart folder Reqly made for the entry goes with it, while it's empty. One that was
+    /// there before stays, and so does one you've added entries to since.
+    @Test func removesTheAutostartFolderItMade() throws {
+        let folder = try TestEnvironment.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let entry = LoginEntry(
+            environment: ["HOME": folder.path, "XDG_CONFIG_HOME": folder.path + "/config"])
+        let autostart = entry.file.deletingLastPathComponent()
+        let restoreFile = folder.appending(path: "ProxyRestore.json")
+        #expect(entry.folderNote?.path == folder.path + "/.local/state/reqly/MadeAutostartFolder")
+
+        try entry.write(executable: "/usr/bin/reqly", restoreFile: restoreFile)
+        entry.remove()
+        #expect(!FileManager.default.fileExists(atPath: autostart.path))
+        #expect(!FileManager.default.fileExists(atPath: entry.folderNote!.path))
+
+        // Made by Reqly, then given an entry of yours.
+        try entry.write(executable: "/usr/bin/reqly", restoreFile: restoreFile)
+        try Data().write(to: autostart.appending(path: "yours.desktop"))
+        entry.remove()
+        #expect(FileManager.default.fileExists(atPath: autostart.appending(path: "yours.desktop").path))
+        #expect(!FileManager.default.fileExists(atPath: entry.folderNote!.path))
+
+        // There before: it stays, even empty.
+        try FileManager.default.removeItem(at: autostart.appending(path: "yours.desktop"))
+        try entry.write(executable: "/usr/bin/reqly", restoreFile: restoreFile)
+        entry.remove()
+        #expect(FileManager.default.fileExists(atPath: autostart.path))
     }
 
     @Test func quotesTheLoginEntrysCommand() {

@@ -41,21 +41,29 @@ final class App {
         MainLoop.runSwiftMainQueue()
         connect(application, "startup") { [weak self] in self?.startUp() }
         connect(application, "activate") { [weak self] in self?.activate() }
+        // The session manager says when you log out, before your desktop goes: GNOME's and
+        // Cinnamon's end the session, and with it the display, without a signal.
+        set(raw(application), "register-session", .bool(true))
+        connect(application, "query-end") { [weak self] in self?.sessionEnding() }
         // The window's X11 class, as the app ID, so desktops that match windows to desktop files by
         // their class find Reqly's. On Wayland, GTK names the window by the app ID itself.
         g_set_prgname(Self.id)
-        // Only the program's name: Reqly's own options aren't GApplication's.
+        // Only the program's name: Reqly's own options aren't GApplication's, and the files a
+        // launcher passes wait for Step 5.
         var arguments: [UnsafeMutablePointer<CChar>?] = [CommandLine.unsafeArgv[0], nil]
         let status = g_application_run(cast(application), 1, &arguments)
+        finishClosing()
         return status != 0 ? status : exitStatus
     }
 
     /// The first Reqly only: its styles, its actions and the signals it quits on, then the session.
     private func startUp() {
         Styles.install(theme: options.theme)
+        Icons.install()
         addActions()
-        // Logging out ends Reqly with SIGTERM, Ctrl+C in its terminal with SIGINT, and closing the
-        // terminal with SIGHUP. Each quits as the menu does, so your proxy settings go back.
+        // Ctrl+C in its terminal ends Reqly with SIGINT, closing the terminal with SIGHUP, and
+        // some desktops' logout with SIGTERM. Each quits as the menu does, so your proxy settings
+        // go back.
         for signal in [SIGTERM, SIGINT, SIGHUP] {
             onSignal(signal) { [weak self] in
                 self?.quit()
@@ -63,6 +71,34 @@ final class App {
             }
         }
         model.open()
+    }
+
+    /// You're logging out: capturing stops now, which puts your proxy settings back while your
+    /// desktop is still there, since GTK may end Reqly as soon as the display goes. Reqly stays
+    /// open, in case the logout is called off.
+    func sessionEnding() {
+        AppLog.write("the session is ending, so capturing stops")
+        Task { await model.setCapturing(false) }
+    }
+
+    /// Closes the model once the main loop has ended without ``quit()``, as when the session
+    /// manager ends the session, or the display goes on GNOME 50: capturing stops, so your proxy
+    /// settings go back before Reqly ends, and the session's folder goes. It waits at most five
+    /// seconds; the watcher puts the settings back after that.
+    private func finishClosing() {
+        guard !model.isClosed else { return }
+        let closing = Closing()
+        Task {
+            await model.close()
+            closing.isDone = true
+        }
+        let deadline = monotonicMicroseconds() + 5_000_000
+        // Wakes the loop now and then, so the deadline is seen even while nothing happens.
+        let tick = timeout(50) { true }
+        while !closing.isDone, monotonicMicroseconds() < deadline {
+            g_main_context_iteration(nil, 1)
+        }
+        g_source_remove(tick)
     }
 
     /// Shows the window: a new one the first time, and the one that's open when another launch
@@ -82,14 +118,28 @@ final class App {
         }
     }
 
-    /// The menu's actions, each in one place, calling the feature that owns it.
+    /// The menu's actions, each in one place, calling the feature that owns it. The dialogs open
+    /// once the menu has closed: see ``afterMenu(_:)``.
     private func addActions() {
-        add("set-up-https") { [weak self] in self?.window?.setUpHTTPS() }
+        add("set-up-https") { [weak self] in self?.afterMenu { $0.setUpHTTPS() } }
         add("open-terminal") { [weak self] in self?.window?.openTerminal() }
         add("copy-terminal-setup") { [weak self] in self?.window?.copyTerminalSetup() }
-        add("settings", accelerator: "<Control>comma") { [weak self] in self?.window?.showSettings() }
-        add("about") { [weak self] in self?.window?.showAbout() }
+        add("settings", accelerator: "<Control>comma") { [weak self] in self?.afterMenu { $0.showSettings() } }
+        add("about") { [weak self] in self?.afterMenu { $0.showAbout() } }
         add("quit", accelerator: "<Control>q") { [weak self] in self?.quit() }
+    }
+
+    /// Runs `body` with the window once the main menu, whose entry may have run the action, has
+    /// closed and given the keyboard's focus back to its button. A dialog opened from the entry
+    /// itself would give the focus back to the entry as it closes, in the hidden menu, as
+    /// libadwaita 1.5 does, which leaves the window's shortcuts and Tab doing nothing.
+    private func afterMenu(_ body: @escaping @MainActor (MainWindow) -> Void) {
+        idle { [weak self] in
+            if let window = self?.window {
+                body(window)
+            }
+            return false
+        }
     }
 
     /// Adds the action `app.<name>`, which runs `body`, with its keyboard shortcut.
@@ -114,4 +164,10 @@ final class App {
             g_application_quit(cast(application))
         }
     }
+}
+
+/// Whether closing has finished, for ``App/finishClosing()``.
+@MainActor
+private final class Closing {
+    var isDone = false
 }

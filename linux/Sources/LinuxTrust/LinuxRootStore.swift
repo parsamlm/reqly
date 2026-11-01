@@ -49,16 +49,39 @@ public struct LinuxRootStore: RootStore {
 
     // MARK: RootStore
 
+    /// The root, or `nil` before there's one. Throws ``KeyGone`` when the record says your
+    /// keyring has the key and the keyring has no such item, as after you reset your keyring.
     public func load() throws -> RootIdentity? {
-        guard let data = try keys.load(from: readRecord()?.key) else { return nil }
+        let record = readRecord()
+        guard let data = try keys.load(from: record?.key) else {
+            if record?.key == .keyring, keys.keyring != nil { throw KeyGone() }
+            return nil
+        }
         return try RootIdentity(serialized: data)
     }
 
+    /// Reqly's key isn't in your keyring any more, though the record says it's there, so its
+    /// certificate can't be used. Setting up HTTPS again makes a new one, and ``save(_:)`` takes
+    /// the old one out of the browsers' databases and Firefox's profiles first.
+    public struct KeyGone: LocalizedError, Equatable {
+        public init() {}
+
+        public var errorDescription: String? {
+            "Reqly's key isn't in your keyring any more, so Reqly can't use its certificate. Set up HTTPS "
+                + "again to make a new one."
+        }
+    }
+
     /// Keeps the key, in the keyring if it can, and writes the certificate next to it. A root
-    /// that's kept already stays where it is, so saving it again asks nothing.
+    /// that's kept already stays where it is, so saving it again asks nothing. A new root, made
+    /// because the old one's key was gone, takes the old one's place: the old certificate leaves
+    /// the databases it was added to first, since only its record says where they are.
     public func save(_ root: RootIdentity) throws {
         let certificate = try Self.base64(root)
         var record = readRecord()
+        if let old = record, old.certificate != certificate {
+            removeFromDatabases(old)
+        }
         if record?.certificate != certificate || !isKept(record) {
             let saved = try keys.save(try root.serialized())
             if record?.certificate != certificate {
@@ -70,12 +93,15 @@ public struct LinuxRootStore: RootStore {
         try writeCertificate(root)
     }
 
-    /// Whether at least one place trusts the certificate, which is when Reqly decrypts.
+    /// Whether at least one place trusts the certificate, which is when Reqly decrypts: the
+    /// Chromium snap's database counts too, once you imported the certificate there yourself.
     public func isTrusted(_ root: RootIdentity) -> Bool {
         guard let der = try? root.certificateDER else { return false }
         if ComputerList.contains(der, bundle: computerBundle) { return true }
         guard let certutil = certutil else { return false }
-        return (locations.browserDatabases() + locations.firefoxProfiles()).contains { folder in
+        let folders =
+            locations.browserDatabases() + locations.firefoxProfiles() + locations.chromiumSnapDatabasesOutOfReach()
+        return folders.contains { folder in
             (try? database(folder, certutil).holding(root)) == .trusted
         }
     }
@@ -88,7 +114,7 @@ public struct LinuxRootStore: RootStore {
         let waiting = places(for: root).filter { $0.status == .notTrusted }.map(\.kind)
         let problems = trust(root, in: Set(waiting))
         guard !isTrusted(root) else { return }
-        if problems.values.contains(.cancelled) { throw CertificateStoreError.cancelled }
+        if problems.values.contains(where: \.isDeclined) { throw CertificateStoreError.cancelled }
         let reasons =
             problems.values.compactMap(\.errorDescription)
             + places(for: root).compactMap { place in
@@ -220,16 +246,38 @@ public struct LinuxRootStore: RootStore {
     /// Removes the certificate as ``remove(_:)`` does, and stops waiting for the password dialog
     /// when `cancellation` says so, as when you close it.
     public func remove(_ root: RootIdentity, cancellation: Cancellation?) throws {
-        let certificate = try Self.base64(root)
-        let der = try root.certificateDER
+        try remove(certificate: try Self.base64(root), der: try root.certificateDER, cancellation: cancellation) {
+            database throws(TrustFailure) in try database.remove(root)
+        }
+    }
+
+    /// Removes the certificate the record is about, as ``remove(_:)`` does, when its key has gone
+    /// and ``load()`` throws ``KeyGone``: from each database by its bytes alone, whatever name it
+    /// has there. Returns whether there was a record.
+    @discardableResult
+    public func removeWithoutKey(cancellation: Cancellation? = nil) throws -> Bool {
+        guard let record = readRecord(), let der = Data(base64Encoded: record.certificate).map(Array.init) else {
+            return false
+        }
+        try remove(certificate: record.certificate, der: der, cancellation: cancellation) {
+            database throws(TrustFailure) in try database.removeReqlyCertificate(der: der)
+        }
+        return true
+    }
+
+    private func remove(
+        certificate: String, der: [UInt8], cancellation: Cancellation?,
+        removingFrom: (NSSDatabase) throws(TrustFailure) -> Bool
+    ) throws {
         var record = recordAbout(certificate)
         var left: [String] = []
 
-        // The databases it was added to, and any others it's found in now.
+        // The databases it was added to, and any others it's found in now, such as the Chromium
+        // snap's after you imported it there.
         var seen = Set<String>()
         let folders =
             (record.databases.map { URL(filePath: $0, directoryHint: .isDirectory) }
-            + locations.browserDatabases() + locations.firefoxProfiles())
+            + locations.browserDatabases() + locations.firefoxProfiles() + locations.chromiumSnapDatabasesOutOfReach())
             .filter { seen.insert($0.path).inserted }
         for folder in folders {
             let recorded = record.databases.contains(folder.path)
@@ -242,7 +290,7 @@ public struct LinuxRootStore: RootStore {
                 continue
             }
             do {
-                try database(folder, certutil).remove(root)
+                _ = try removingFrom(database(folder, certutil))
                 record.databases.removeAll { $0 == folder.path }
             } catch {
                 // A database Reqly never added to, which certutil can't read, doesn't hold up the rest.
@@ -255,7 +303,7 @@ public struct LinuxRootStore: RootStore {
             do {
                 try helper.remove(cancellation: cancellation)
                 record.computer = false
-            } catch .cancelled {
+            } catch let problem where problem.isDeclined {
                 try writeRecord(record)
                 throw CertificateStoreError.cancelled
             } catch {
@@ -273,6 +321,23 @@ public struct LinuxRootStore: RootStore {
         try keys.remove(from: record.key)
         for file in [pemFile, bundleFile, recordFile] {
             try PrivateFile.remove(file)
+        }
+        // The folder too, once nothing else of Reqly's is in it.
+        rmdir(file.deletingLastPathComponent().path)
+    }
+
+    /// Takes the certificate `old` is about out of the databases it lists, and the ones found
+    /// now, by its bytes, as far as certutil can: a certificate nothing can remove once its record
+    /// has gone mustn't stay trusted.
+    private func removeFromDatabases(_ old: Record) {
+        guard let certutil, let der = Data(base64Encoded: old.certificate).map(Array.init) else { return }
+        var seen = Set<String>()
+        let folders =
+            (old.databases.map { URL(filePath: $0, directoryHint: .isDirectory) } + locations.browserDatabases()
+            + locations.firefoxProfiles() + locations.chromiumSnapDatabasesOutOfReach())
+            .filter { seen.insert($0.path).inserted && FileManager.default.fileExists(atPath: $0.path) }
+        for folder in folders {
+            _ = try? database(folder, certutil).removeReqlyCertificate(der: der)
         }
     }
 
@@ -362,7 +427,7 @@ public struct LinuxRootStore: RootStore {
         case .unavailable, .notAllowed:
             return reason + " To take it out yourself, run these in a terminal, then remove it again:\n"
                 + ComputerList.commandsToRemove(uid: uid)
-        case .cancelled, .noPasswordDialog, .failed:
+        case .cancelled, .refused, .noPasswordDialog, .failed:
             return reason
         }
     }

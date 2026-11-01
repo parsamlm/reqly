@@ -143,6 +143,13 @@ final class HTTPSModel {
         return ComputerList.commandsToRemove(uid: store.helper.uid)
     }
 
+    /// Whether the Chromium snap is installed and can't read the trust Reqly adds, so Settings ›
+    /// HTTPS lists it under Not Covered. Never for a test run.
+    var isChromiumSnapOutOfReach: Bool {
+        guard case .linux(let store) = store else { return false }
+        return store.locations.isChromiumSnapOutOfReach
+    }
+
     /// The certificate's files for a terminal set up for Reqly, once HTTPS is set up and both are
     /// there. A test run's stand-in has none.
     var terminalCertificates: TerminalSetup.Certificates? {
@@ -235,8 +242,12 @@ final class HTTPSModel {
 
     /// Makes the certificate if there isn't one, keeps it, adds it to the places of `kinds`, then
     /// has the session read it again. Each step may wait: for the keyring's question, certutil, or
-    /// an administrator's password, which `cancellation` stops waiting for.
-    func setUp(trusting kinds: Set<TrustPlace.Kind>, cancellation: Cancellation) async -> SetupResult {
+    /// an administrator's password, which `cancellation` stops waiting for. `keyKept` runs once
+    /// the key is kept, before the places.
+    func setUp(
+        trusting kinds: Set<TrustPlace.Kind>, cancellation: Cancellation,
+        keyKept: @escaping @Sendable @MainActor () -> Void = {}
+    ) async -> SetupResult {
         // Such as a setup still waiting for the keyring after you closed its dialog.
         guard !isWorking else { return SetupResult(failure: Self.busy) }
         isWorking = true
@@ -250,8 +261,17 @@ final class HTTPSModel {
         case .linux(let store):
             let made = await onOwnThread { () -> Result<(RootIdentity, [TrustPlace.Kind: TrustProblem]), Failure> in
                 do {
-                    let root = try store.load() ?? RootIdentity.create()
+                    // With its key gone, the old certificate makes way for a new one, which saving
+                    // takes it out of your browsers for.
+                    let kept: RootIdentity?
+                    do {
+                        kept = try store.load()
+                    } catch is LinuxRootStore.KeyGone {
+                        kept = nil
+                    }
+                    let root = try kept ?? RootIdentity.create()
                     try store.save(root)
+                    Task { @MainActor in keyKept() }
                     // Cancelled while the keyring asked: the certificate is kept, and trusted nowhere.
                     guard !cancellation.isCancelled else { return .success((root, [:])) }
                     return .success((root, store.trust(root, in: kinds, cancellation: cancellation)))

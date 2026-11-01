@@ -18,6 +18,7 @@ extension SelfCheck {
         Part(name: "general") { try await $0.checkGeneral() },
         Part(name: "restore") { try await $0.checkRestore() },
         Part(name: "signals") { try await $0.checkSignals() },
+        Part(name: "logout", seconds: 45) { try await $0.checkLogout() },
         Part(name: "single-instance", seconds: 45) { try await $0.checkSingleInstance() },
         Part(name: "terminal") { try await $0.checkTerminal() },
         Part(name: "icons") { try await $0.checkIcons() },
@@ -211,9 +212,11 @@ extension SelfCheck {
         let standIn = try standInFile()
         let desktopProxy = model.desktopProxy
         let environment = desktopProxy.environment
+        let openedTerminal = model.openedTerminal
+        model.openedTerminal = false
         defer {
             desktopProxy.environment = environment
-            model.changed()
+            model.openedTerminal = openedTerminal
         }
         let terminals = try scratchFolder("status")
         for program in ["gnome-terminal", "ptyxis"] {
@@ -232,7 +235,7 @@ extension SelfCheck {
         ]
         let stopped =
             "Not capturing · Port \(port) · GNOME Terminal and Ptyxis tabs opened while capturing still point "
-            + "at Reqly, so open a new tab"
+            + "at Reqly, so open a new window"
         for (desktop, settings, said) in cases {
             desktopProxy.environment["XDG_CURRENT_DESKTOP"] = desktop
             try JSONEncoder().encode(settings).write(to: standIn)
@@ -247,6 +250,14 @@ extension SelfCheck {
             try require(statusLine == stopped, "on \(desktop), once stopped, it says \(statusLine)")
         }
         note("once stopped: \(stopped)")
+        // The terminals Open Terminal opened keep the variables too.
+        model.openedTerminal = true
+        let withOpened =
+            "Not capturing · Port \(port) · GNOME Terminal and Ptyxis tabs opened while capturing, and the terminals "
+            + "Reqly opened, still point at Reqly, so open a new window"
+        try require(statusLine == withOpened, "after Open Terminal, once stopped, it says \(statusLine)")
+        note("after Open Terminal: \(withOpened)")
+        model.openedTerminal = false
         note("tooltip: the whole status line each time")
         desktopProxy.environment["PATH"] = "/nonexistent"
         model.changed()
@@ -341,6 +352,53 @@ extension SelfCheck {
         let left = (try? FileManager.default.contentsOfDirectory(atPath: files.sessions.path)) ?? []
         try require(left.isEmpty, "its sessions folder still has \(left.joined(separator: ", "))")
         note("SIGTERM: it ended with status 0, the stand-in back as it was, and no session left")
+    }
+
+    /// Logging out: the session manager tells GTK the session is ending, which Reqly hears as it
+    /// registers with it, and capturing stops while the desktop is still there; then GTK ends the
+    /// main loop, without Reqly's quit, and Reqly still closes its session before it ends. A copy
+    /// of Reqly, given `--app-id`, plays the session manager's part on itself.
+    func checkLogout() async throws {
+        if app.options.appID != nil {
+            try await endThisSession()
+            return
+        }
+        let files = try ChildFiles("logout", in: scratch)
+        try JSONEncoder().encode(Self.yourProxySettings).write(to: files.standIn)
+        let report = scratch.appending(path: "logout-\(UUID().uuidString).txt")
+        let child = try ChildRun(
+            files.arguments() + [
+                "--app-id", "net.reqly.SelfCheck.Logout\(getpid())", "--starts-capturing", "yes", "--port", "0",
+                "--smoke", report.path, "--smoke-parts", "logout",
+            ])
+        defer { child.stop() }
+        let status = await child.wait()
+        let stopped = FileManager.default.fileExists(atPath: report.path + ".stopped")
+        note("Reqly \(child.identifier): \(stopped ? "the session's end stopped capturing" : "still capturing")")
+        try require(stopped, "the session's end didn't stop capturing")
+        try require(status == 0, "it ended with \(status.map(String.init) ?? "a signal")")
+        try require(try hasYourSettings(files.standIn), "the stand-in isn't as it was")
+        try require(!FileManager.default.fileExists(atPath: files.restoreFile.path), "the restore file is still there")
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: files.sessions.path)) ?? []
+        try require(left.isEmpty, "its sessions folder still has \(left.joined(separator: ", "))")
+        note("once its main loop ended without quitting: status 0, the stand-in back as it was, and no session left")
+    }
+
+    /// The copy's side of logout: what the session manager's query-end runs, then the end of the
+    /// main loop, while capturing. Reqly ends before this returns.
+    private func endThisSession() async throws {
+        try require(
+            boolProperty(raw(app.application), "register-session"), "Reqly doesn't register with the session manager")
+        let queryEnd = g_signal_lookup("query-end", adw_application_get_type())
+        try require(g_signal_has_handler_pending(raw(app.application), queryEnd, 0, 0) != 0, "nothing hears query-end")
+        try await until("Reqly to capture", seconds: 20) { model.capture == .capturing }
+        app.sessionEnding()
+        try await until("capturing to stop") { model.capture == .stopped }
+        _ = FileManager.default.createFile(atPath: report.path + ".stopped", contents: nil)
+        try await setCapture(on: true)
+        // As GTK does once the session manager ends the session: the main loop ends.
+        g_application_quit(cast(app.application))
+        try await Task.sleep(for: .seconds(60))
     }
 
     /// Two runs under the same application ID: the second hands its launch to the first, which
@@ -460,12 +518,20 @@ extension SelfCheck {
         let data = try present(ProcessInfo.processInfo.environment["XDG_DATA_HOME"], "there's no XDG_DATA_HOME")
         let applications = URL(filePath: data).appending(path: "applications")
         try FileManager.default.createDirectory(at: applications, withIntermediateDirectories: true)
-        let image = try scratchFolder("icons").appending(path: "self-check.svg")
-        try "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16'/></svg>"
-            .write(to: image, atomically: true, encoding: .utf8)
+        let iconFolder = try scratchFolder("icons")
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16'/></svg>"
+        let image = iconFolder.appending(path: "self-check.svg")
+        try svg.write(to: image, atomically: true, encoding: .utf8)
+        // An icon the theme has: one in a folder GTK is told to look in, as hicolor's are found.
+        let themedName = "net.reqly.SelfCheck.Icon"
+        let themedImage = iconFolder.appending(path: "\(themedName).svg")
+        try svg.write(to: themedImage, atomically: true, encoding: .utf8)
+        let theme = try present(gtk_icon_theme_get_for_display(gdk_display_get_default()), "there's no icon theme")
+        gtk_icon_theme_add_search_path(theme, iconFolder.path)
         let themedID = "net.reqly.SelfCheck.Themed"
+        let missingID = "net.reqly.SelfCheck.Missing"
         let fileID = "net.reqly.SelfCheck.File"
-        for (id, icon) in [(themedID, "utilities-terminal"), (fileID, image.path)] {
+        for (id, icon) in [(themedID, themedName), (missingID, "net.reqly.SelfCheck.Nowhere"), (fileID, image.path)] {
             try "[Desktop Entry]\nType=Application\nName=\(id)\nExec=/usr/bin/\(id)\nIcon=\(icon)\n"
                 .write(to: applications.appending(path: "\(id).desktop"), atomically: true, encoding: .utf8)
         }
@@ -473,16 +539,29 @@ extension SelfCheck {
         let entries = icons.entries
         // The entries are read again once their folder has changed, a few seconds at most.
         let deadline = monotonicMicroseconds() + 10_000_000
-        while await !onOwnThread({ entries.entry(id: themedID) != nil && entries.entry(id: fileID) != nil }) {
+        while await !onOwnThread({
+            [themedID, missingID, fileID].allSatisfy { entries.entry(id: $0) != nil }
+        }) {
             try require(monotonicMicroseconds() < deadline, "the entries weren't read")
             try await Task.sleep(for: .milliseconds(200))
         }
 
         let themedSource = Source(name: "Themed", bundleID: themedID, path: "/usr/bin/\(themedID)")
         let themed = try await icon(for: themedSource, in: icons)
-        note("Icon=utilities-terminal: \(typeName(raw(themed))) \(themedNames(themed).joined(separator: ", "))")
+        note("Icon=\(themedName): \(typeName(raw(themed))) \(themedNames(themed).joined(separator: ", "))")
         try require(typeName(raw(themed)) == "GThemedIcon", "it's a \(typeName(raw(themed)))")
-        try require(themedNames(themed).first == "utilities-terminal", "it names \(themedNames(themed))")
+        // Its own name, with no program's after it, which GTK would take from the theme over
+        // hicolor's app icon. GIO adds each name's symbolic form.
+        try require(
+            themedNames(themed).first == themedName && !themedNames(themed).contains(AppIcon.genericName),
+            "it names \(themedNames(themed))")
+        let drawn = gtk_icon_theme_lookup_by_gicon(theme, themed, 16, 1, GTK_TEXT_DIR_NONE, GtkIconLookupFlags(0))
+        let drawnPath = drawn.flatMap { gtk_icon_paintable_get_file($0) }.flatMap { takeString(g_file_get_path($0)) }
+        note("drawn from \(drawnPath ?? "nothing")")
+        try require(drawnPath == themedImage.path, "GTK draws it from \(drawnPath ?? "nothing")")
+        let missing = try await icon(for: Source(name: "Missing", bundleID: missingID), in: icons)
+        note("an icon no theme has: \(themedNames(missing).joined(separator: ", "))")
+        try require(themedNames(missing).first == AppIcon.genericName, "it names \(themedNames(missing))")
 
         let file = try await icon(for: Source(name: "File", bundleID: fileID), in: icons)
         let path =

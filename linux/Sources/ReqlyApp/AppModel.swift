@@ -35,6 +35,11 @@ final class AppModel {
     var problem: String? {
         didSet { changed() }
     }
+    /// Whether Open Terminal has opened a terminal in this run, whose shell points at Reqly
+    /// whether it captures or not.
+    var openedTerminal = false {
+        didSet { changed() }
+    }
 
     private var observers: [@MainActor () -> Void] = []
     private var listeners: [@MainActor (Event) -> Void] = []
@@ -42,6 +47,8 @@ final class AppModel {
     /// The latest start or stop of capturing. The next one waits for it, and so does quitting.
     private var captureChange: Task<Void, Never>?
     private var isClosing = false
+    /// Whether ``close()`` has finished.
+    private(set) var isClosed = false
 
     init(options: Options, folders: AppFolders) {
         self.options = options
@@ -148,6 +155,7 @@ final class AppModel {
     /// finishes first.
     func close() async {
         isClosing = true
+        defer { isClosed = true }
         await opening?.value
         await captureChange?.value
         guard let session else { return }

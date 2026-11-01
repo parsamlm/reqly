@@ -18,6 +18,9 @@ do {
     StandardError.write("reqly: \(error)\n")
     exit(2)
 }
+// A line at a time, so nothing is lost when a test run stops Reqly, and what
+// --remove-certificate prints comes in order with its standard error in a pipe or over SSH.
+lineBufferedOutput()
 switch options.command {
 case .removeCertificate:
     exit(removeCertificateFromCommandLine(options: options))
@@ -39,8 +42,6 @@ if let report = options.smokeReport, let refusal = SelfCheck.refusal(options: op
 // A Reqly started from a terminal set up for it would otherwise send its own requests through
 // itself.
 TerminalSetup.removeProxyVariablesFromThisProcess()
-// A line at a time, so nothing is lost when a test run stops Reqly.
-lineBufferedOutput()
 if let logFile = options.logFile {
     let fd = open(logFile, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o600)
     if fd >= 0 {

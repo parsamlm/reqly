@@ -59,6 +59,26 @@ public enum Programs {
         return status & 0x7F == 0 ? (status >> 8) & 0xFF : nil
     }
 
+    /// Waits up to `seconds` for child `pid` to end, and returns its exit status if it did, or
+    /// -1 when a signal stopped it. When it's still running, it's left to run, reaped once it
+    /// ends, and this returns `nil`.
+    public static func ended(_ pid: pid_t, within seconds: Double) -> Int32? {
+        let pidfd = reqly_pidfd_open(pid)
+        guard pidfd >= 0 else {
+            reapWhenDone(pid)
+            return nil
+        }
+        let ended = reqly_pidfd_wait(pidfd, Int32(seconds * 1000))
+        close(pidfd)
+        guard ended == 1 else {
+            reapWhenDone(pid)
+            return nil
+        }
+        var status: Int32 = 0
+        while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
+        return status & 0x7F == 0 ? (status >> 8) & 0xFF : -1
+    }
+
     /// Reaps child `pid` once it ends, on a thread of its own, so it doesn't linger as a zombie.
     public static func reapWhenDone(_ pid: pid_t) {
         let thread = Thread {

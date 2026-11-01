@@ -31,13 +31,16 @@ public struct SystemdUnit: Hashable, Sendable {
     public var pid: Int32?
 
     /// Desktop IDs of terminals, whose units hold the commands you run in them. Terminals whose
-    /// desktop entries Reqly finds are known by their TerminalEmulator category too.
+    /// desktop entries Reqly finds are known by their TerminalEmulator category too. The last two
+    /// name the default terminal in the scope Open Terminal starts it in, when Reqly can't tell
+    /// which it is.
     public static let terminals: Set<String> = [
         "org.gnome.Terminal", "org.gnome.Ptyxis", "org.gnome.Console", "org.kde.konsole", "org.kde.yakuake",
         "xterm", "debian-xterm", "debian-uxterm", "uxterm", "com.gexperts.Tilix", "terminator",
         "xfce4-terminal", "org.xfce.terminal", "mate-terminal", "lxterminal", "qterminal",
         "io.elementary.terminal", "kitty", "Alacritty", "org.wezfurlong.wezterm", "com.mitchellh.ghostty",
         "foot", "footclient", "org.codeberg.dnkl.foot", "guake", "tilda", "terminology", "cool-retro-term",
+        "xdg-terminal-exec", "x-terminal-emulator",
     ]
 
     /// The unit of the cgroup at `path`, such as

@@ -8,8 +8,11 @@ import Synchronization
 /// process that has the socket open says which program, or which Android emulator, it is. Its
 /// name comes from the app's desktop entry.
 ///
-/// Ask while the connection is open, as the core does as it accepts one: a closed socket has no
-/// owner. A lookup takes a fraction of a millisecond once the desktop entries are read.
+/// Ask while the connection is open: a closed socket has no owner, and a quick client, such as
+/// curl, may have ended by the time the core asks, a moment after it accepts the connection. So
+/// the lookup reads the process that has the socket first, before the desktop entries name it,
+/// and the entries and the cgroups are read as the lookup is made, before the first connection.
+/// A lookup takes a fraction of a millisecond once they're read.
 public final class AppLookup: Sendable {
     /// A connection, by its two ports.
     private struct Connection: Hashable {
@@ -48,8 +51,10 @@ public final class AppLookup: Sendable {
         self.entries = entries
         self.cgroups = cgroups
         self.proc = proc
-        // Reads the desktop entries now, so the first connection doesn't wait for them.
-        Task.detached(priority: .utility) { [entries] in
+        // Reads the desktop entries and your cgroups now, so the first connection doesn't wait
+        // for them.
+        Task.detached(priority: .utility) { [entries, cgroups] in
+            cgroups.walkYourSlice(uid: getuid())
             _ = entries.version
         }
     }
@@ -87,6 +92,7 @@ public final class AppLookup: Sendable {
             order.append(pid)
         }
         var (holder, hidden) = Processes.holder(ofSocket: owner.inode, among: order, in: proc)
+        hidden = Self.mayHold(hidden, uid: owner.uid, in: proc)
         // A socket keeps the cgroup it was made in, so its process may have moved since, as a
         // command started as a GNOME Terminal window opens does. Another user's processes can't
         // be read.
@@ -106,9 +112,13 @@ public final class AppLookup: Sendable {
         // A process that hides its open files, such as ssh-agent, still shows its name. When it's
         // the only one in the cgroup that does, it's the one.
         let pid = holder ?? (hidden.count == 1 ? hidden[0] : nil)
+        // Read at once, before anything that may wait, such as the desktop entries: a quick
+        // client may end any moment.
+        let started = pid.flatMap { Processes.startTime(of: $0, in: proc) }
+        let process = pid.flatMap { Processes.read($0, in: proc) }
 
         let credited = pid.flatMap { pid in
-            Processes.startTime(of: pid, in: proc).map {
+            started.map {
                 // Found again once its cgroup's folder is known, if it wasn't this time.
                 Credited(cgroup: path == nil ? 0 : owner.cgroupID ?? 0, pid: pid, started: $0, entries: entries.version)
             }
@@ -116,7 +126,11 @@ public final class AppLookup: Sendable {
         if let credited, let known = state.withLock({ $0.credits[credited] }) {
             return known
         }
-        let process = pid.flatMap { Processes.read($0, in: proc) }
+        // Your own service whose process has gone, such as a command `systemd-run` ran, is named
+        // by its unit only by chance, as `run-p12651-i12951.service`.
+        if process == nil, case .service = unit.kind, owner.uid == getuid() {
+            return nil
+        }
         let origin = origin(of: process, unit: unit, members: members)
         if let credited, !(process?.path.map(EmulatorProcesses.isEmulatorWiFi) ?? false) {
             // The emulators netsimd works for come and go, so its device is found afresh each time.
@@ -128,6 +142,13 @@ public final class AppLookup: Sendable {
             }
         }
         return origin
+    }
+
+    /// The processes among `hidden`, which hide their open files, that may have a socket of
+    /// user `uid`'s: that user's own. Another user's can't, such as GDM's root session worker in
+    /// a login's session scope, where some desktops leave the apps they start.
+    static func mayHold(_ hidden: [Int32], uid: UInt32, in proc: String) -> [Int32] {
+        hidden.filter { Processes.uid(of: $0, in: proc) == uid }
     }
 
     private func origin(of process: RunningProcess?, unit: SystemdUnit, members: [Int32]) -> Origin? {

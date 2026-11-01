@@ -42,6 +42,8 @@ final class SetUpDialog {
     private let failure: Widget
     /// The kind of each switch row, in order.
     private var switches: [(kind: TrustPlace.Kind, row: Widget)] = []
+    /// What keeping the key in your keyring involves, as last read, for the progress line.
+    private var keyring: KeyringState?
     /// The setup this opening started, while it's under way.
     private var cancellation: Cancellation?
     /// Counts the openings, so what an earlier one started shows nothing in a later one.
@@ -141,6 +143,7 @@ final class SetUpDialog {
         await https.readPlaces()
         let keyring = await https.keyringState()
         guard opening == self.opening, isShowing else { return }
+        self.keyring = keyring
         showPlaces()
         adw_action_row_set_subtitle(cast(keyRow), keyText(keyring))
         isReady = true
@@ -155,22 +158,24 @@ final class SetUpDialog {
         HTTPSWidgets.show(progress, https.isWorking ? "Reqly is still busy with its certificate…" : nil)
     }
 
+    /// Shows each place in its row. A place keeps its row from one opening to the next, changed
+    /// in place: libadwaita's dialog remembers the row that had the focus, and one made again in
+    /// its place would leave it remembering a row that's gone.
     private func showPlaces() {
-        for row in placeRows {
-            adw_preferences_group_remove(cast(placesGroup), row)
-        }
-        switches = []
+        var rows: [Widget] = []
         if https.isStandIn {
-            placeRows = [
-                HTTPSWidgets.row(
-                    "Test Run's Certificate",
-                    "It counts as trusted, so Reqly decrypts with it while nothing on this computer trusts it: not "
-                        + "your browsers, Firefox or the computer's list.")
-            ]
+            rows =
+                placeRows.isEmpty
+                ? [
+                    HTTPSWidgets.row(
+                        "Test Run's Certificate",
+                        "It counts as trusted, so Reqly decrypts with it while nothing on this computer trusts it: "
+                            + "not your browsers, Firefox or the computer's list.")
+                ] : placeRows
         } else {
-            placeRows = https.places.map { place in
-                let row = adw_switch_row_new()!
-                adw_preferences_row_set_use_markup(cast(row), 0)
+            let before = switches
+            switches = https.places.map { place in
+                let row = before.first { $0.kind == place.kind }?.row ?? Self.switchRow()
                 adw_preferences_row_set_title(cast(row), place.title)
                 adw_action_row_set_subtitle(
                     cast(row),
@@ -178,13 +183,23 @@ final class SetUpDialog {
                 // Unavailable places, and places with nothing to add it to, show why, switched off.
                 adw_switch_row_set_active(cast(row), cBool(place.canTrust || place.status == .trusted))
                 gtk_widget_set_sensitive(row, cBool(place.canTrust))
-                switches.append((place.kind, row))
-                return row
+                return (place.kind, row)
             }
+            rows = switches.map(\.row)
         }
-        for row in placeRows {
+        for row in placeRows where !rows.contains(row) {
+            adw_preferences_group_remove(cast(placesGroup), row)
+        }
+        for row in rows where !placeRows.contains(row) {
             adw_preferences_group_add(cast(placesGroup), row)
         }
+        placeRows = rows
+    }
+
+    private static func switchRow() -> Widget {
+        let row = adw_switch_row_new()!
+        adw_preferences_row_set_use_markup(cast(row), 0)
+        return row
     }
 
     /// Where the key goes, and what Linux will ask before it's kept, so its question comes as no
@@ -224,16 +239,36 @@ final class SetUpDialog {
             gtk_widget_set_sensitive(row, 0)
         }
         HTTPSWidgets.say(failure, nil)
+        let asks = https.keyDescription == nil ? keyring : nil
         HTTPSWidgets.show(
-            progress,
-            kinds.contains(.computer)
-                ? "Setting up HTTPS. Linux asks for an administrator's password…" : "Setting up HTTPS…")
+            progress, Self.progressText(keyring: asks, keyKept: false, trustsComputer: kinds.contains(.computer)))
         let https = https
         let opening = opening
         Task { [weak self] in
-            let result = await https.setUp(trusting: kinds, cancellation: cancellation)
+            let result = await https.setUp(trusting: kinds, cancellation: cancellation) { [weak self] in
+                // The key is kept: the administrator's password comes next.
+                guard let self, opening == self.opening, self.cancellation === cancellation else { return }
+                HTTPSWidgets.show(
+                    self.progress,
+                    Self.progressText(keyring: nil, keyKept: true, trustsComputer: kinds.contains(.computer)))
+            }
             guard let self, opening == self.opening else { return }
             finish(result)
+        }
+    }
+
+    /// What the progress line says while Reqly sets up HTTPS, naming the question Linux asks at
+    /// each step: the keyring's, while the key is kept, as `keyring` says it will ask, then an
+    /// administrator's password, for the computer's list.
+    nonisolated static func progressText(keyring: KeyringState?, keyKept: Bool, trustsComputer: Bool) -> String {
+        switch keyring {
+        case .locked? where !keyKept:
+            return "Setting up HTTPS. Linux asks for your keyring's password…"
+        case .needsNewKeyring? where !keyKept:
+            return "Setting up HTTPS. Linux asks you to choose a password for a new keyring…"
+        default:
+            return trustsComputer
+                ? "Setting up HTTPS. Linux asks for an administrator's password…" : "Setting up HTTPS…"
         }
     }
 
@@ -313,6 +348,9 @@ final class SetUpDialog {
     private func outcome(of place: TrustPlace, _ problem: TrustProblem?) -> String {
         switch problem {
         case .cancelled?: "You closed the password dialog. You can trust it later in Settings, under HTTPS."
+        case .refused?:
+            "The password dialog was closed, or the password wasn't accepted. You can trust it later in Settings, "
+                + "under HTTPS."
         case let problem?: problem.errorDescription ?? place.detail
         case nil where place.kind == .computer: HTTPSWidgets.detail(of: place, byHand: https.commandsToTrustByHand)
         case nil: HTTPSWidgets.detail(of: place)

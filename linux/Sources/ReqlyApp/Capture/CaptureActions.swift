@@ -47,7 +47,8 @@ extension AppModel {
         return CaptureStatus(
             capture: capture, port: port, problem: problem,
             proxySet: capture == .capturing ? desktopProxy.proxySet : [], chrome: desktopProxy.chrome,
-            terminalsKeepingProxy: stoppedAfterGNOME ? desktopProxy.terminalsFollowingGNOME : []
+            terminalsKeepingProxy: stoppedAfterGNOME ? desktopProxy.terminalsFollowingGNOME : [],
+            openedTerminalsKeepProxy: capture == .stopped && desktopProxy.hasStopped && openedTerminal
         ).text
     }
 }

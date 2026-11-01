@@ -418,5 +418,35 @@ import Testing
         #expect(DesktopEntries.installFolder(of: "/usr/lib/x86_64-linux-gnu/helper") == nil)
         #expect(DesktopEntries.installFolder(of: "/var/lib/flatpak/exports/bin/org.mozilla.firefox") == nil)
         #expect(DesktopEntries.installFolder(of: "/bin/sh") == nil)
+        // Helpers' folders many programs share: Debian's libexec for each architecture, where
+        // xdg-desktop-portal-kde is, and KDE Frameworks' folder in it, where kioworker is.
+        #expect(DesktopEntries.installFolder(of: "/usr/lib/aarch64-linux-gnu/libexec/xdg-desktop-portal-kde") == nil)
+        #expect(DesktopEntries.installFolder(of: "/usr/lib/x86_64-linux-gnu/libexec/kf6/kioworker") == nil)
+        #expect(DesktopEntries.installFolder(of: "/usr/local/libexec/helper") == nil)
+        #expect(DesktopEntries.installFolder(of: "/usr/lib/libexec/helper") == nil)
+        #expect(DesktopEntries.installFolder(of: "/usr/libexec/kf6/kioworker") == nil)
+        #expect(DesktopEntries.installFolder(of: "/usr/lib/aarch64-linux-gnu/libexec/geoclue-2.0/demos/agent") != nil)
+        #expect(DesktopEntries.installFolder(of: "/opt/app/libexec/helper") == "/opt/app/libexec")
+    }
+
+    /// KDE's kioworker, under the same libexec folder as xdg-desktop-portal-kde's program, isn't
+    /// taken for the portal, as it was when that folder counted as the portal's own.
+    @Test func doesNotTakeAHelperForAnotherInTheSameLibexec() throws {
+        let fixture = try Fixture()
+        let libexec = fixture.path("usr/lib/aarch64-linux-gnu/libexec")
+        try fixture.write(
+            "applications/org.freedesktop.impl.portal.desktop.kde.desktop",
+            "[Desktop Entry]\nType=Application\nName=Portal\nExec=\(libexec)/xdg-desktop-portal-kde\nNoDisplay=true\n")
+        try fixture.write("usr/lib/aarch64-linux-gnu/libexec/xdg-desktop-portal-kde", "", executable: true)
+        try fixture.write("usr/lib/aarch64-linux-gnu/libexec/kf6/kioworker", "", executable: true)
+        let entries = DesktopEntries(
+            folders: [.init(path: fixture.root + "/applications")], locales: [], searchPath: [], interval: .zero)
+        let kioworker = RunningProcess(
+            pid: 1, path: libexec + "/kf6/kioworker", name: "kioworker", arguments: [libexec + "/kf6/kioworker"])
+        #expect(entries.entry(for: kioworker) == nil)
+        let portal = RunningProcess(
+            pid: 2, path: libexec + "/xdg-desktop-portal-kde", name: "xdg-desktop-portal-kde",
+            arguments: [libexec + "/xdg-desktop-portal-kde"])
+        #expect(entries.entry(for: portal)?.name == "Portal")
     }
 }

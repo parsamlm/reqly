@@ -219,7 +219,9 @@ final class RequestList {
             self?.unbind(arguments.object(1)!)
         }
         let viewColumn = gtk_column_view_column_new(column.title, factory)
-        if let width = column.width {
+        if column == .method {
+            gtk_column_view_column_set_fixed_width(viewColumn, methodWidth())
+        } else if let width = column.width {
             gtk_column_view_column_set_fixed_width(viewColumn, width)
         } else {
             gtk_column_view_column_set_expand(viewColumn, 1)
@@ -227,6 +229,21 @@ final class RequestList {
         gtk_column_view_column_set_resizable(viewColumn, 1)
         gtk_column_view_append_column(cast(view), viewColumn)
         g_object_unref(raw(viewColumn))
+    }
+
+    /// The Method column's width: room for the longest method, CONNECT, and the column's title,
+    /// in the window's font, with the cell's padding, and at least the width it starts with
+    /// elsewhere. GNOME 48's font, Adwaita Sans, is wider than the fonts before it.
+    func methodWidth() -> Int32 {
+        var widest: Int32 = 0
+        for text in ["CONNECT", "OPTIONS", Column.method.title] {
+            guard let layout = gtk_widget_create_pango_layout(view, text) else { continue }
+            var width: Int32 = 0
+            pango_layout_get_pixel_size(layout, &width, nil)
+            g_object_unref(raw(layout))
+            widest = max(widest, width)
+        }
+        return max(Column.method.width ?? 0, widest + 28)
     }
 
     /// A cell's widgets: a label, and before it an icon for the app, or a lock for the status.

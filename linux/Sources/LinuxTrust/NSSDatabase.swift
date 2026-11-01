@@ -72,8 +72,22 @@ struct NSSDatabase: Sendable {
     /// it is when another certificate shares the name, since certutil removes by name.
     @discardableResult
     func remove(_ root: RootIdentity) throws(TrustFailure) -> Bool {
-        let der = try Self.der(of: root)
-        let name = Self.nickname(of: root)
+        try remove(der: try Self.der(of: root), name: Self.nickname(of: root))
+    }
+
+    /// Removes a certificate of Reqly's by its bytes alone, under whichever of Reqly's names it's
+    /// filed, as for one whose key has gone. Returns whether it was there.
+    @discardableResult
+    func removeReqlyCertificate(der: [UInt8]) throws(TrustFailure) -> Bool {
+        for name in try nicknames() where name.hasPrefix("Reqly CA") {
+            if try remove(der: der, name: name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func remove(der: [UInt8], name: String) throws(TrustFailure) -> Bool {
         let found = try certificates(named: name)
         guard found.contains(der) else { return false }
         guard found.count == 1 else {
@@ -92,6 +106,25 @@ struct NSSDatabase: Sendable {
     }
 
     // MARK: -
+
+    /// The name of each certificate in the database, once each. A folder with no database yet
+    /// has none.
+    private func nicknames() throws(TrustFailure) -> [String] {
+        guard FileManager.default.fileExists(atPath: folder.appending(path: "cert9.db").path) else { return [] }
+        let listed = try certutil(["-L", "-d", location])
+        guard listed.status == 0 else { throw failure("read", listed) }
+        var names: [String] = []
+        // Each line is the name, then the trust flags, as holding(_:) reads them.
+        for line in String(decoding: listed.output, as: UTF8.self).split(separator: "\n") {
+            let line = line.trimmingCharacters(in: .whitespaces)
+            guard let flags = line.split(whereSeparator: \.isWhitespace).last, flags.contains(",") else { continue }
+            let name = line.dropLast(flags.count).trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty, !names.contains(name) {
+                names.append(name)
+            }
+        }
+        return names
+    }
 
     /// The database as certutil names it: its folder, in SQLite's format.
     private var location: String { "sql:\(folder.path)" }

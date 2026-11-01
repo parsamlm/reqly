@@ -16,6 +16,14 @@ enum AppIcon: Hashable, Sendable {
     /// A program's icon, in the themes Ubuntu and Debian have, Adwaita among them.
     static let genericName = "application-x-executable"
 
+    /// The names a themed icon goes by in its GIcon: its own while your theme, or hicolor after
+    /// it, has it, and otherwise a program's. Never both: GTK looks for all of an icon's names in
+    /// each theme before it moves on to the next, and hicolor, where most apps install their
+    /// icons, comes last, so your theme's program icon would win over the app's own.
+    static func names(for name: String, themeHas: (String) -> Bool) -> [String] {
+        [themeHas(name) ? name : genericName]
+    }
+
     /// The icon `Icon=` names: a file when it's an absolute path, and otherwise a name in your icon
     /// theme, without the extension some entries add, such as `.png`.
     init(entryIcon: String) {
@@ -92,8 +100,8 @@ final class AppIcons {
         return nil
     }
 
-    /// The GIcon that shows `icon`: a themed one falls back to a program's when your theme doesn't
-    /// have it.
+    /// The GIcon that shows `icon`: a themed one is a program's when neither your theme nor
+    /// hicolor has it.
     func gicon(_ icon: AppIcon) -> OpaquePointer {
         if let gicon = made[icon] {
             return gicon
@@ -101,8 +109,11 @@ final class AppIcons {
         let gicon: OpaquePointer
         switch icon {
         case .themed(let name):
-            gicon = g_themed_icon_new(name)
-            g_themed_icon_append_name(cast(gicon), AppIcon.genericName)
+            let theme = gdk_display_get_default().flatMap { gtk_icon_theme_get_for_display($0) }
+            let names = AppIcon.names(for: name) { name in
+                theme.map { gtk_icon_theme_has_icon($0, name) != 0 } ?? true
+            }
+            gicon = g_themed_icon_new(names[0])
         case .file(let path):
             let file = g_file_new_for_path(path)
             gicon = g_file_icon_new(file)

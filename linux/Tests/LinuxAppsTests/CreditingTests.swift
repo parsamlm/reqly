@@ -47,6 +47,20 @@ import Testing
             arguments: arguments ?? [path ?? ""])
     }
 
+    /// What comes from Reqly's own unit is what Reqly started, such as the shell of a terminal
+    /// that stayed in it, so each program is itself, even one outside a `bin` folder.
+    @Test func creditsWhatReqlysUnitHoldsToItself() throws {
+        let fixture = try Fixture()
+        let entries = try entries(fixture)
+        let helper = "/usr/lib/git-core/git-remote-http"
+        let unit = SystemdUnit(cgroupPath: user + "/app-net.reqly.Reqly@3f2a9c41b7d84e1f9d3c2b1a0e9f8d7c.service")
+        #expect(unit.desktopID == "net.reqly.Reqly")
+        let source = Crediting.source(
+            unit: unit, process: process(helper, [helper, "origin", "http://example.com/x.git"]),
+            leader: "/home/you/.local/bin/reqly", entries: entries)
+        #expect(source == Source(name: "git-remote-http", path: helper))
+    }
+
     @Test func creditsATerminalsCommandToItself() throws {
         let fixture = try Fixture()
         let entries = try entries(fixture)

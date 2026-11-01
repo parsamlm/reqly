@@ -39,8 +39,10 @@ public enum Crediting {
         case .app, .flatpak, .snap:
             guard let id = unit.desktopID else { return nil }
             let entry = entry(of: unit, id: id, entries: entries)
-            // A terminal's own units hold the commands you run in it.
-            if entry?.isTerminalEmulator ?? SystemdUnit.terminals.contains(id) {
+            // A terminal's own units hold the commands you run in it. So does Reqly's: its own
+            // requests never come through its port, so what comes from its unit is what it
+            // started, such as the shell of a terminal that stayed there.
+            if entry?.isTerminalEmulator ?? SystemdUnit.terminals.contains(id) || id == reqlyID {
                 return process.map { source(of: $0, entries: entries, flatpakID: flatpakID) }
             }
             if let process, countsAsItself(process, in: unit, entry: entry, leader: leader) {
@@ -56,6 +58,9 @@ public enum Crediting {
             return source(of: process, entries: entries, flatpakID: flatpakID)
         }
     }
+
+    /// Reqly's own desktop ID, which names its units.
+    static let reqlyID = "net.reqly.Reqly"
 
     /// The process's app, from the desktop entry it matches, or the tool it is.
     public static func source(of process: RunningProcess, entries: DesktopEntries, flatpakID: String? = nil) -> Source {

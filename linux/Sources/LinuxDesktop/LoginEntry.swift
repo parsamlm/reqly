@@ -8,21 +8,30 @@ import ReqlyModel
 public struct LoginEntry: Sendable {
     /// The entry's file.
     public var file: URL
+    /// Where Reqly notes that it made the autostart folder for the entry, so the folder goes
+    /// with the entry while nothing else is in it, or `nil` to leave the folder.
+    public var folderNote: URL?
 
     /// The entry's file name, after Reqly's app ID.
     public static let fileName = "net.reqly.Reqly-restore-proxy.desktop"
 
-    public init(file: URL) {
+    public init(file: URL, folderNote: URL? = nil) {
         self.file = file
+        self.folderNote = folderNote
     }
 
-    /// The entry in `XDG_CONFIG_HOME`'s autostart folder, or `~/.config`'s.
+    /// The entry in `XDG_CONFIG_HOME`'s autostart folder, or `~/.config`'s, with its folder's
+    /// note in Reqly's folder in `XDG_STATE_HOME`, or `~/.local/state`'s.
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let home = environment["HOME"].map { URL(filePath: $0, directoryHint: .isDirectory) } ?? URL.homeDirectory
-        let config =
-            environment["XDG_CONFIG_HOME"].flatMap { $0.hasPrefix("/") ? URL(filePath: $0) : nil }
-            ?? home.appending(path: ".config", directoryHint: .isDirectory)
-        self.init(file: config.appending(path: "autostart", directoryHint: .isDirectory).appending(path: Self.fileName))
+        func base(_ variable: String, _ fallback: String) -> URL {
+            environment[variable].flatMap { $0.hasPrefix("/") ? URL(filePath: $0, directoryHint: .isDirectory) : nil }
+                ?? home.appending(path: fallback, directoryHint: .isDirectory)
+        }
+        self.init(
+            file: base("XDG_CONFIG_HOME", ".config").appending(path: "autostart", directoryHint: .isDirectory)
+                .appending(path: Self.fileName),
+            folderNote: base("XDG_STATE_HOME", ".local/state").appending(path: "reqly/MadeAutostartFolder"))
     }
 
     /// The entry's text: it runs `executable --restore-proxy restoreFile`, and shows nowhere.
@@ -44,12 +53,24 @@ public struct LoginEntry: Sendable {
 
     /// Writes the entry, and waits until the disk has it, so it's there after a power cut.
     public func write(executable: String, restoreFile: URL) throws {
+        let folder = file.deletingLastPathComponent()
+        if let folderNote, !FileManager.default.fileExists(atPath: folder.path) {
+            try? FileManager.default.createDirectory(
+                at: folderNote.deletingLastPathComponent(), withIntermediateDirectories: true)
+            _ = FileManager.default.createFile(atPath: folderNote.path, contents: nil)
+        }
         try FileReplacement.writeDurably(
             Data(Self.text(executable: executable, restoreFile: restoreFile).utf8), to: file)
     }
 
+    /// Removes the entry, and the autostart folder when Reqly made it for the entry and nothing
+    /// else has gone in since.
     public func remove() {
         try? FileManager.default.removeItem(at: file)
+        guard let folderNote, FileManager.default.fileExists(atPath: folderNote.path) else { return }
+        // Only an empty folder goes. One with entries of yours in it is yours from now on.
+        rmdir(file.deletingLastPathComponent().path)
+        try? FileManager.default.removeItem(at: folderNote)
     }
 
     public var exists: Bool { FileManager.default.fileExists(atPath: file.path) }

@@ -55,11 +55,13 @@ linux/scripts/app.sh build -c release --product reqly --static-swift-stdlib
 docker run --rm -v reqly-linux-build:/build:ro reqly-linux-dev:noble cat /build/release/reqly > reqly
 ```
 
-Then, on the desktop, with the repository's files beside it, install the program, the desktop file and the icon for your account:
+Then, on the desktop, with the repository's files beside it, install the program, the desktop file and the icon for your account. The desktop file names the program by its full path, since a desktop's own `PATH` may not have `~/.local/bin`: Plasma's never does, and GNOME's only after you log in again:
 
 ```bash
 install -D -m 0755 reqly ~/.local/bin/reqly
-install -D -m 0644 linux/packaging/net.reqly.Reqly.desktop ~/.local/share/applications/net.reqly.Reqly.desktop
+mkdir -p ~/.local/share/applications
+sed "s|^Exec=reqly\$|Exec=\"$HOME/.local/bin/reqly\"|" linux/packaging/net.reqly.Reqly.desktop \
+    > ~/.local/share/applications/net.reqly.Reqly.desktop
 install -D -m 0644 design/logo/exports/reqly-icon.svg ~/.local/share/icons/hicolor/scalable/apps/net.reqly.Reqly.svg
 ```
 
@@ -101,7 +103,9 @@ With `--sets-system-proxy no` in place of the proxy's stand-in, it leaves the pr
   certutil -d sql:$HOME/.pki/nssdb -D -n 'Reqly CA 2026-10-31 12.00'   # removes it there
   ```
 
-  The same goes for `~/.local/share/pki/nssdb`, `~/snap/chromium/current/.pki/nssdb` and each Firefox profile's folder, in `~/.mozilla/firefox`, `~/.config/mozilla/firefox` or `~/snap/firefox/common/.mozilla/firefox`. Remove the key with Passwords and Keys, or with `rm -r ~/.local/share/reqly`.
+  The same goes for `~/.local/share/pki/nssdb`, the Chromium snap's `~/snap/chromium/current/.local/share/pki/nssdb` (or `~/snap/chromium/current/.pki/nssdb` before Chromium 146), and each Firefox profile's folder, in `~/.mozilla/firefox`, `~/.config/mozilla/firefox` or `~/snap/firefox/common/.mozilla/firefox`. Remove the key with Passwords and Keys, or with `rm -r ~/.local/share/reqly`.
+
+  On Ubuntu 26.04, the Chromium snap brings an older NSS than the system's, which can't read the trust that the system's certutil 3.120 writes, so Reqly leaves its database alone, and Settings › HTTPS lists the snap under Not Covered, with the file to import in Chromium's own certificate settings. Reqly still removes its certificate from that database.
 
 ## Building the core
 

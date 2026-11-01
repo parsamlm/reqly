@@ -232,7 +232,9 @@ public final class DesktopEntries: Sendable {
 
     /// The folder an app is installed in, from its program, such as `/opt/google/chrome` for
     /// `/opt/google/chrome/google-chrome`, or `/usr/share/code` for `/usr/share/code/bin/code`.
-    /// `nil` when the program is in a folder many programs share, such as `/usr/bin`.
+    /// `nil` when the program is in a folder many programs share, such as `/usr/bin`, or a
+    /// helpers' folder, such as `/usr/lib/x86_64-linux-gnu/libexec`, where xdg-desktop-portal-kde
+    /// is, and KDE Frameworks' `libexec/kf6` there, where kioworker is.
     static func installFolder(of program: String) -> String? {
         var folder = LinuxFile.folder(program)
         if ["bin", "sbin"].contains(LinuxFile.fileName(folder)) {
@@ -242,11 +244,19 @@ public final class DesktopEntries: Sendable {
         let shared = [
             "/usr", "/usr/local", "/usr/lib", "/usr/lib64", "/usr/libexec", "/usr/share", "/usr/games", "/opt",
         ]
-        let parent = LinuxFile.folder(folder)
+        // Such as /usr/lib/x86_64-linux-gnu.
+        func isArchitecture(_ path: String) -> Bool {
+            LinuxFile.folder(path).hasSuffix("/usr/lib") && LinuxFile.fileName(path).contains("-linux-")
+        }
+        func isSharedLibexec(_ path: String) -> Bool {
+            let parent = LinuxFile.folder(path)
+            return LinuxFile.fileName(path) == "libexec" && (shared.contains(parent) || isArchitecture(parent))
+        }
+        let isFrameworksHelpers =
+            ["kf5", "kf6"].contains(LinuxFile.fileName(folder)) && isSharedLibexec(LinuxFile.folder(folder))
         guard folder.split(separator: "/").count >= 2, !shared.contains(where: folder.hasSuffix),
             folder != home, folder != home + "/.local", !(folder + "/").contains("/exports/"),
-            // Such as /usr/lib/x86_64-linux-gnu.
-            !(parent.hasSuffix("/usr/lib") && LinuxFile.fileName(folder).contains("-linux-"))
+            !isArchitecture(folder), !isSharedLibexec(folder), !isFrameworksHelpers
         else { return nil }
         return folder
     }

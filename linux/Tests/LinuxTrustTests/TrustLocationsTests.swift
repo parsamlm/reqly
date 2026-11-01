@@ -7,7 +7,8 @@ import Testing
 @Suite struct TrustLocationsTests {
     @Test func findsOnlyTheBrowserDatabasesThatExist() throws {
         try Fixtures.withFolder { home throws in
-            let locations = TrustLocations(environment: ["HOME": home.path])
+            var locations = TrustLocations(environment: ["HOME": home.path])
+            locations.snaps = home.appending(path: "no-snaps")
             #expect(locations.browserDatabases().isEmpty)
             #expect(locations.newBrowserDatabase.path == home.appending(path: ".local/share/pki/nssdb").path)
 
@@ -23,6 +24,59 @@ import Testing
             try FileManager.default.createDirectory(
                 at: home.appending(path: ".local/share/pki/nssdb"), withIntermediateDirectories: true)
             #expect(locations.browserDatabases().count == 3)
+        }
+    }
+
+    /// Chromium 156 as a snap keeps its database in the XDG folder of the home folder snapd gives
+    /// it. Reqly names it through the snap's `current` link, which a refresh moves.
+    @Test func findsTheChromiumSnapsXDGDatabaseThroughItsCurrentLink() throws {
+        try Fixtures.withFolder { home throws in
+            var locations = TrustLocations(environment: ["HOME": home.path])
+            locations.snaps = home.appending(path: "no-snaps")
+            let revision = home.appending(path: "snap/chromium/3572")
+            try FileManager.default.createDirectory(
+                at: revision.appending(path: ".local/share/pki/nssdb"), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(
+                atPath: home.appending(path: "snap/chromium/current").path, withDestinationPath: "3572")
+            let current = home.appending(path: "snap/chromium/current/.local/share/pki/nssdb").path
+            #expect(locations.chromiumSnapDatabases().map(\.path) == [current])
+            #expect(locations.browserDatabases().map(\.path) == [current])
+            #expect(locations.chromiumSnapDatabasesOutOfReach().isEmpty)
+        }
+    }
+
+    /// Where certutil's NSS writes the new trust objects and the snap's NSS can't read them, as on
+    /// Ubuntu 26.04, the snap's databases leave the browsers' place, and the snap is out of reach.
+    @Test func leavesOutTheChromiumSnapWhenItsNSSIsOlderThanCertutils() throws {
+        try Fixtures.withFolder { home throws in
+            let snapNSS = home.appending(path: "snaps/chromium/current/usr/lib/\(TrustLocations.multiarch)")
+            try FileManager.default.createDirectory(at: snapNSS, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: home.appending(path: "snap/chromium/current/.local/share/pki/nssdb"),
+                withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: home.appending(path: ".pki/nssdb"), withIntermediateDirectories: true)
+            // Each library names the versions it exports its functions under.
+            let old = Data("\u{0}NSS_3.98\u{0}NSS_3.97\u{0}".utf8)
+            let new = Data("\u{0}NSS_3.120\u{0}NSS_3.117\u{0}NSS_3.98\u{0}".utf8)
+            let systemNSS = home.appending(path: "libnss3.so")
+            var locations = TrustLocations(environment: ["HOME": home.path])
+            locations.snaps = home.appending(path: "snaps")
+            locations.systemNSS = systemNSS
+            let snap = home.appending(path: "snap/chromium/current/.local/share/pki/nssdb").path
+
+            for (system, bundled, readable) in [(new, old, false), (old, old, true), (new, new, true)] {
+                try system.write(to: systemNSS)
+                try bundled.write(to: snapNSS.appending(path: "libnss3.so"))
+                #expect(locations.chromiumSnapReadsCertutilTrust == readable)
+                #expect(locations.isChromiumSnapOutOfReach == !readable)
+                #expect(locations.browserDatabases().map(\.path).contains(snap) == readable)
+                #expect(locations.chromiumSnapDatabasesOutOfReach().map(\.path) == (readable ? [] : [snap]))
+            }
+            // Without the snap's library, as when it isn't installed, nothing changes.
+            locations.snaps = home.appending(path: "no-snaps")
+            #expect(locations.chromiumSnapReadsCertutilTrust)
+            #expect(!locations.isChromiumSnapOutOfReach)
         }
     }
 

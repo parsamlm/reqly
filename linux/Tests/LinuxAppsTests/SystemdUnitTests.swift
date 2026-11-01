@@ -85,6 +85,16 @@ import Testing
         // A process right in GNOME Terminal's slice.
         #expect(
             unit(user + "/app.slice/app-org.gnome.Terminal.slice").kind == .terminal(desktopID: "org.gnome.Terminal"))
+        // The scopes Open Terminal starts terminals in, named as launchers name them.
+        #expect(
+            unit(user + "/app.slice/app-org.kde.konsole-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope").kind
+                == .terminal(desktopID: "org.kde.konsole"))
+        for id in ["xdg-terminal-exec", "x-terminal-emulator", "xfce4-terminal"] {
+            let escaped = id.replacingOccurrences(of: "-", with: "\\x2d")
+            #expect(
+                unit(user + "/app.slice/app-\(escaped)-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope").kind
+                    == .terminal(desktopID: id))
+        }
     }
 
     @Test func knowsUnitsThatDontNameTheApp() {

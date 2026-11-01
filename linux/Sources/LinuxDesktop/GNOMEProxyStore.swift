@@ -40,11 +40,12 @@ public struct GNOMEProxyStore: Sendable {
     public func read() throws -> GNOMEProxy? {
         guard Self.isInstalled else { return nil }
         return try TimeLimit.run("reading GNOME's proxy setting", seconds: Self.timeLimit) {
-            try Self.withSettings(delayed: false) { proxy, http, https in
+            try Self.withSettings(delayed: false) { proxy, http, https, others in
                 GNOMEProxy(
                     mode: Self.string(proxy, "mode"), httpHost: Self.string(http, "host"),
                     httpPort: Self.int(http, "port"), httpsHost: Self.string(https, "host"),
-                    httpsPort: Self.int(https, "port"))
+                    httpsPort: Self.int(https, "port"), socksHost: others.socks.map { Self.string($0, "host") },
+                    ftpHost: others.ftp.map { Self.string($0, "host") })
             }
         }
     }
@@ -57,14 +58,22 @@ public struct GNOMEProxyStore: Sendable {
         try TimeLimit.run("changing GNOME's proxy setting", seconds: Self.timeLimit) {
             // Changes wait until they're applied, so apps see them together: never manual mode
             // with no host.
-            try Self.withSettings(delayed: true) { proxy, http, https in
-                let changes = [
+            try Self.withSettings(delayed: true) { proxy, http, https, others in
+                var wanted = [
                     Self.change(proxy, "", "mode", settings.mode, current: Self.string(proxy, "mode")),
                     Self.change(http, ".http", "host", settings.httpHost, current: Self.string(http, "host")),
                     Self.change(http, ".http", "port", settings.httpPort, current: Self.int(http, "port")),
                     Self.change(https, ".https", "host", settings.httpsHost, current: Self.string(https, "host")),
                     Self.change(https, ".https", "port", settings.httpsPort, current: Self.int(https, "port")),
-                ].compactMap { $0 }
+                ]
+                // Settings that don't know a host, from an earlier Reqly's restore file, leave it.
+                if let socks = others.socks, let host = settings.socksHost {
+                    wanted.append(Self.change(socks, ".socks", "host", host, current: Self.string(socks, "host")))
+                }
+                if let ftp = others.ftp, let host = settings.ftpHost {
+                    wanted.append(Self.change(ftp, ".ftp", "host", host, current: Self.string(ftp, "host")))
+                }
+                let changes = wanted.compactMap { $0 }
                 let locked = changes.filter { g_settings_is_writable($0.settings, $0.key) == 0 }
                 guard locked.isEmpty else {
                     g_settings_revert(proxy)
@@ -108,14 +117,20 @@ public struct GNOMEProxyStore: Sendable {
         }
     }
 
-    /// Runs `body` with the proxy settings and their `http` and `https` children, in a main
-    /// context of this thread's own, so GSettings' notices don't go to the app's main loop. With
-    /// `delayed`, changes to all three wait until `g_settings_apply` on the first.
+    /// The `socks` and `ftp` children, each `nil` where GNOME's settings don't have it.
+    private struct Others {
+        var socks: UnsafeMutablePointer<GSettings>?
+        var ftp: UnsafeMutablePointer<GSettings>?
+    }
+
+    /// Runs `body` with the proxy settings and their `http`, `https`, `socks` and `ftp` children,
+    /// in a main context of this thread's own, so GSettings' notices don't go to the app's main
+    /// loop. With `delayed`, changes to all of them wait until `g_settings_apply` on the first.
     private static func withSettings<Result>(
         delayed: Bool,
         _ body: (
             _ proxy: UnsafeMutablePointer<GSettings>, _ http: UnsafeMutablePointer<GSettings>,
-            _ https: UnsafeMutablePointer<GSettings>
+            _ https: UnsafeMutablePointer<GSettings>, _ others: Others
         ) throws -> Result
     ) throws -> Result {
         let context = g_main_context_new()
@@ -141,7 +156,21 @@ public struct GNOMEProxyStore: Sendable {
         guard let http = children.http, let https = children.https else {
             throw GLibError(message: "Reqly couldn't open GNOME's proxy settings for HTTP and HTTPS, in \(schema).")
         }
-        return try body(proxy, http, https)
+        // GSettings ends the process rather than open a child whose schema isn't installed.
+        let source = g_settings_schema_source_get_default()
+        func child(_ name: String) -> UnsafeMutablePointer<GSettings>? {
+            guard let source, let found = g_settings_schema_source_lookup(source, "\(schema).\(name)", 1) else {
+                return nil
+            }
+            g_settings_schema_unref(found)
+            return g_settings_get_child(proxy, name)
+        }
+        let others = Others(socks: child("socks"), ftp: child("ftp"))
+        defer {
+            others.socks.map { g_object_unref($0) }
+            others.ftp.map { g_object_unref($0) }
+        }
+        return try body(proxy, http, https, others)
     }
 
     /// Whether the key has a value of its own, rather than its default.

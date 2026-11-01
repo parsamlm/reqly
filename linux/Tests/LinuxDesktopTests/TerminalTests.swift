@@ -129,6 +129,8 @@ import Testing
         let command = Terminal.command(setup: setup, shell: "/usr/bin/fish")
         #expect(command.first == "/usr/bin/env")
         #expect(command.last == "/usr/bin/fish")
+        // GNOME Terminal's all_proxy, from a SOCKS proxy in GNOME's setting, doesn't reach the shell.
+        #expect(Array(command[1..<5]) == ["-u", "all_proxy", "-u", "ALL_PROXY"])
         #expect(command.contains("http_proxy=http://127.0.0.1:9090"))
         #expect(command.contains("NODE_USE_ENV_PROXY=1"))
         #expect(Terminal.command(setup: setup, shell: nil).last == "/bin/bash")
@@ -151,6 +153,7 @@ import Testing
             setup: TerminalSetup(port: 9090, certificates: nil),
             environment: [
                 "PATH": folder.path + ":/usr/bin:/bin", "SHELL": shell.path, "XDG_CURRENT_DESKTOP": "ubuntu:GNOME",
+                "ALL_PROXY": "socks://socks.example.test:1080/",
             ])
         var waited = 0
         while (try? String(contentsOf: output, encoding: .utf8))?.contains("PATH=") != true && waited < 50 {
@@ -161,5 +164,86 @@ import Testing
         #expect(environment.contains("XDG_CURRENT_DESKTOP=ubuntu:GNOME"))
         #expect(environment.contains("https_proxy=http://127.0.0.1:9090"))
         #expect(environment.contains("NO_PROXY=localhost,127.0.0.1,::1"))
+        #expect(!environment.contains { $0.hasPrefix("ALL_PROXY=") })
+    }
+
+    /// With systemd's user manager, the terminal starts in a scope of its own, through
+    /// `systemd-run`, named as launchers name an app's, so its shells never stay in Reqly's unit.
+    @Test func opensTheTerminalInAScopeOfItsOwn() throws {
+        let folder = try TestEnvironment.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let runtime = folder.appending(path: "runtime")
+        try FileManager.default.createDirectory(
+            at: runtime.appending(path: "systemd"), withIntermediateDirectories: true)
+        try Data().write(to: runtime.appending(path: "systemd/private"))
+        let scoped = folder.appending(path: "scoped")
+        // A stand-in for systemd-run that notes its arguments, then runs what follows `--`.
+        let systemdRun = folder.appending(path: "systemd-run")
+        try Data(
+            """
+            #!/bin/sh
+            printf '%s\\n' "$@" > '\(scoped.path)'
+            while [ "$1" != "--" ]; do shift; done
+            shift
+            exec "$@"
+
+            """.utf8
+        ).write(to: systemdRun)
+        chmod(systemdRun.path, 0o755)
+        let ran = folder.appending(path: "ran")
+        let konsole = folder.appending(path: "konsole")
+        try Data("#!/bin/sh\necho \"$@\" > '\(ran.path)'\n".utf8).write(to: konsole)
+        chmod(konsole.path, 0o755)
+        let environment = [
+            "PATH": folder.path + ":/usr/bin:/bin", "SHELL": "/bin/sh", "XDG_CURRENT_DESKTOP": "KDE",
+            "XDG_RUNTIME_DIR": runtime.path,
+        ]
+        try Terminal.open(setup: TerminalSetup(port: 9090, certificates: nil), environment: environment)
+        var waited = 0
+        while !FileManager.default.fileExists(atPath: ran.path) && waited < 50 {
+            Thread.sleep(forTimeInterval: 0.1)
+            waited += 1
+        }
+        let arguments = try String(contentsOf: scoped, encoding: .utf8).split(separator: "\n").map(String.init)
+        #expect(Array(arguments.prefix(5)) == ["--user", "--scope", "--quiet", "--collect", arguments[4]])
+        #expect(arguments[4].hasPrefix("--unit=app-org.kde.konsole-") && arguments[4].hasSuffix(".scope"))
+        #expect(arguments.contains(konsole.path))
+        #expect(try String(contentsOf: ran, encoding: .utf8).hasPrefix("-e /usr/bin/env -u all_proxy"))
+
+        // Without the user manager, it starts as Reqly's child.
+        try FileManager.default.removeItem(at: runtime.appending(path: "systemd/private"))
+        #expect(
+            Terminal.scopedCommand(Terminal(kind: .konsole, program: konsole.path), [], environment: environment) == nil
+        )
+    }
+
+    @Test func namesTheScopeAfterTheTerminal() {
+        let random = UUID(uuidString: "0B3A4C5D-6E7F-4A8B-9C0D-1E2F3A4B5C6D")!
+        let names = Terminal.Kind.allCases.map {
+            Terminal.scopeName(Terminal(kind: $0, program: "/nowhere/\($0.rawValue)"), random: random)
+        }
+        #expect(
+            names == [
+                "app-xdg\\x2dterminal\\x2dexec-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope",
+                "app-org.gnome.Ptyxis-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope",
+                "app-org.gnome.Console-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope",
+                "app-org.gnome.Terminal-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope",
+                "app-org.kde.konsole-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope",
+                "app-xfce4\\x2dterminal-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope",
+                "app-xterm-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope",
+                "app-x\\x2dterminal\\x2demulator-0b3a4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d.scope",
+            ])
+    }
+
+    /// Debian's x-terminal-emulator leads to the terminal it stands for, through its links.
+    @Test func findsTheTerminalBehindXTerminalEmulator() throws {
+        let folder = try TestEnvironment.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let wrapper = folder.appending(path: "gnome-terminal.wrapper")
+        try Data("#!/bin/sh\n".utf8).write(to: wrapper)
+        let alternative = folder.appending(path: "x-terminal-emulator")
+        try FileManager.default.createSymbolicLink(at: alternative, withDestinationURL: wrapper)
+        #expect(
+            Terminal.desktopID(Terminal(kind: .xTerminalEmulator, program: alternative.path)) == "org.gnome.Terminal")
     }
 }

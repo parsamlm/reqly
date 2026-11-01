@@ -87,6 +87,15 @@ public struct TrustHelper: Sendable {
         self.uid = uid
     }
 
+    /// Whether Reqly runs on the desktop you're using, rather than over SSH, so polkit's own
+    /// password dialog asks. Then pkexec's plain "Not authorized" means the dialog was closed or
+    /// the password refused: KDE's dialog reports Cancel that way, where GNOME's and Cinnamon's
+    /// make pkexec say 126.
+    var isOnLocalDesktop: Bool {
+        ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"].allSatisfy { environment[$0] == nil }
+            && (environment["WAYLAND_DISPLAY"] != nil || environment["DISPLAY"] != nil)
+    }
+
     /// Why the helper is missing, or pkexec, or `nil` when both are there.
     public var unavailableReason: String? {
         if access(pkexec, X_OK) != 0 {
@@ -137,6 +146,8 @@ public struct TrustHelper: Sendable {
         // can't ask for a password at all.
         case 127 where ended.errorText.contains("textual authentication agent"):
             throw .noPasswordDialog(commands: byHand)
+        case 127 where isOnLocalDesktop:
+            throw .refused
         case 127:
             throw .notAllowed
         default:
@@ -150,6 +161,8 @@ public struct TrustHelper: Sendable {
 public enum TrustProblem: Error, Sendable, Equatable, LocalizedError {
     /// You closed the password dialog.
     case cancelled
+    /// The password dialog was closed, or didn't take the password, which KDE's reports alike.
+    case refused
     /// There's no password dialog, as on some tiling window managers. `commands` do it by hand,
     /// in a terminal.
     case noPasswordDialog(commands: String)
@@ -164,6 +177,8 @@ public enum TrustProblem: Error, Sendable, Equatable, LocalizedError {
         switch self {
         case .cancelled:
             "The password dialog was closed."
+        case .refused:
+            "The password dialog was closed, or the password wasn't accepted."
         case .noPasswordDialog(let commands):
             "No password dialog is available, so Reqly can't ask for an administrator's password. "
                 + "To do it yourself, run these in a terminal:\n\(commands)"
@@ -174,4 +189,8 @@ public enum TrustProblem: Error, Sendable, Equatable, LocalizedError {
             reason
         }
     }
+
+    /// Whether the password dialog said no, closed or refused, which leaves things as they were
+    /// for you to try again, rather than a failure.
+    public var isDeclined: Bool { self == .cancelled || self == .refused }
 }

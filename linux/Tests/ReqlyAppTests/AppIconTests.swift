@@ -49,6 +49,13 @@ import Testing
         #expect(AppIcon.find(for: Source(name: "Gone", bundleID: "gone"), in: entries) == .generic)
     }
 
+    /// A themed icon is its own name while the theme, or hicolor, has it, and a program's when
+    /// not, never both: GTK would find the theme's program icon before hicolor's app icon.
+    @Test func namesTheIconOrAProgramsNeverBoth() {
+        #expect(AppIcon.names(for: "firefox-esr") { $0 == "firefox-esr" } == ["firefox-esr"])
+        #expect(AppIcon.names(for: "firefox-esr") { _ in false } == [AppIcon.genericName])
+    }
+
     @Test func fallsBackForToolsAndAppsWithNoEntry() throws {
         let (entries, folder) = try Self.entries([:])
         defer { try? FileManager.default.removeItem(at: folder) }

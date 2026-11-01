@@ -47,23 +47,102 @@ import Testing
         // Both still Reqly's: both go back.
         #expect(capturing.restoring(Self.yours, port: 9090) == Self.yours)
 
-        // You changed GNOME's since: it stays, and KDE's goes back.
+        // You changed GNOME's mode since: it stays, Reqly's hosts there go back, and KDE's goes back.
         var gnomeChanged = capturing
         gnomeChanged.gnome?.mode = .set("none")
+        var gnomeOff = Self.yours.gnome
+        gnomeOff?.mode = .set("none")
         #expect(
-            gnomeChanged.restoring(Self.yours, port: 9090)
-                == DesktopProxySettings(gnome: gnomeChanged.gnome, kde: Self.yours.kde))
+            gnomeChanged.restoring(Self.yours, port: 9090) == DesktopProxySettings(gnome: gnomeOff, kde: Self.yours.kde)
+        )
 
-        // You changed KDE's since: it stays, and GNOME's goes back.
+        // You changed KDE's type since: it stays, and the rest goes back.
         var kdeChanged = capturing
-        kdeChanged.kde?.proxyType = "0"
+        kdeChanged.kde?.proxyType = "2"
+        var kdeScript = Self.yours.kde
+        kdeScript?.proxyType = "2"
         #expect(
             kdeChanged.restoring(Self.yours, port: 9090)
-                == DesktopProxySettings(gnome: Self.yours.gnome, kde: kdeChanged.kde))
+                == DesktopProxySettings(gnome: Self.yours.gnome, kde: kdeScript))
 
         // Neither is Reqly's any more, or not for this port: nothing to do.
         #expect(Self.yours.restoring(Self.yours, port: 9090) == nil)
         #expect(capturing.restoring(Self.yours, port: 9091) == nil)
+    }
+
+    /// You changed one key while Reqly captured, the HTTP proxy's port: it stays, with manual mode,
+    /// which it needs, and Reqly's HTTPS host and port go back, so none points at Reqly's port
+    /// once it's closed.
+    @Test func putsBackEachKeyStillReqlys() throws {
+        let yours = GNOMEProxy()
+        var changed = yours.capturing(port: 9090)
+        changed.httpPort = .set(3128)
+        let restored = try #require(changed.restoring(yours, port: 9090))
+        #expect(restored.mode == .set("manual"))
+        #expect(restored.httpHost == .set("127.0.0.1") && restored.httpPort == .set(3128))
+        #expect(restored.httpsHost == yours.httpsHost && restored.httpsPort == yours.httpsPort)
+        // Only the mode left of Reqly's, since you changed both proxies: it stays too.
+        var both = changed
+        both.httpsHost = .set("proxy.corp")
+        #expect(both.restoring(yours, port: 9090) == nil)
+
+        // KDE's, the same way.
+        let kde = KDEProxy(fileExists: true, proxyType: "0")
+        var kdeChanged = kde.capturing(port: 9090)
+        kdeChanged.httpProxy = "http://proxy.corp 3128"
+        #expect(
+            kdeChanged.restoring(kde, port: 9090)
+                == KDEProxy(fileExists: true, proxyType: "1", httpProxy: "http://proxy.corp 3128"))
+        // Reqly's proxy written with a colon, as KDE also reads it, is still Reqly's.
+        var colon = kde.capturing(port: 9090)
+        colon.httpsProxy = "http://127.0.0.1:9090"
+        #expect(colon.restoring(kde, port: 9090) == kde)
+    }
+
+    /// A SOCKS or FTP proxy you left behind with another mode, which manual mode would switch
+    /// on, is cleared while Reqly captures, and comes back after. One you use, in manual mode,
+    /// stays.
+    @Test func clearsDormantSOCKSAndFTPProxiesWhileCapturing() throws {
+        let dormant = GNOMEProxy(socksHost: .set("socks.example.test"), ftpHost: .set("ftp.example.test"))
+        let capturing = dormant.capturing(port: 9090)
+        #expect(capturing.socksHost == GSettingsValue("", isDefault: true))
+        #expect(capturing.ftpHost == GSettingsValue("", isDefault: true))
+        #expect(capturing.restoring(dormant, port: 9090) == dormant)
+        let used = GNOMEProxy(mode: .set("manual"), socksHost: .set("socks.example.test"))
+        #expect(used.capturing(port: 9090).socksHost == .set("socks.example.test"))
+
+        let kde = KDEProxy(
+            fileExists: true, proxyType: "0", others: .init(ftp: "ftp://ftp.example.test 21", socks: ""))
+        let kdeCapturing = kde.capturing(port: 9090)
+        #expect(kdeCapturing.others == .init(ftp: "", socks: ""))
+        #expect(kdeCapturing.restoring(kde, port: 9090) == kde)
+        #expect(
+            KDEProxy(fileExists: true, proxyType: "1", others: .init(socks: "socks://s 1080")).capturing(port: 9090)
+                .others == .init(socks: "socks://s 1080"))
+    }
+
+    /// A restore file an earlier Reqly wrote has no SOCKS, FTP or other proxies: they're left as
+    /// they are, and the rest goes back.
+    @Test func readsAnEarlierReqlysRestoreFile() throws {
+        let earlier = Data(
+            #"""
+            {"gnome":{"mode":{"value":"none","isDefault":true},"httpHost":{"value":"","isDefault":true},\#
+            "httpPort":{"value":8080,"isDefault":true},"httpsHost":{"value":"","isDefault":true},\#
+            "httpsPort":{"value":0,"isDefault":true}},"kde":{"fileExists":true,"proxyType":"0"}}
+            """#.utf8)
+        let yours = try JSONDecoder().decode(DesktopProxySettings.self, from: earlier)
+        #expect(yours.gnome?.socksHost == nil && yours.gnome?.ftpHost == nil && yours.kde?.others == nil)
+        var now = DesktopProxySettings(
+            gnome: GNOMEProxy(socksHost: .set("socks.example.test")),
+            kde: KDEProxy(fileExists: true, proxyType: "0", others: .init(ftp: "ftp://f 21")))
+        now = now.capturing(port: 9090)
+        now.gnome?.socksHost = .set("socks.example.test")
+        now.kde?.others = .init(ftp: "ftp://f 21")
+        let restored = try #require(now.restoring(yours, port: 9090))
+        #expect(restored.gnome?.socksHost == .set("socks.example.test"))
+        #expect(restored.gnome?.mode == GSettingsValue("none", isDefault: true))
+        #expect(restored.kde?.others == .init(ftp: "ftp://f 21"))
+        #expect(restored.kde?.proxyType == "0")
     }
 
     /// Test runs keep the same settings in a file, through the same switch.

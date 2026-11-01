@@ -17,10 +17,17 @@ public struct UncoveredApp: Sendable, Equatable {
     }
 
     /// Each, with its fix for the certificate in `pemFile`, `Reqly CA.pem`, and the computer's list
-    /// with it added in `bundleFile`, as LinuxRootStore keeps them.
-    public static func all(pemFile: URL, bundleFile: URL) -> [UncoveredApp] {
+    /// with it added in `bundleFile`, as LinuxRootStore keeps them. With `chromiumSnap`, the
+    /// Chromium snap comes first: see ``TrustLocations/isChromiumSnapOutOfReach``.
+    public static func all(pemFile: URL, bundleFile: URL, chromiumSnap: Bool = false) -> [UncoveredApp] {
         let pem = ComputerList.quoted(pemFile.path)
-        return [
+        let snap = UncoveredApp(
+            name: "Chromium From the Snap Store",
+            detail: "It brings an older NSS than this computer's, which can't read the trust Reqly adds to its "
+                + "certificate database. Import Reqly's certificate in Chromium's own certificate settings, and "
+                + "trust it to identify websites, from this file:",
+            fix: pemFile.path)
+        return (chromiumSnap ? [snap] : []) + [
             UncoveredApp(
                 name: "Node From nodejs.org or nvm",
                 detail: "It reads only its own list. This adds Reqly's certificate to it, for what you start "

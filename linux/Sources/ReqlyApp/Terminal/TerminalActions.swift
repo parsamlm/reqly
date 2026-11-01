@@ -22,11 +22,23 @@ extension MainWindow {
             adw_dialog_present(dialog, window)
             return
         }
-        do {
-            try Terminal.open(setup: terminalSetup, environment: environment)
-            toast(TerminalWords.opened(isCapturing: model.isCapturing))
-        } catch {
-            toast("\(error)")
+        let setup = terminalSetup
+        Task {
+            // Starting it may wait a moment for systemd to make its scope.
+            let failure = await onOwnThread { () -> String? in
+                do {
+                    try Terminal.open(setup: setup, environment: environment)
+                    return nil
+                } catch {
+                    return "\(error)"
+                }
+            }
+            if let failure {
+                toast(failure)
+            } else {
+                model.openedTerminal = true
+                toast(TerminalWords.opened(isCapturing: model.isCapturing))
+            }
         }
     }
 

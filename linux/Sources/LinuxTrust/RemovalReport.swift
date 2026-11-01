@@ -24,6 +24,8 @@ public struct RemovalReport: Sendable, Equatable {
     public var keyAfter: KeyPlace?
     /// The key's file, used when the keyring isn't.
     public var keyFile: URL
+    /// Whether the key had gone from your keyring already, so the certificate went by its record.
+    public var keyWasGone = false
 
     public init(
         outcome: Outcome, before: [TrustPlace] = [], after: [TrustPlace] = [], keyBefore: KeyPlace? = nil,
@@ -44,6 +46,8 @@ public struct RemovalReport: Sendable, Equatable {
         let root: RootIdentity?
         do {
             root = try store.load()
+        } catch is LinuxRootStore.KeyGone {
+            return removeWithoutKey(from: store)
         } catch {
             return RemovalReport(
                 outcome: .failed("Reqly couldn't read its certificate, so it can't remove it. \(Self.explain(error))"),
@@ -68,6 +72,24 @@ public struct RemovalReport: Sendable, Equatable {
             keyAfter: store.keyPlace, keyFile: store.file)
     }
 
+    /// Removes the certificate whose key has gone, by what its record says, as
+    /// ``LinuxRootStore/removeWithoutKey(cancellation:)`` does.
+    private static func removeWithoutKey(from store: LinuxRootStore) -> RemovalReport {
+        let outcome: Outcome
+        do {
+            outcome = try store.removeWithoutKey() ? .removed : .nothing
+        } catch CertificateStoreError.cancelled {
+            outcome = .declined
+        } catch CertificateStoreError.failed(let reasons) {
+            outcome = .failed("Reqly couldn't remove its certificate from everywhere. \(reasons)")
+        } catch {
+            outcome = .failed("Reqly couldn't remove its certificate. \(Self.explain(error))")
+        }
+        var report = RemovalReport(outcome: outcome, keyFile: store.file)
+        report.keyWasGone = true
+        return report
+    }
+
     /// Whether nothing of the certificate is left for your account.
     public var isComplete: Bool { outcome == .removed || outcome == .nothing }
 
@@ -76,6 +98,8 @@ public struct RemovalReport: Sendable, Equatable {
         var lines = zip(before, after).map { before, after in "\(after.name): \(Self.outcome(before, after, outcome))" }
         if !before.isEmpty {
             lines.append("Its key: \(keyOutcome)")
+        } else if keyWasGone {
+            lines.append("Its key: already gone from your keyring, so Reqly went by its record of the places.")
         }
         switch outcome {
         case .removed: lines.append("Removed Reqly's certificate.")

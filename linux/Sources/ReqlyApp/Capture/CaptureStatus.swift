@@ -97,6 +97,9 @@ struct CaptureStatus: Equatable {
     /// Once capturing has stopped, the terminals whose tabs took GNOME's setting while Reqly
     /// captured, such as GNOME Terminal.
     var terminalsKeepingProxy: [String]
+    /// Once capturing has stopped, whether Open Terminal opened terminals, whose shells keep the
+    /// proxy variables.
+    var openedTerminalsKeepProxy = false
 
     /// Terminals that set the proxy variables in each new tab by themselves while GNOME's setting
     /// is manual, by program and name: GNOME Terminal and Ptyxis, as measured, and GNOME Console,
@@ -128,8 +131,18 @@ struct CaptureStatus: Equatable {
             return parts.joined(separator: " · ")
         case .stopped:
             var parts = ["Not capturing", "Port \(port)"]
-            if let terminals = Self.list(terminalsKeepingProxy) {
-                parts.append("\(terminals) tabs opened while capturing still point at Reqly, so open a new tab")
+            // A new tab copies the tab it's opened from, so only a new window starts afresh.
+            switch (Self.list(terminalsKeepingProxy), openedTerminalsKeepProxy) {
+            case (let terminals?, false):
+                parts.append("\(terminals) tabs opened while capturing still point at Reqly, so open a new window")
+            case (let terminals?, true):
+                parts.append(
+                    "\(terminals) tabs opened while capturing, and the terminals Reqly opened, still point at "
+                        + "Reqly, so open a new window")
+            case (nil, true):
+                parts.append("The terminals Reqly opened still point at Reqly, so open a new window")
+            case (nil, false):
+                break
             }
             return parts.joined(separator: " · ")
         }

@@ -72,6 +72,17 @@ public enum Processes {
             .map { String(decoding: $0, as: UTF8.self) }
     }
 
+    /// The user a process runs as, from the `Uid:` line of its status, which anyone may read,
+    /// even of a process that hides its open files.
+    public static func uid(of pid: Int32, in proc: String = "/proc") -> UInt32? {
+        guard let status = LinuxFile.text("\(proc)/\(pid)/status", limit: 16 * 1024) else { return nil }
+        for line in status.split(separator: "\n") where line.hasPrefix("Uid:") {
+            // The real, effective, saved and file system user IDs.
+            return line.dropFirst("Uid:".count).split(whereSeparator: \.isWhitespace).first.flatMap { UInt32($0) }
+        }
+        return nil
+    }
+
     /// When a process started, in clock ticks since the computer started, which tells it apart
     /// from a later process given the same ID.
     public static func startTime(of pid: Int32, in proc: String = "/proc") -> UInt64? {

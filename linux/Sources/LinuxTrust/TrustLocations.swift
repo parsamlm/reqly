@@ -9,6 +9,10 @@ public struct TrustLocations: Sendable {
     public var dataHome: URL
     /// `XDG_CONFIG_HOME`, or `~/.config`.
     public var configHome: URL
+    /// Where snaps are, `/snap`, which only tests change.
+    public var snaps = URL(filePath: "/snap", directoryHint: .isDirectory)
+    /// The system's NSS library, which certutil runs with, or `nil` when it isn't found.
+    public var systemNSS: URL? = TrustLocations.systemNSSLibrary()
 
     /// The locations for `environment`, such as the process's own. A variable that's empty or
     /// not an absolute path counts as unset, as the XDG specification says.
@@ -31,16 +35,81 @@ public struct TrustLocations: Sendable {
         dataHome.appending(path: "pki/nssdb", directoryHint: .isDirectory)
     }
 
-    /// The browsers' NSS databases that exist. Chrome uses `~/.pki/nssdb` when it's there, which an
-    /// older Electron app may make at any time, and otherwise the XDG one. Ubuntu's Chromium snap
-    /// keeps its own and can't read the others.
+    /// The browsers' NSS databases that exist, and that read the trust certutil adds. Chrome uses
+    /// `~/.pki/nssdb` when it's there, which an older Electron app may make at any time, and
+    /// otherwise the XDG one. Ubuntu's Chromium snap keeps its own, which can't read the others:
+    /// see ``chromiumSnapDatabases()``.
     public func browserDatabases() -> [URL] {
+        let shared = [home.appending(path: ".pki/nssdb", directoryHint: .isDirectory), newBrowserDatabase]
+        let snap = chromiumSnapReadsCertutilTrust ? chromiumSnapDatabases() : []
+        return Self.unique(shared.filter(Self.isFolder) + snap)
+    }
+
+    /// The Chromium snap's NSS databases that exist, in the home folder snapd gives it: the XDG one
+    /// in `~/snap/chromium/current/.local/share/pki/nssdb`, as Chromium 156 makes it, and the one
+    /// before Chromium 146, in `.pki/nssdb` there. They're named through the `current` link, so the
+    /// record of where the certificate went still finds them after the snap moves to a new
+    /// revision, which copies its home folder.
+    public func chromiumSnapDatabases() -> [URL] {
+        let snapHome = home.appending(path: "snap/chromium/current", directoryHint: .isDirectory)
         let candidates = [
-            home.appending(path: ".pki/nssdb", directoryHint: .isDirectory),
-            newBrowserDatabase,
-            home.appending(path: "snap/chromium/current/.pki/nssdb", directoryHint: .isDirectory),
+            snapHome.appending(path: ".local/share/pki/nssdb", directoryHint: .isDirectory),
+            snapHome.appending(path: ".pki/nssdb", directoryHint: .isDirectory),
         ]
         return Self.unique(candidates.filter(Self.isFolder))
+    }
+
+    /// The Chromium snap's databases when it can't read the trust certutil adds, so Reqly leaves
+    /// them out of the browsers' place. You import the certificate in Chromium's settings
+    /// instead, as Settings › HTTPS says under Not Covered, and Reqly still removes it from them.
+    public func chromiumSnapDatabasesOutOfReach() -> [URL] {
+        chromiumSnapReadsCertutilTrust ? [] : chromiumSnapDatabases()
+    }
+
+    /// Whether the Chromium snap is installed, and can't read the trust certutil adds.
+    public var isChromiumSnapOutOfReach: Bool {
+        FileManager.default.fileExists(atPath: snaps.appending(path: "chromium").path)
+            && !chromiumSnapReadsCertutilTrust
+    }
+
+    /// Whether the Chromium snap reads the trust that this computer's certutil adds. NSS 3.117
+    /// and later write it as a PKCS #11 3.2 trust object, which an older NSS doesn't read, and the
+    /// snap brings an NSS of its own: on Ubuntu 26.04, certutil's is 3.120, and the snap's 3.98,
+    /// so the snap lists the certificate without trusting it. True when either NSS isn't found.
+    public var chromiumSnapReadsCertutilTrust: Bool {
+        let snapNSS = snaps.appending(path: "chromium/current/usr/lib/\(Self.multiarch)/libnss3.so")
+        guard let systemNSS, let writesNew = Self.isNSS3117OrLater(systemNSS),
+            let readsNew = Self.isNSS3117OrLater(snapNSS)
+        else { return true }
+        return readsNew || !writesNew
+    }
+
+    /// Whether the NSS library at `url` is 3.117 or later, from the version it exports its newest
+    /// functions under, `NSS_3.117`, which certutil 3.120 needs. `nil` when it can't be read.
+    static func isNSS3117OrLater(_ url: URL) -> Bool? {
+        guard let file = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? file.close() }
+        // The names of the exported versions come early in the file, before the code.
+        guard let start = try? file.read(upToCount: 1 << 20) else { return nil }
+        return start.range(of: Data("NSS_3.117".utf8)) != nil
+    }
+
+    /// The NSS library certutil loads, `libnss3.so`, in Debian's and Ubuntu's folder for this
+    /// computer's architecture.
+    static func systemNSSLibrary() -> URL? {
+        ["/usr/lib/\(multiarch)/libnss3.so", "/usr/lib64/libnss3.so", "/usr/lib/libnss3.so"].lazy.map {
+            URL(filePath: $0)
+        }.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Debian's name for this computer's architecture, as its library folders have it, such as
+    /// `x86_64-linux-gnu`.
+    static var multiarch: String {
+        #if arch(arm64)
+            "aarch64-linux-gnu"
+        #else
+            "x86_64-linux-gnu"
+        #endif
     }
 
     /// The folders that may hold Firefox's profiles.ini: Firefox's own, its XDG ones (Firefox ESR

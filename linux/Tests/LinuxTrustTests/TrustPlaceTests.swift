@@ -82,5 +82,14 @@ import Testing
                 """)
         #expect(apps[4].fix == "/home/o'neil/.local/share/reqly/Reqly CA.pem")
         #expect(apps.allSatisfy { $0.detail.hasSuffix(":") })
+
+        // The Chromium snap comes first where it can't read certutil's trust, with the file to import.
+        let withSnap = UncoveredApp.all(
+            pemFile: folder.appending(path: "Reqly CA.pem"), bundleFile: folder.appending(path: "ca-certificates.crt"),
+            chromiumSnap: true)
+        #expect(withSnap.count == apps.count + 1)
+        #expect(withSnap.first?.name == "Chromium From the Snap Store")
+        #expect(withSnap.first?.fix == "/home/o'neil/.local/share/reqly/Reqly CA.pem")
+        #expect(withSnap.first?.detail.hasSuffix(":") == true)
     }
 }

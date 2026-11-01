@@ -156,7 +156,9 @@ final class HTTPSPage {
             gtk_widget_set_visible(group, cBool(https.isAvailable))
         }
 
-        for app in UncoveredApp.all(pemFile: https.pemFile, bundleFile: https.bundleFile) {
+        let apps = UncoveredApp.all(
+            pemFile: https.pemFile, bundleFile: https.bundleFile, chromiumSnap: https.isChromiumSnapOutOfReach)
+        for app in apps {
             let row = HTTPSWidgets.row(app.name, app.detail + "\n" + app.fix)
             adw_action_row_set_subtitle_selectable(cast(row), 1)
             let copy = HTTPSWidgets.copyButton(app.fix, label: "Copy the fix for \(app.name)") { [weak self] in
@@ -384,7 +386,7 @@ final class HTTPSPage {
     /// stays Not trusted, with its Trust… button.
     private func say(_ problem: TrustProblem?) {
         switch problem {
-        case nil, .cancelled?:
+        case nil, .cancelled?, .refused?:
             break
         case .noPasswordDialog(let commands)?:
             showCommands(commands)
@@ -458,6 +460,24 @@ final class HTTPSPage {
             gtk_widget_set_visible(removeLeft, cBool(left != nil))
             gtk_widget_set_visible(removeCommandsButton, cBool(left != nil && https.commandsToRemoveByHand != nil))
             show()
+            if left != nil {
+                showWhatsLeft()
+            }
+        }
+    }
+
+    /// Scrolls the page to what's left after a removal, below the button, at the page's end, and
+    /// gives the copy button the focus when it shows. It waits for the page to lay it out first.
+    private func showWhatsLeft() {
+        idle { [weak self] in
+            guard let self else { return false }
+            if let viewport = gtk_widget_get_ancestor(removeLeft, gtk_viewport_get_type()) {
+                gtk_viewport_scroll_to(cast(viewport), removeLeft, nil)
+            }
+            if gtk_widget_get_visible(removeCommandsButton) != 0 {
+                gtk_widget_grab_focus(removeCommandsButton)
+            }
+            return false
         }
     }
 }

@@ -13,7 +13,7 @@ public struct KDEProxyStore: Sendable {
     var tellsApps = true
 
     static let group = ["Proxy Settings"]
-    static let keys = (type: "ProxyType", http: "httpProxy", https: "httpsProxy")
+    static let keys = (type: "ProxyType", http: "httpProxy", https: "httpsProxy", ftp: "ftpProxy", socks: "socksProxy")
 
     public init(file: URL, systemFiles: [URL] = []) {
         self.file = file
@@ -52,7 +52,9 @@ public struct KDEProxyStore: Sendable {
         return KDEProxy(
             fileExists: true, proxyType: config.value(Self.keys.type, in: Self.group),
             httpProxy: config.value(Self.keys.http, in: Self.group),
-            httpsProxy: config.value(Self.keys.https, in: Self.group))
+            httpsProxy: config.value(Self.keys.https, in: Self.group),
+            others: KDEProxy.OtherProxies(
+                ftp: config.value(Self.keys.ftp, in: Self.group), socks: config.value(Self.keys.socks, in: Self.group)))
     }
 
     /// Changes the keys that differ from `settings`, removing those it doesn't have, and tells
@@ -61,10 +63,14 @@ public struct KDEProxyStore: Sendable {
     public func write(_ settings: KDEProxy) throws {
         let old = try load()
         var config = old ?? KConfigFile(text: "")
-        let wanted = [
+        var wanted = [
             (Self.keys.type, settings.proxyType), (Self.keys.http, settings.httpProxy),
             (Self.keys.https, settings.httpsProxy),
         ]
+        // Settings from a restore file that doesn't know the other proxies leave them as they are.
+        if let others = settings.others {
+            wanted += [(Self.keys.ftp, others.ftp), (Self.keys.socks, others.socks)]
+        }
         let changes = wanted.filter { config.value($0.0, in: Self.group) != $0.1 }
         let locked = changes.map(\.0).filter { isLocked($0, in: config) }
         guard locked.isEmpty else {

@@ -148,18 +148,44 @@ final class MainWindow {
 
     /// Settings, over the window.
     func showSettings() {
-        let settings = settings ?? SettingsDialog(model: model)
-        self.settings = settings
+        let settings = settings ?? makeSettings()
         guard !settings.isShowing else { return }
         settings.present(over: window)
     }
 
     /// Set Up HTTPS…, over the window.
     func showSetUp() {
-        let setUp = setUp ?? SetUpDialog(https: model.https)
-        self.setUp = setUp
+        let setUp = setUp ?? makeSetUp()
         guard !setUp.isShowing else { return }
         setUp.present(over: window)
+    }
+
+    private func makeSettings() -> SettingsDialog {
+        let settings = SettingsDialog(model: model)
+        self.settings = settings
+        connect(settings.dialog, "closed") { [weak self] in self?.keepFocusAfterDialog() }
+        return settings
+    }
+
+    private func makeSetUp() -> SetUpDialog {
+        let setUp = SetUpDialog(https: model.https)
+        self.setUp = setUp
+        connect(setUp.dialog, "closed") { [weak self] in self?.keepFocusAfterDialog() }
+        return setUp
+    }
+
+    /// Once a dialog has closed and given the focus back, the window has a widget with it that
+    /// shows, or the list takes it: a widget that's gone, or one in the closed menu, would leave
+    /// the window's shortcuts and Tab doing nothing.
+    func keepFocusAfterDialog() {
+        idle { [weak self] in
+            guard let self else { return false }
+            let focus = gtk_root_get_focus(cast(window))
+            if focus.map({ gtk_widget_get_mapped($0) == 0 }) ?? true, gtk_widget_grab_focus(list.view) == 0 {
+                gtk_widget_grab_focus(captureSwitch)
+            }
+            return false
+        }
     }
 
     /// About Reqly: its name, version, website and license.
@@ -176,7 +202,10 @@ final class MainWindow {
         adw_about_dialog_set_copyright(dialog, "Copyright © 2026 The Reqly Authors")
         adw_about_dialog_set_license_type(dialog, GTK_LICENSE_MIT_X11)
         self.about = about
-        connect(about, "closed") { [weak self] in self?.about = nil }
+        connect(about, "closed") { [weak self] in
+            self?.about = nil
+            self?.keepFocusAfterDialog()
+        }
         adw_dialog_present(cast(about), window)
     }
 }
