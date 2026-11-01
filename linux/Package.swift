@@ -89,7 +89,7 @@ let package = Package(
         .executableTarget(
             name: "ReqlyApp",
             dependencies: [
-                "AppSetup", "CGtk", "GtkBinding", "LinuxDesktop", "LinuxTrust", "LinuxApps", "LinuxSystem",
+                "AppSetup", "CGio", "CGtk", "GtkBinding", "LinuxDesktop", "LinuxTrust", "LinuxApps", "LinuxSystem",
                 .product(name: "CoreInterface", package: "core-interface"),
                 .product(name: "CertificateAuthority", package: "core"),
                 .product(name: "Presentation", package: "core"),

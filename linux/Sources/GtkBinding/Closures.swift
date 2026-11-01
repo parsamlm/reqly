@@ -26,9 +26,17 @@ public struct Arguments: @unchecked Sendable {
     public func uint(_ index: Int) -> UInt32 { g_value_get_uint(value(index)) }
     public func double(_ index: Int) -> Double { g_value_get_double(value(index)) }
 
+    /// A GVariant, such as a D-Bus method call's parameters.
+    public func variant(_ index: Int) -> OpaquePointer? { g_value_get_variant(value(index)) }
+
     /// Sets a gboolean return value, as "close-request" wants.
     public func returns(_ value: Bool) {
         if let result { g_value_set_boolean(result, cBool(value)) }
+    }
+
+    /// Sets a GVariant return value, as a D-Bus property's getter does. It takes a floating one.
+    public func returns(variant: OpaquePointer?) {
+        if let result { g_value_set_variant(result, variant) }
     }
 }
 

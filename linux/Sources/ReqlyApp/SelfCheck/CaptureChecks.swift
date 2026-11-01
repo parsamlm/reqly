@@ -338,10 +338,8 @@ extension SelfCheck {
         defer { child.stop() }
         var port: Int?
         try await until("Reqly \(child.identifier) to capture", seconds: 20) {
-            let kept = try? Data(contentsOf: files.restoreFile)
-            port = kept.flatMap { try? JSONDecoder().decode(Kept.self, from: $0).port }
-            let pointed = try? DesktopProxyStandIn(file: files.standIn).read()
-            return port.map { pointed?.pointsAtReqly(port: $0) == true } ?? false
+            port = capturingPort(files)
+            return port != nil
         }
         note("Reqly \(child.identifier) captures on port \(port ?? 0), its stand-in pointing at it")
         child.send(SIGTERM)
@@ -354,51 +352,101 @@ extension SelfCheck {
         note("SIGTERM: it ended with status 0, the stand-in back as it was, and no session left")
     }
 
-    /// Logging out: the session manager tells GTK the session is ending, which Reqly hears as it
-    /// registers with it, and capturing stops while the desktop is still there; then GTK ends the
-    /// main loop, without Reqly's quit, and Reqly still closes its session before it ends. A copy
-    /// of Reqly, given `--app-id`, plays the session manager's part on itself.
+    /// Logging out: the session manager asks whether the session may end, and Reqly closes before
+    /// it answers, as quitting does: capturing stops, which puts the stand-in back, the restore
+    /// file goes, and the session's folder goes. Then it ends, with status 0 and nothing from GTK
+    /// in its log, before the session's end and before the display goes, which would end it at
+    /// once, with status 1. A copy of Reqly runs on a D-Bus and an X server of its own, with a
+    /// stand-in for the session manager, each that this GTK follows: gnome-session's below GTK
+    /// 4.22, and the portal's from GTK 4.18.
     func checkLogout() async throws {
-        if app.options.appID != nil {
-            try await endThisSession()
-            return
+        let minor = gtk_get_minor_version()
+        let kinds: [SessionStandIn.Kind] = (minor < 22 ? [.gnomeSession] : []) + (minor >= 18 ? [.portal] : [])
+        var failures: [String] = []
+        for kind in kinds {
+            do {
+                try await logOut(through: kind)
+            } catch {
+                failures.append("\(kind.rawValue): \(error)")
+            }
         }
+        try require(failures.isEmpty, failures.joined(separator: "; "))
+    }
+
+    /// One logout, through the stand-in of `kind`.
+    private func logOut(through kind: SessionStandIn.Kind) async throws {
         let files = try ChildFiles("logout", in: scratch)
         try JSONEncoder().encode(Self.yourProxySettings).write(to: files.standIn)
-        let report = scratch.appending(path: "logout-\(UUID().uuidString).txt")
+        let bus = try await ChildServer.bus(in: files.folder, activatable: kind == .portal ? [kind.name] : [])
+        let screen = try await ChildServer.screen()
+        let manager = try SessionStandIn(kind, address: bus.firstLine)
+        defer { manager.stop() }
         let child = try ChildRun(
             files.arguments() + [
                 "--app-id", "net.reqly.SelfCheck.Logout\(getpid())", "--starts-capturing", "yes", "--port", "0",
-                "--smoke", report.path, "--smoke-parts", "logout",
-            ])
+            ],
+            // Without an accessibility bus, which this bus doesn't have, GTK would warn.
+            environment: ["DBUS_SESSION_BUS_ADDRESS": bus.firstLine, "DISPLAY": screen.display, "GTK_A11Y": "none"])
         defer { child.stop() }
+        try await until("Reqly \(child.identifier) to register with the \(kind.rawValue) stand-in", seconds: 20) {
+            manager.client != nil
+        }
+        try await until("Reqly \(child.identifier) to capture", seconds: 20) { capturingPort(files) != nil }
+
+        manager.atAnswer = { [unowned self] in whatsOpen(files) }
+        let asked = monotonicMicroseconds()
+        manager.askToEnd()
+        try await until("Reqly's answer", seconds: 2) { manager.answered != nil }
+        let answered = ((manager.answered ?? asked) - asked) / 1000
+        let open = manager.foundAtAnswer
+        note(
+            "\(kind.rawValue): Reqly \(child.identifier) answered the question after \(answered) ms, "
+                + (open.isEmpty ? "closed by then" : "with \(open.joined(separator: ", "))"))
+        try require(open.isEmpty, "when Reqly answered, \(open.joined(separator: ", "))")
+        try require(answered < 1000, "Reqly answered after \(answered) ms, once the session manager stopped waiting")
+        try await until("Reqly to leave the bus", seconds: 2) { manager.clientLeft }
+        let left = (monotonicMicroseconds() - asked) / 1000 - answered
+        // The session ends, and the display with it, at once.
+        manager.end()
+        screen.kill()
         let status = await child.wait()
-        let stopped = FileManager.default.fileExists(atPath: report.path + ".stopped")
-        note("Reqly \(child.identifier): \(stopped ? "the session's end stopped capturing" : "still capturing")")
-        try require(stopped, "the session's end didn't stop capturing")
-        try require(status == 0, "it ended with \(status.map(String.init) ?? "a signal")")
-        try require(try hasYourSettings(files.standIn), "the stand-in isn't as it was")
-        try require(!FileManager.default.fileExists(atPath: files.restoreFile.path), "the restore file is still there")
-        let left = (try? FileManager.default.contentsOfDirectory(atPath: files.sessions.path)) ?? []
-        try require(left.isEmpty, "its sessions folder still has \(left.joined(separator: ", "))")
-        note("once its main loop ended without quitting: status 0, the stand-in back as it was, and no session left")
+        // Without Mesa's notes on Xvfb, such as "libEGL warning: DRI3 error".
+        let log = ((try? String(contentsOf: files.folder.appending(path: "Reqly.log"), encoding: .utf8)) ?? "")
+            .split(separator: "\n").filter { !$0.hasPrefix("libEGL ") }
+        let complaints = log.filter { $0.contains("-CRITICAL **") || $0.contains("-WARNING **") }
+        note(
+            "    it left the bus \(left) ms after answering, then ended with "
+                + "\(status.map { "status \($0)" } ?? "a signal"); its log: \(log.joined(separator: " | "))")
+        try require(status == 0, "it ended with \(status.map { "status \($0)" } ?? "a signal")")
+        try require(complaints.isEmpty, "its log has \(complaints.joined(separator: " | "))")
+        try require(!manager.unregistered, "GTK unregistered as the session ended")
+        let stillOpen = whatsOpen(files)
+        try require(stillOpen.isEmpty, "once it ended, \(stillOpen.joined(separator: ", "))")
     }
 
-    /// The copy's side of logout: what the session manager's query-end runs, then the end of the
-    /// main loop, while capturing. Reqly ends before this returns.
-    private func endThisSession() async throws {
-        try require(
-            boolProperty(raw(app.application), "register-session"), "Reqly doesn't register with the session manager")
-        let queryEnd = g_signal_lookup("query-end", adw_application_get_type())
-        try require(g_signal_has_handler_pending(raw(app.application), queryEnd, 0, 0) != 0, "nothing hears query-end")
-        try await until("Reqly to capture", seconds: 20) { model.capture == .capturing }
-        app.sessionEnding()
-        try await until("capturing to stop") { model.capture == .stopped }
-        _ = FileManager.default.createFile(atPath: report.path + ".stopped", contents: nil)
-        try await setCapture(on: true)
-        // As GTK does once the session manager ends the session: the main loop ends.
-        g_application_quit(cast(app.application))
-        try await Task.sleep(for: .seconds(60))
+    /// The port a copy of Reqly captures on, once its stand-in points at it and it keeps a restore
+    /// file.
+    private func capturingPort(_ files: ChildFiles) -> Int? {
+        let kept = try? Data(contentsOf: files.restoreFile)
+        let port = kept.flatMap { try? JSONDecoder().decode(Kept.self, from: $0).port }
+        let pointed = try? DesktopProxyStandIn(file: files.standIn).read()
+        return port.flatMap { pointed?.pointsAtReqly(port: $0) == true ? $0 : nil }
+    }
+
+    /// What a copy of Reqly hasn't closed: the stand-in pointing at it, its restore file, its
+    /// session's folder.
+    private func whatsOpen(_ files: ChildFiles) -> [String] {
+        var open: [String] = []
+        if (try? hasYourSettings(files.standIn)) != true {
+            open.append("the stand-in not as it was")
+        }
+        if FileManager.default.fileExists(atPath: files.restoreFile.path) {
+            open.append("the restore file")
+        }
+        if let sessions = try? FileManager.default.contentsOfDirectory(atPath: files.sessions.path), !sessions.isEmpty {
+            open.append("its session's folder")
+        }
+        return open
     }
 
     /// Two runs under the same application ID: the second hands its launch to the first, which
@@ -725,12 +773,16 @@ private final class ChildRun {
     let identifier: String
 
     /// Starts Reqly with `arguments`, and its standard error going to the file at `standardError`,
-    /// such as `/dev/full`, or the self-check's own.
-    init(_ arguments: [String], standardError: String? = nil) throws {
+    /// such as `/dev/full`, or the self-check's own, with the self-check's environment and
+    /// `environment`.
+    init(_ arguments: [String], standardError: String? = nil, environment: [String: String] = [:]) throws {
         let launcher = g_subprocess_launcher_new(GSubprocessFlags(rawValue: 0))!
         defer { g_object_unref(raw(launcher)) }
         if let standardError {
             g_subprocess_launcher_set_stderr_file_path(launcher, standardError)
+        }
+        for (name, value) in environment {
+            g_subprocess_launcher_setenv(launcher, name, value, 1)
         }
         var error: UnsafeMutablePointer<GError>?
         let started = withCStrings([ProxyGuard.currentExecutable] + arguments) {

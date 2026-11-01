@@ -24,6 +24,9 @@ final class App {
     private(set) var window: MainWindow?
     private var selfCheck: SelfCheck?
     private var isQuitting = false
+    /// The model's close, once something has started it: quitting, the session's end, or the main
+    /// loop's. They share it, since the core's session closes once.
+    private var closing: Task<Void, Never>?
     /// What `run` returns when GApplication itself has nothing to report: 1 once the self-check
     /// fails.
     var exitStatus: Int32 = 0
@@ -41,9 +44,13 @@ final class App {
         MainLoop.runSwiftMainQueue()
         connect(application, "startup") { [weak self] in self?.startUp() }
         connect(application, "activate") { [weak self] in self?.activate() }
-        // The session manager says when you log out, before your desktop goes: GNOME's and
-        // Cinnamon's end the session, and with it the display, without a signal.
-        set(raw(application), "register-session", .bool(true))
+        // The session manager asks whether the session may end as you log out, before your
+        // desktop goes: GNOME's and Cinnamon's end the session, and with it the display, without
+        // a signal. GTK 4.14 and 4.18 follow it only for an app that registers; 4.22 always does,
+        // and ignores the property.
+        if gtk_get_minor_version() < 22 {
+            set(raw(application), "register-session", .bool(true))
+        }
         connect(application, "query-end") { [weak self] in self?.sessionEnding() }
         // The window's X11 class, as the app ID, so desktops that match windows to desktop files by
         // their class find Reqly's. On Wayland, GTK names the window by the app ID itself.
@@ -52,7 +59,8 @@ final class App {
         // launcher passes wait for Step 5.
         var arguments: [UnsafeMutablePointer<CChar>?] = [CommandLine.unsafeArgv[0], nil]
         let status = g_application_run(cast(application), 1, &arguments)
-        finishClosing()
+        // When the main loop ended without Reqly's quit, as when the display went on GNOME 50.
+        close(within: 5)
         return status != 0 ? status : exitStatus
     }
 
@@ -73,32 +81,52 @@ final class App {
         model.open()
     }
 
-    /// You're logging out: capturing stops now, which puts your proxy settings back while your
-    /// desktop is still there, since GTK may end Reqly as soon as the display goes. Reqly stays
-    /// open, in case the logout is called off.
+    /// You're logging out: the session manager asks whether the session may end, and waits for
+    /// the answer, which GTK sends once this returns. So Reqly closes now, as quitting does:
+    /// capturing stops, which puts your proxy settings back, and the session's folder goes. Then
+    /// the main loop ends, before the session's end reaches GTK, and before your desktop goes,
+    /// which would end Reqly at once. If the logout is called off, Reqly has quit, as apps do on
+    /// a Mac.
     func sessionEnding() {
-        AppLog.write("the session is ending, so capturing stops")
-        Task { await model.setCapturing(false) }
+        AppLog.write("the session is ending, so Reqly closes")
+        isQuitting = true
+        // gnome-session and the portal wait a second for the answer, then go on without it, and
+        // gnome-session says Reqly isn't responding.
+        close(within: 0.75)
+        g_application_quit(cast(application))
     }
 
-    /// Closes the model once the main loop has ended without ``quit()``, as when the session
-    /// manager ends the session, or the display goes on GNOME 50: capturing stops, so your proxy
-    /// settings go back before Reqly ends, and the session's folder goes. It waits at most five
-    /// seconds; the watcher puts the settings back after that.
-    private func finishClosing() {
+    /// Closes the model, unless it's closed, and waits for it at most `seconds`, running the main
+    /// loop, which runs the close meanwhile: capturing stops, so your proxy settings go back
+    /// before Reqly ends, and the session's folder goes. The watcher puts the settings back if
+    /// Reqly ends before that. Call it only from a GLib callback, such as a signal's handler,
+    /// never from a Swift task: GLib doesn't run Swift's main queue again while it's running a
+    /// task from it, so the close would wait for the deadline.
+    private func close(within seconds: Double) {
         guard !model.isClosed else { return }
-        let closing = Closing()
+        let task = startClosing()
+        let done = Closing()
         Task {
-            await model.close()
-            closing.isDone = true
+            await task.value
+            done.isDone = true
         }
-        let deadline = monotonicMicroseconds() + 5_000_000
+        let deadline = monotonicMicroseconds() + Int(seconds * 1_000_000)
         // Wakes the loop now and then, so the deadline is seen even while nothing happens.
-        let tick = timeout(50) { true }
-        while !closing.isDone, monotonicMicroseconds() < deadline {
+        let tick = timeout(25) { true }
+        while !done.isDone, monotonicMicroseconds() < deadline {
             g_main_context_iteration(nil, 1)
         }
         g_source_remove(tick)
+    }
+
+    /// Starts the model's close, or returns the one that's under way.
+    private func startClosing() -> Task<Void, Never> {
+        if let closing {
+            return closing
+        }
+        let task = Task { [model] in await model.close() }
+        closing = task
+        return task
     }
 
     /// Shows the window: a new one the first time, and the one that's open when another launch
@@ -159,14 +187,15 @@ final class App {
     func quit() {
         guard !isQuitting else { return }
         isQuitting = true
+        let closing = startClosing()
         Task {
-            await model.close()
+            await closing.value
             g_application_quit(cast(application))
         }
     }
 }
 
-/// Whether closing has finished, for ``App/finishClosing()``.
+/// Whether closing has finished, for ``App/close(within:)``.
 @MainActor
 private final class Closing {
     var isDone = false
