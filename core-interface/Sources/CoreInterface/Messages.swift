@@ -14,17 +14,19 @@ public struct OpenOptions: Codable, Sendable {
     public var sessionsFolder: String
     /// A saved session to open, instead of starting a new, live one.
     public var file: String?
-    /// Whether capturing points your user's proxy setting at Reqly, on Windows. Your own
-    /// settings are kept in `proxyRestoreFile` meanwhile, and put back after.
+    /// Whether capturing points your user's proxy setting at Reqly, through the system's
+    /// ``SystemParts/proxySwitch``. Your own settings are kept in `proxyRestoreFile` meanwhile,
+    /// and put back after.
     public var setsSystemProxy: Bool?
     public var proxyRestoreFile: String?
-    /// For test runs: a JSON file that stands in for Windows' proxy settings, so the switch runs
-    /// without changing the computer's.
+    /// For test runs: a JSON file that stands in for the system's proxy settings, so the switch
+    /// runs without changing the computer's.
     public var proxySettingsStandIn: String?
-    /// Whether to find which app on this computer sent each request, on Windows.
+    /// Whether to find which app on this computer sent each request, through the system's
+    /// ``SystemParts/appFinder``.
     public var findsApps: Bool?
-    /// Where Windows' certificate store keeps Reqly's certificate and key, encrypted for your
-    /// user. Without it, or `rootStandIn`, a session has no HTTPS decryption.
+    /// Where the system's certificate store, ``SystemParts/rootStore``, keeps Reqly's certificate
+    /// and key. Without it, or `rootStandIn`, a session has no HTTPS decryption.
     public var rootFile: String?
     /// For test runs: a plain file for a certificate that counts as trusted, so the session
     /// decrypts while the computer never trusts it.
@@ -224,10 +226,7 @@ public enum Call: Sendable, Equatable {
     case presentMessage(id: UInt64, number: Int)
 
     /// A value to set, or `nil` to remove it, in a call that changes only what it names.
-    public enum Change<Value: Sendable & Equatable>: Sendable, Equatable {
-        case set(Value)
-        case remove
-    }
+    public typealias Change<Value: Sendable & Equatable> = ValueChange<Value>
 
     private enum Keys: String, CodingKey {
         case call, port, ids, text, id, part, hosts, host, patterns, pattern, isOn, filter, isPinned, color, comment,
@@ -557,10 +556,10 @@ public struct WireTrafficSummary: Codable, Sendable, Equatable {
     public var bytes: Int64
     public var newest: WireRow?
 
-    init(_ all: ExchangeList) {
-        total = all.count
-        bytes = all.reduce(0) { $0 + $1.bytesSent + $1.bytesReceived }
-        newest = all.last.map(WireRow.init)
+    init(_ summary: TrafficSummary) {
+        total = summary.total
+        bytes = summary.bytes
+        newest = summary.newest.map(WireRow.init)
     }
 }
 
@@ -966,8 +965,8 @@ enum WireDevice {
     }
 }
 
-/// The sidebar's rows, as the list engine keeps them for the Mac's sidebar. Each row has a key,
-/// which `setScope` takes to narrow the list to it, and its count.
+/// The sidebar's rows, as the `sidebar` event carries them. Each row has a key, which `setScope`
+/// takes to narrow the list to it, and its count.
 public struct WireSidebar: Encodable, Sendable, Equatable {
     public struct Row: Encodable, Sendable, Equatable {
         public var key: String
@@ -975,6 +974,13 @@ public struct WireSidebar: Encodable, Sendable, Equatable {
         public var count: Int
         /// An app's program, for its icon.
         public var path: String?
+
+        init(_ row: Sidebar.Row) {
+            key = row.key
+            name = row.name
+            count = row.count
+            path = row.path
+        }
     }
 
     public struct DeviceRow: Encodable, Sendable, Equatable {
@@ -989,6 +995,16 @@ public struct WireSidebar: Encodable, Sendable, Equatable {
         public var apps: [Row]
         /// The hosts its traffic from no known app went to.
         public var otherHosts: [Row]
+
+        init(_ row: Sidebar.DeviceRow) {
+            key = row.key
+            id = WireDevice.name(row.device)
+            name = row.name
+            kind = row.kind?.rawValue
+            count = row.count
+            apps = row.apps.map(Row.init)
+            otherHosts = row.otherHosts.map(Row.init)
+        }
     }
 
     public var total: Int
@@ -1003,26 +1019,21 @@ public struct WireSidebar: Encodable, Sendable, Equatable {
     public var methods: [String]
     /// Every app on any device, by name, for the filters.
     public var sources: [Source]
+
+    init(_ sidebar: Sidebar) {
+        total = sidebar.total
+        pinned = sidebar.pinned
+        apps = sidebar.apps.map(Row.init)
+        hosts = sidebar.hosts.map(Row.init)
+        devices = sidebar.devices.map(DeviceRow.init)
+        methods = sidebar.methods
+        sources = sidebar.sources
+    }
 }
 
-/// How the rows changed, in order, as the list should change its own. Rows are counted from 0.
-/// `inserted` names each new row's exchange, so the app needs no other call to keep its list of
-/// rows; it asks for the rows it shows with `rows`.
-public enum RowStep: Codable, Sendable, Equatable {
-    /// Rows taken out, at their places before.
-    case removed([Int])
-    /// Rows put in, each at its place after, with its exchange.
-    case inserted([InsertedRow])
-    /// Exchanges whose rows stay but show something new.
-    case changed([UInt64])
-    /// Every row, when so many changed that listing the changes would take longer.
-    case reset([UInt64])
-
-    public struct InsertedRow: Codable, Sendable, Equatable {
-        public var row: Int
-        public var id: UInt64
-    }
-
+/// Row steps as the `rows` event carries them: `{"inserted": [{"row": 0, "id": 7}]}`, with
+/// exchanges by their numbers.
+extension RowStep: Codable {
     private enum Keys: String, CodingKey {
         case removed, inserted, changed, reset
     }
@@ -1032,8 +1043,8 @@ public enum RowStep: Codable, Sendable, Equatable {
         switch self {
         case .removed(let rows): try container.encode(rows, forKey: .removed)
         case .inserted(let rows): try container.encode(rows, forKey: .inserted)
-        case .changed(let ids): try container.encode(ids, forKey: .changed)
-        case .reset(let ids): try container.encode(ids, forKey: .reset)
+        case .changed(let ids): try container.encode(ids.map(\.rawValue), forKey: .changed)
+        case .reset(let ids): try container.encode(ids.map(\.rawValue), forKey: .reset)
         }
     }
 
@@ -1044,33 +1055,34 @@ public enum RowStep: Codable, Sendable, Equatable {
         } else if let rows = try container.decodeIfPresent([InsertedRow].self, forKey: .inserted) {
             self = .inserted(rows)
         } else if let ids = try container.decodeIfPresent([UInt64].self, forKey: .changed) {
-            self = .changed(ids)
+            self = .changed(ids.map(ExchangeID.init(rawValue:)))
         } else {
-            self = .reset(try container.decode([UInt64].self, forKey: .reset))
+            self = .reset(try container.decode([UInt64].self, forKey: .reset).map(ExchangeID.init(rawValue:)))
         }
     }
 }
 
-/// Something that happened in a session, sent to the app as it happens.
-public enum Event: Sendable, Equatable {
-    /// The rows changed. `version` goes up by one each time.
-    case rows(version: Int, total: Int, shown: Int, steps: [RowStep])
-    /// Saving traffic failed, with a message to show; or it works again, with `nil`.
-    case storageProblem(String?)
-    /// The sidebar's rows, when apps, hosts or devices came or went.
-    case sidebar(WireSidebar)
-    /// The sidebar's counts that changed, by row key, when no row came or went.
-    case counts(total: Int, pinned: Int, counts: [String: Int])
-    /// How far a HAR export got.
-    case exportProgress(done: Int, total: Int)
-    /// A breakpoint holds a request or a response, ready to edit, until `decide` answers.
-    case paused(WirePaused)
-    /// A held exchange went on or went away, as when its app gave up.
-    case resumed(id: UInt64)
-    /// A device on the network wants to send its traffic through Reqly, and waits for
-    /// `decideDevice`. `waiting` counts it with the others that wait.
-    case deviceWaiting(id: String, address: String, waiting: Int)
+extension RowStep.InsertedRow: Codable {
+    private enum Keys: String, CodingKey {
+        case row, id
+    }
 
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        try container.encode(row, forKey: .row)
+        try container.encode(id.rawValue, forKey: .id)
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        self.init(
+            row: try container.decode(Int.self, forKey: .row),
+            id: ExchangeID(rawValue: try container.decode(UInt64.self, forKey: .id)))
+    }
+}
+
+/// Events as the app gets them, such as `{"event": "resumed", "id": 7}`.
+extension Event {
     var json: Data {
         switch self {
         case .rows(let version, let total, let shown, let steps):
@@ -1078,15 +1090,15 @@ public enum Event: Sendable, Equatable {
         case .storageProblem(let message):
             Reply.encode(StorageProblemEvent(message: message))
         case .sidebar(let sidebar):
-            Reply.encode(SidebarEvent(sidebar: sidebar))
+            Reply.encode(SidebarEvent(sidebar: WireSidebar(sidebar)))
         case .counts(let total, let pinned, let counts):
             Reply.encode(CountsEvent(total: total, pinned: pinned, counts: counts))
         case .exportProgress(let done, let total):
             Reply.encode(ExportProgressEvent(done: done, total: total))
-        case .paused(let paused):
-            Reply.encode(PausedEvent(paused: paused))
+        case .paused(let id, let edit):
+            Reply.encode(PausedEvent(paused: WirePaused(id: id.rawValue, edit)))
         case .resumed(let id):
-            Reply.encode(ResumedEvent(id: id))
+            Reply.encode(ResumedEvent(id: id.rawValue))
         case .deviceWaiting(let id, let address, let waiting):
             Reply.encode(DeviceWaitingEvent(id: id, address: address, waiting: waiting))
         }

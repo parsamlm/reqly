@@ -1,0 +1,458 @@
+# The JSON SessionHost puts on the wire, as WireGoldenTests.swift records it. Each step is
+# its call, its reply, and the events after it. Set REQLY_RECORD_WIRE_GOLDENS=1 to record again.
+
+open a saved session of 8 exchanges
+event {"event":"rows","shown":8,"steps":[{"inserted":[{"id":1,"row":0},{"id":2,"row":1},{"id":3,"row":2},{"id":4,"row":3},{"id":5,"row":4},{"id":6,"row":5},{"id":7,"row":6},{"id":8,"row":7}]}],"total":8,"version":1}
+event {"apps":[{"count":2,"key":"app\u001f\u001fWeather\u001fC:\\Apps\\Weather.exe\u001f","name":"Weather","path":"C:\\Apps\\Weather.exe"}],"devices":[{"apps":[{"count":2,"key":"app\u001f\u001fWeather\u001fC:\\Apps\\Weather.exe\u001f","name":"Weather","path":"C:\\Apps\\Weather.exe"}],"count":7,"id":"","key":"device\u001f","otherHosts":[{"count":3,"key":"deviceHost\u001f\u001fapi.weatherly.dev","name":"api.weatherly.dev"},{"count":1,"key":"deviceHost\u001f\u001fbank.example","name":"bank.example"},{"count":1,"key":"deviceHost\u001f\u001fimages.weatherly.dev","name":"images.weatherly.dev"}]},{"apps":[],"count":1,"id":"mac:aa:bb:cc:dd:ee:ff","key":"device\u001fmac:aa:bb:cc:dd:ee:ff","kind":"network","name":"192.168.1.20","otherHosts":[{"count":1,"key":"deviceHost\u001fmac:aa:bb:cc:dd:ee:ff\u001fstatus.weatherly.dev","name":"status.weatherly.dev"}]}],"event":"sidebar","hosts":[{"count":5,"key":"host\u001fapi.weatherly.dev","name":"api.weatherly.dev"},{"count":1,"key":"host\u001fbank.example","name":"bank.example"},{"count":1,"key":"host\u001fimages.weatherly.dev","name":"images.weatherly.dev"},{"count":1,"key":"host\u001fstatus.weatherly.dev","name":"status.weatherly.dev"}],"methods":["GET","POST","CONNECT"],"pinned":0,"sources":[{"name":"Weather","path":"C:\\Apps\\Weather.exe"}],"total":8}
+
+call not json
+reply {"problem":{"code":"badRequest","message":"The request isn't JSON with a \"call\"."}}
+
+call {"port":1}
+reply {"problem":{"code":"badRequest","message":"The request isn't JSON with a \"call\"."}}
+
+call {"call":"fly"}
+reply {"problem":{"code":"unknownCall","message":"There's no call \"fly\"."}}
+
+call {"call":"startCapturing"}
+reply {"problem":{"code":"badRequest","message":"The \"startCapturing\" call is missing something: $decodingError"}}
+
+call {"call":"presentBody","id":1,"part":"trailer"}
+reply {"problem":{"code":"badRequest","message":"\"part\" is \"request\" or \"response\"."}}
+
+call {"call":"removeDecryptedHosts","patterns":["not a host"]}
+reply {"problem":{"code":"badRequest","message":"The \"removeDecryptedHosts\" call is missing something: $decodingError"}}
+
+call {"call":"annotate","id":1,"color":"teal"}
+reply {"problem":{"code":"badRequest","message":"The \"annotate\" call is missing something: $decodingError"}}
+
+call {"call":"version"}
+reply {"result":{"version":1}}
+
+call {"call":"rowIDs"}
+reply {"result":{"ids":[1,2,3,4,5,6,7,8],"version":1}}
+
+call {"call":"rows","ids":[1,2,3,4,5,6,7,8,99]}
+reply {"result":{"rows":[{"app":"Weather","appPath":"C:\\Apps\\Weather.exe","bytesReceived":960,"bytesSent":412,"contentType":"application/json","duration":0.75,"host":"api.weatherly.dev","id":1,"isPinned":false,"kind":"http","messageCount":0,"method":"GET","port":443,"scheme":"https","started":1793448001,"state":"completed","status":200,"statusClass":"success","target":"/v2/forecast?city=Tehran&units=metric"},{"app":"Weather","appPath":"C:\\Apps\\Weather.exe","bytesReceived":0,"bytesSent":0,"contentType":"text/plain","duration":0.25,"host":"api.weatherly.dev","id":2,"isPinned":false,"kind":"http","messageCount":0,"method":"POST","port":443,"scheme":"https","started":1793448002,"state":"completed","status":201,"statusClass":"success","target":"/v2/report"},{"bytesReceived":0,"bytesSent":0,"contentType":"application/x-protobuf","duration":0.25,"host":"api.weatherly.dev","id":3,"isPinned":false,"kind":"http","messageCount":0,"method":"GET","port":443,"scheme":"https","started":1793448003,"state":"completed","status":200,"statusClass":"success","target":"/v1/forecast"},{"bytesReceived":0,"bytesSent":0,"duration":0.25,"host":"api.weatherly.dev","id":4,"isPinned":false,"kind":"http","messageCount":4,"method":"GET","port":443,"scheme":"https","started":1793448004,"state":"completed","status":101,"statusClass":"informational","target":"/v2/live"},{"bytesReceived":0,"bytesSent":0,"contentType":"application/json","device":"192.168.1.20","duration":0.25,"host":"status.weatherly.dev","id":5,"isPinned":false,"kind":"http","messageCount":0,"method":"GET","port":80,"scheme":"http","started":1793448005,"state":"completed","status":404,"statusClass":"clientError","target":"/v1/status"},{"bytesReceived":4200,"bytesSent":900,"duration":0.25,"host":"bank.example","id":6,"isPinned":false,"kind":"tunnel","messageCount":0,"method":"CONNECT","port":443,"scheme":"https","started":1793448006,"state":"completed","target":"bank.example:443"},{"bytesReceived":0,"bytesSent":0,"contentType":"image/png","duration":0.25,"host":"images.weatherly.dev","id":7,"isPinned":false,"kind":"http","messageCount":0,"method":"GET","port":443,"scheme":"https","started":1793448007,"state":"completed","status":200,"statusClass":"success","target":"/icons/sun.png"},{"bytesReceived":0,"bytesSent":0,"duration":0.25,"host":"api.weatherly.dev","id":8,"isPinned":false,"kind":"http","messageCount":0,"method":"POST","port":443,"scheme":"https","started":1793448008,"state":"failed","target":"/v2/alerts"}]}}
+
+call {"call":"trafficSummary"}
+reply {"result":{"bytes":6472,"newest":{"bytesReceived":0,"bytesSent":0,"duration":0.25,"host":"api.weatherly.dev","id":8,"isPinned":false,"kind":"http","messageCount":0,"method":"POST","port":443,"scheme":"https","started":1793448008,"state":"failed","target":"/v2/alerts"},"total":8}}
+
+call {"call":"details","id":1}
+reply {"result":{"app":"Weather","appliedRules":[{"detail":"Sent to https://staging.weatherly.dev/v2/forecast","kind":"mapRemote","name":"Staging"}],"bytesReceived":960,"bytesSent":412,"connectStarted":1793448001.0625,"decryption":"decrypted","ended":1793448001.75,"host":"api.weatherly.dev","id":1,"isPinned":false,"isWebSocket":false,"kind":"http","messageCount":0,"method":"GET","path":"/v2/forecast","phases":[{"end":1793448001.0625,"start":1793448001,"step":"queued"},{"end":1793448001.125,"start":1793448001.0625,"step":"dnsLookup"},{"end":1793448001.1875,"start":1793448001.125,"step":"connecting"},{"end":1793448001.25,"start":1793448001.1875,"step":"tlsHandshake"},{"end":1793448001.3125,"start":1793448001.25,"step":"requestSent"},{"end":1793448001.5,"start":1793448001.3125,"step":"waiting"},{"end":1793448001.75,"start":1793448001.5,"step":"downloading"}],"port":443,"query":[{"isSecret":false,"name":"city","value":"Tehran"},{"isSecret":false,"name":"units","value":"metric"}],"reason":"OK","remoteAddress":"203.0.113.7:443","requestBodySize":0,"requestCookies":[{"attributes":[],"name":"session","value":"abc"},{"attributes":[],"name":"theme","value":"dark"}],"requestHeaders":[{"isSecret":false,"name":"Accept","value":"application/json"},{"isSecret":true,"name":"Cookie","value":"session=abc; theme=dark"},{"isSecret":true,"name":"Authorization","value":"Bearer xyz"}],"responseBodySize":99,"responseCookies":[{"attributes":["Path /","Secure","HttpOnly"],"expires":1793451600,"name":"session","value":"new"}],"responseHeaders":[{"isSecret":false,"name":"Content-Type","value":"application/json"},{"isSecret":true,"name":"Set-Cookie","value":"session=new; Path=/; Secure; HttpOnly; Expires=Sat, 31 Oct 2026 13:00:00 GMT"}],"responseVersion":"HTTP/2","reusedConnection":false,"scheme":"https","scriptOutput":[{"lines":["GET /v2/forecast"],"part":"request","rule":"Log"}],"sentByReqly":false,"serverProtocol":"h2","source":{"name":"Weather","path":"C:\\Apps\\Weather.exe"},"started":1793448001,"state":"completed","status":200,"target":"/v2/forecast?city=Tehran&units=metric","tlsVersion":"TLS 1.3","url":"https://api.weatherly.dev/v2/forecast?city=Tehran&units=metric","version":"HTTP/1.1"}}
+
+call {"call":"details","id":2}
+reply {"result":{"app":"Weather","appliedRules":[],"bytesReceived":0,"bytesSent":0,"decryption":"decrypted","ended":1793448002.25,"host":"api.weatherly.dev","id":2,"isPinned":false,"isWebSocket":false,"kind":"http","messageCount":0,"method":"POST","path":"/v2/report","phases":[{"end":1793448002.25,"start":1793448002,"step":"downloading"}],"port":443,"query":[],"reason":"Created","requestBodySize":30,"requestCookies":[],"requestHeaders":[{"isSecret":false,"name":"Content-Type","value":"application/x-www-form-urlencoded"}],"responseBodySize":6,"responseCookies":[],"responseHeaders":[{"isSecret":false,"name":"Content-Type","value":"text/plain"}],"responseVersion":"HTTP/1.1","reusedConnection":true,"scheme":"https","scriptOutput":[],"sentByReqly":false,"source":{"name":"Weather","path":"C:\\Apps\\Weather.exe"},"started":1793448002,"state":"completed","status":201,"target":"/v2/report","url":"https://api.weatherly.dev/v2/report","version":"HTTP/1.1"}}
+
+call {"call":"details","id":3}
+reply {"result":{"appliedRules":[],"bytesReceived":0,"bytesSent":0,"decryption":"decrypted","ended":1793448003.25,"host":"api.weatherly.dev","id":3,"isPinned":false,"isWebSocket":false,"kind":"http","messageCount":0,"method":"GET","path":"/v1/forecast","phases":[],"port":443,"query":[],"reason":"OK","requestBodySize":0,"requestCookies":[],"requestHeaders":[{"isSecret":false,"name":"Accept","value":"application/x-protobuf"}],"responseBodySize":10,"responseCookies":[],"responseHeaders":[{"isSecret":false,"name":"Content-Type","value":"application/x-protobuf"}],"responseVersion":"HTTP/1.1","reusedConnection":false,"scheme":"https","scriptOutput":[],"sentByReqly":false,"started":1793448003,"state":"completed","status":200,"target":"/v1/forecast","url":"https://api.weatherly.dev/v1/forecast","version":"HTTP/1.1"}}
+
+call {"call":"details","id":4}
+reply {"result":{"appliedRules":[],"bytesReceived":0,"bytesSent":0,"decryption":"decrypted","ended":1793448004.25,"host":"api.weatherly.dev","id":4,"isPinned":false,"isWebSocket":true,"kind":"http","messageCount":4,"method":"GET","path":"/v2/live","phases":[],"port":443,"query":[],"reason":"Switching Protocols","requestBodySize":0,"requestCookies":[],"requestHeaders":[{"isSecret":false,"name":"Upgrade","value":"websocket"},{"isSecret":false,"name":"Connection","value":"Upgrade"}],"responseBodySize":0,"responseCookies":[],"responseHeaders":[{"isSecret":false,"name":"Upgrade","value":"websocket"},{"isSecret":false,"name":"Connection","value":"Upgrade"}],"responseVersion":"HTTP/1.1","reusedConnection":false,"scheme":"https","scriptOutput":[],"sentByReqly":false,"started":1793448004,"state":"completed","status":101,"target":"/v2/live","url":"https://api.weatherly.dev/v2/live","version":"HTTP/1.1"}}
+
+call {"call":"details","id":5}
+reply {"result":{"appliedRules":[],"bytesReceived":0,"bytesSent":0,"decryption":"plain","device":"192.168.1.20","deviceInfo":{"address":"192.168.1.20","fullName":"192.168.1.20","id":"mac:aa:bb:cc:dd:ee:ff","kind":"network","name":"192.168.1.20"},"ended":1793448005.25,"host":"status.weatherly.dev","id":5,"isPinned":false,"isWebSocket":false,"kind":"http","messageCount":0,"method":"GET","path":"/v1/status","phases":[],"port":80,"query":[],"reason":"Not Found","requestBodySize":0,"requestCookies":[],"requestHeaders":[],"responseBodySize":19,"responseCookies":[],"responseHeaders":[{"isSecret":false,"name":"Content-Type","value":"application/json"}],"responseVersion":"HTTP/1.1","reusedConnection":false,"scheme":"http","scriptOutput":[],"sentByReqly":false,"started":1793448005,"state":"completed","status":404,"target":"/v1/status","url":"http://status.weatherly.dev/v1/status","version":"HTTP/1.1"}}
+
+call {"call":"details","id":6}
+reply {"result":{"appliedRules":[],"bytesReceived":4200,"bytesSent":900,"decryption":"encryptedTunnel","ended":1793448006.25,"host":"bank.example","id":6,"isPinned":false,"isWebSocket":false,"kind":"tunnel","messageCount":0,"method":"CONNECT","path":"bank.example:443","phases":[],"port":443,"query":[],"requestBodySize":0,"requestCookies":[],"requestHeaders":[],"responseBodySize":0,"responseCookies":[],"reusedConnection":false,"scheme":"https","scriptOutput":[],"sentByReqly":false,"started":1793448006,"state":"completed","target":"bank.example:443","url":"https://bank.example","version":"HTTP/1.1"}}
+
+call {"call":"details","id":7}
+reply {"result":{"appliedRules":[],"bytesReceived":0,"bytesSent":0,"decryption":"decrypted","ended":1793448007.25,"host":"images.weatherly.dev","id":7,"isPinned":false,"isWebSocket":false,"kind":"http","messageCount":0,"method":"GET","path":"/icons/sun.png","phases":[],"port":443,"query":[],"reason":"OK","requestBodySize":0,"requestCookies":[],"requestHeaders":[],"responseBodySize":33,"responseCookies":[],"responseHeaders":[{"isSecret":false,"name":"Content-Type","value":"image/png"}],"responseVersion":"HTTP/1.1","reusedConnection":false,"scheme":"https","scriptOutput":[],"sentByReqly":false,"started":1793448007,"state":"completed","status":200,"target":"/icons/sun.png","url":"https://images.weatherly.dev/icons/sun.png","version":"HTTP/1.1"}}
+
+call {"call":"details","id":8}
+reply {"result":{"appliedRules":[],"bytesReceived":0,"bytesSent":0,"decryption":"decrypted","ended":1793448008.25,"failure":"The server closed the connection before the response finished.","host":"api.weatherly.dev","id":8,"isPinned":false,"isWebSocket":false,"kind":"http","messageCount":0,"method":"POST","path":"/v2/alerts","phases":[],"port":443,"query":[],"requestBodySize":44,"requestCookies":[],"requestHeaders":[{"isSecret":false,"name":"Content-Type","value":"application/json"}],"responseBodySize":0,"responseCookies":[],"reusedConnection":false,"scheme":"https","scriptOutput":[],"sentByReqly":false,"started":1793448008,"state":"failed","target":"/v2/alerts","url":"https://api.weatherly.dev/v2/alerts","version":"HTTP/1.1"}}
+
+call {"call":"details","id":99}
+reply {"problem":{"code":"notFound","message":"The session has no exchange 99."}}
+
+call {"call":"presentBody","id":1,"part":"response"}
+reply {"result":{"details":[],"formatted":{"isCode":true,"text":"{\n  \"city\": \"Tehran\",\n  \"hourly\": [\n    { \"time\": \"12:00\", \"temp\": 18.5 },\n    { \"time\": \"13:00\", \"temp\": 19 }\n  ],\n  \"wind\": \"light\"\n}","tokens":[[4,6,"key"],[12,8,"string"],[24,8,"key"],[42,6,"key"],[50,7,"string"],[59,6,"key"],[67,4,"number"],[81,6,"key"],[89,7,"string"],[98,6,"key"],[106,2,"number"],[118,6,"key"],[126,7,"string"]]},"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"JSON","modes":["formatted","tree","raw","hex"],"raw":{"isCode":true,"text":"{\"city\":\"Tehran\",\"hourly\":[{\"time\":\"12:00\",\"temp\":18.5},{\"time\":\"13:00\",\"temp\":19}],\"wind\":\"light\"}","tokens":[[1,6,"key"],[8,8,"string"],[17,8,"key"],[28,6,"key"],[35,7,"string"],[43,6,"key"],[50,4,"number"],[57,6,"key"],[64,7,"string"],[72,6,"key"],[79,2,"number"],[84,6,"key"],[91,7,"string"]]},"readsAsProtobuf":false,"size":99,"tree":{"nodes":[{"children":[1,2,9],"depth":0,"label":"Response","style":"container","summary":"3 keys","type":"object"},{"children":[],"depth":1,"label":"city","parent":0,"style":"string","summary":"\"Tehran\"","type":"string"},{"children":[3,6],"depth":1,"label":"hourly","parent":0,"style":"container","summary":"2 items","type":"array"},{"children":[4,5],"depth":2,"label":"0","parent":2,"style":"container","summary":"time, temp","type":"object"},{"children":[],"depth":3,"label":"time","parent":3,"style":"string","summary":"\"12:00\"","type":"string"},{"children":[],"depth":3,"label":"temp","parent":3,"style":"number","summary":"18.5","type":"number"},{"children":[7,8],"depth":2,"label":"1","parent":2,"style":"container","summary":"time, temp","type":"object"},{"children":[],"depth":3,"label":"time","parent":6,"style":"string","summary":"\"13:00\"","type":"string"},{"children":[],"depth":3,"label":"temp","parent":6,"style":"number","summary":"19","type":"number"},{"children":[],"depth":1,"label":"wind","parent":0,"style":"string","summary":"\"light\"","type":"string"}]},"treeIsTooBig":false,"wireSize":99}}
+
+call {"call":"presentBody","id":2,"part":"request"}
+reply {"result":{"details":[],"fields":[{"isFile":false,"name":"city","value":"Lisbon"},{"isFile":false,"name":"sky","value":"sunny and warm"}],"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Form","modes":["form","raw","hex"],"raw":{"isCode":false,"text":"city=Lisbon&sky=sunny+and+warm","tokens":[]},"readsAsProtobuf":false,"size":30,"treeIsTooBig":false,"wireSize":30}}
+
+call {"call":"presentBody","id":2,"part":"response"}
+reply {"result":{"details":[],"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Text","modes":["raw","hex"],"raw":{"isCode":false,"text":"Thanks","tokens":[]},"readsAsProtobuf":false,"size":6,"treeIsTooBig":false,"wireSize":6}}
+
+call {"call":"presentBody","id":3,"part":"response"}
+reply {"result":{"details":[],"formatted":{"isCode":true,"text":"1: \"Tehran\"\n2: 3\n","tokens":[[0,1,"key"],[3,8,"string"],[12,1,"key"],[15,1,"number"]]},"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Protobuf","modes":["formatted","tree","hex"],"readsAsProtobuf":true,"size":10,"tree":{"nodes":[{"children":[1,2],"depth":0,"label":"Response","style":"container","summary":"2 fields","type":"message"},{"children":[],"depth":1,"label":"1","parent":0,"style":"string","summary":"\"Tehran\"","type":"string"},{"children":[],"depth":1,"label":"2","parent":0,"style":"number","summary":"3","type":"varint"}]},"treeIsTooBig":false,"wireSize":10}}
+
+call {"call":"presentBody","id":4,"part":"response"}
+reply {"result":{"details":[],"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Text","modes":["raw","hex"],"raw":{"isCode":false,"text":"","tokens":[]},"readsAsProtobuf":false,"size":0,"treeIsTooBig":false,"wireSize":0}}
+
+call {"call":"presentBody","id":5,"part":"response"}
+reply {"result":{"details":[],"formatted":{"isCode":true,"text":"{ \"error\": \"missing\" }","tokens":[[2,7,"key"],[11,9,"string"]]},"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"JSON","modes":["formatted","tree","raw","hex"],"raw":{"isCode":true,"text":"{\"error\":\"missing\"}","tokens":[[1,7,"key"],[9,9,"string"]]},"readsAsProtobuf":false,"size":19,"tree":{"nodes":[{"children":[1],"depth":0,"label":"Response","style":"container","summary":"1 key","type":"object"},{"children":[],"depth":1,"label":"error","parent":0,"style":"string","summary":"\"missing\"","type":"string"}]},"treeIsTooBig":false,"wireSize":19}}
+
+call {"call":"presentBody","id":6,"part":"response"}
+reply {"result":{"details":[],"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Text","modes":["raw","hex"],"raw":{"isCode":false,"text":"","tokens":[]},"readsAsProtobuf":false,"size":0,"treeIsTooBig":false,"wireSize":0}}
+
+call {"call":"presentBody","id":7,"part":"response"}
+reply {"result":{"details":[],"hasMessageTypes":false,"isImage":true,"isTruncated":false,"kind":"PNG","modes":["preview","hex"],"readsAsProtobuf":false,"size":33,"treeIsTooBig":false,"wireSize":33}}
+
+call {"call":"presentBody","id":8,"part":"request"}
+reply {"result":{"details":[],"formatted":{"isCode":true,"text":"{\n  \"since\": \"12:00\",\n  \"cities\": [\"Tehran\", \"Oslo\"]\n}","tokens":[[4,7,"key"],[13,7,"string"],[24,8,"key"],[35,8,"string"],[45,6,"string"]]},"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"JSON","modes":["formatted","tree","raw","hex"],"raw":{"isCode":true,"text":"{\"since\":\"12:00\",\"cities\":[\"Tehran\",\"Oslo\"]}","tokens":[[1,7,"key"],[9,7,"string"],[17,8,"key"],[27,8,"string"],[36,6,"string"]]},"readsAsProtobuf":false,"size":44,"tree":{"nodes":[{"children":[1,2],"depth":0,"label":"Request","style":"container","summary":"2 keys","type":"object"},{"children":[],"depth":1,"label":"since","parent":0,"style":"string","summary":"\"12:00\"","type":"string"},{"children":[3,4],"depth":1,"label":"cities","parent":0,"style":"container","summary":"2 items","type":"array"},{"children":[],"depth":2,"label":"0","parent":2,"style":"string","summary":"\"Tehran\"","type":"string"},{"children":[],"depth":2,"label":"1","parent":2,"style":"string","summary":"\"Oslo\"","type":"string"}]},"treeIsTooBig":false,"wireSize":44}}
+
+call {"call":"bodyNode","id":1,"part":"response","node":3}
+reply {"result":{"copy":"{ \"time\": \"12:00\", \"temp\": 18.5 }","path":"hourly[0]"}}
+
+call {"call":"bodyNode","id":1,"part":"response","node":999}
+reply {"problem":{"code":"notFound","message":"The body has no node 999."}}
+
+call {"call":"raw","id":1}
+reply {"result":{"hasSecrets":true,"request":{"isCode":false,"text":"GET /v2/forecast?city=Tehran&units=metric HTTP/1.1\nAccept: application/json\nCookie: ••••••••\nAuthorization: ••••••••\n","tokens":[[51,6,"key"],[76,6,"key"],[93,13,"key"]]},"response":{"isCode":false,"text":"HTTP/2 200 OK\nContent-Type: application/json\nSet-Cookie: ••••••••\n\n{\"city\":\"Tehran\",\"hourly\":[{\"time\":\"12:00\",\"temp\":18.5},{\"time\":\"13:00\",\"temp\":19}],\"wind\":\"light\"}\n","tokens":[[14,12,"key"],[45,10,"key"]]}}}
+
+call {"call":"raw","id":1,"showsSecrets":true}
+reply {"result":{"hasSecrets":true,"request":{"isCode":false,"text":"GET /v2/forecast?city=Tehran&units=metric HTTP/1.1\nAccept: application/json\nCookie: session=abc; theme=dark\nAuthorization: Bearer xyz\n","tokens":[[51,6,"key"],[76,6,"key"],[108,13,"key"]]},"response":{"isCode":false,"text":"HTTP/2 200 OK\nContent-Type: application/json\nSet-Cookie: session=new; Path=/; Secure; HttpOnly; Expires=Sat, 31 Oct 2026 13:00:00 GMT\n\n{\"city\":\"Tehran\",\"hourly\":[{\"time\":\"12:00\",\"temp\":18.5},{\"time\":\"13:00\",\"temp\":19}],\"wind\":\"light\"}\n","tokens":[[14,12,"key"],[45,10,"key"]]}}}
+
+call {"call":"raw","id":2}
+reply {"result":{"hasSecrets":false,"request":{"isCode":false,"text":"POST /v2/report HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\n\ncity=Lisbon&sky=sunny+and+warm\n","tokens":[[25,12,"key"]]},"response":{"isCode":false,"text":"HTTP/1.1 201 Created\nContent-Type: text/plain\n\nThanks\n","tokens":[[21,12,"key"]]}}}
+
+call {"call":"raw","id":4}
+reply {"result":{"hasSecrets":false,"request":{"isCode":false,"text":"GET /v2/live HTTP/1.1\nUpgrade: websocket\nConnection: Upgrade\n","tokens":[[22,7,"key"],[41,10,"key"]]},"response":{"isCode":false,"text":"HTTP/1.1 101 Switching Protocols\nUpgrade: websocket\nConnection: Upgrade\n","tokens":[[33,7,"key"],[52,10,"key"]]}}}
+
+call {"call":"raw","id":6}
+reply {"result":{"hasSecrets":false,"request":{"isCode":false,"text":"CONNECT bank.example:443 HTTP/1.1\n","tokens":[]}}}
+
+call {"call":"messages","id":4}
+reply {"result":{"messages":[{"direction":"sent","keptSize":22,"kind":"text","number":0,"preview":"{\"subscribe\":\"Tehran\"}","size":22,"text":"{\"subscribe\":\"Tehran\"}","time":1793448004.5},{"direction":"received","keptSize":11,"kind":"text","number":1,"preview":"{\"temp\":18}","size":11,"text":"{\"temp\":18}","time":1793448005},{"direction":"received","keptSize":3,"kind":"binary","number":2,"preview":"01 02 ff","size":3,"time":1793448005.5},{"closeCode":1000,"direction":"sent","keptSize":3,"kind":"close","number":3,"preview":"1000 Normal · bye","size":3,"text":"bye","time":1793448006.5}]}}
+
+call {"call":"messages","id":4,"from":2}
+reply {"result":{"messages":[{"direction":"received","keptSize":3,"kind":"binary","number":2,"preview":"01 02 ff","size":3,"time":1793448005.5},{"closeCode":1000,"direction":"sent","keptSize":3,"kind":"close","number":3,"preview":"1000 Normal · bye","size":3,"text":"bye","time":1793448006.5}]}}
+
+call {"call":"messages","id":1}
+reply {"result":{"messages":[]}}
+
+call {"call":"presentMessage","id":4,"number":0}
+reply {"result":{"details":[],"formatted":{"isCode":true,"text":"{ \"subscribe\": \"Tehran\" }","tokens":[[2,11,"key"],[15,8,"string"]]},"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"JSON","modes":["formatted","tree","raw","hex"],"raw":{"isCode":true,"text":"{\"subscribe\":\"Tehran\"}","tokens":[[1,11,"key"],[13,8,"string"]]},"readsAsProtobuf":false,"size":22,"tree":{"nodes":[{"children":[1],"depth":0,"label":"Message","style":"container","summary":"1 key","type":"object"},{"children":[],"depth":1,"label":"subscribe","parent":0,"style":"string","summary":"\"Tehran\"","type":"string"}]},"treeIsTooBig":false,"wireSize":22}}
+
+call {"call":"presentMessage","id":4,"number":2}
+reply {"result":{"details":[],"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Binary","modes":["hex"],"readsAsProtobuf":false,"size":3,"treeIsTooBig":false,"wireSize":3}}
+
+call {"call":"presentMessage","id":4,"number":3}
+reply {"result":{"details":[],"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Text","modes":["raw","hex"],"raw":{"isCode":false,"text":"bye","tokens":[]},"readsAsProtobuf":false,"size":3,"treeIsTooBig":false,"wireSize":3}}
+
+call {"call":"presentMessage","id":4,"number":9}
+reply {"problem":{"code":"notFound","message":"The exchange has no message 9."}}
+
+call {"call":"draft","id":1}
+reply {"result":{"body":"","headers":[{"isOn":true,"name":"Accept","value":"application/json"},{"isOn":true,"name":"Cookie","value":"session=abc; theme=dark"},{"isOn":true,"name":"Authorization","value":"Bearer xyz"}],"method":"GET","url":"https://api.weatherly.dev/v2/forecast?city=Tehran&units=metric"}}
+
+call {"call":"draft","id":2}
+reply {"result":{"body":"city=Lisbon&sky=sunny+and+warm","headers":[{"isOn":true,"name":"Content-Type","value":"application/x-www-form-urlencoded"}],"method":"POST","url":"https://api.weatherly.dev/v2/report"}}
+
+call {"call":"draft","id":6}
+reply {"problem":{"code":"notAvailable","message":"An encrypted connection has no request to copy."}}
+
+call {"call":"draft","id":99}
+reply {"problem":{"code":"notFound","message":"The session has no exchange 99."}}
+
+call {"call":"curl","id":1}
+reply {"result":{"command":"curl 'https://api.weatherly.dev/v2/forecast?city=Tehran&units=metric' \\\n  -H 'Accept: application/json' \\\n  -H 'Cookie: session=abc; theme=dark' \\\n  -H 'Authorization: Bearer xyz'"}}
+
+call {"call":"curl","id":2}
+reply {"result":{"command":"curl 'https://api.weatherly.dev/v2/report' \\\n  -H 'Content-Type: application/x-www-form-urlencoded' \\\n  --data-raw 'city=Lisbon&sky=sunny+and+warm'"}}
+
+call {"call":"copyableBody","id":1}
+reply {"result":{"text":"{\"city\":\"Tehran\",\"hourly\":[{\"time\":\"12:00\",\"temp\":18.5},{\"time\":\"13:00\",\"temp\":19}],\"wind\":\"light\"}"}}
+
+call {"call":"copyableBody","id":3}
+reply {"result":{"text":"\n\u0006Tehran\u0010\u0003"}}
+
+call {"call":"copyableBody","id":7}
+reply {"result":{"image":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"}}
+
+call {"call":"copyableBody","id":8}
+reply {"problem":{"code":"notAvailable","message":"This request has no response yet."}}
+
+call {"call":"send","request":{"method":"GET","url":"ftp://example.com","headers":[]}}
+reply {"problem":{"code":"badRequest","message":"Enter a URL that starts with http:// or https://."}}
+
+call {"call":"resend","id":6}
+reply {"problem":{"code":"notAvailable","message":"An encrypted connection has no request to copy."}}
+
+call {"call":"resend","id":99}
+reply {"problem":{"code":"notFound","message":"The session has no exchange 99."}}
+
+call {"call":"decide","id":1}
+reply {"problem":{"code":"notFound","message":"Nothing is waiting at a breakpoint for exchange 1."}}
+
+call {"call":"continueAllPaused"}
+reply {"result":{}}
+
+call {"call":"checkScript","code":"function onRequest(request) { return request }"}
+reply {"result":{"problem":null}}
+
+call {"call":"checkScript","code":"function onRequest( {"}
+reply {"result":{"problem":"SyntaxError: invalid property name, on line 1."}}
+
+call {"call":"highlightScript","code":"// é\nfunction onRequest(r) { return \"ok\" } // 42"}
+reply {"result":{"tokens":[[0,4,"comment"],[5,8,"keyword"],[29,6,"keyword"],[36,4,"string"],[43,5,"comment"]]}}
+
+call {"call":"tryScript","code":"function onRequest(request) {\n  console.log(request.method, request.url)\n  return request\n}","id":1}
+reply {"result":{"trials":[{"detail":"Changes nothing.","failed":false,"logs":["GET https://api.weatherly.dev/v2/forecast?city=Tehran&units=metric"],"part":"request"}]}}
+
+call {"call":"tryScript","code":"function onRequest(request) { throw new Error('no') }","id":2}
+reply {"result":{"trials":[{"detail":"Failed: Error: no, on line 1.","failed":true,"logs":[],"part":"request"}]}}
+
+call {"call":"scriptExamples"}
+reply {"result":[{"code":"// Adds a header to each matching request before it goes to the server.\nfunction onRequest(request) {\n  request.headers.set(\"Authorization\", \"Bearer YOUR-TOKEN\");\n}\n","id":"addHeader"},{"code":"// Changes a field in each matching JSON response before the app gets it.\nfunction onResponse(response, request) {\n  if (response.json) {\n    response.json.isPremium = true;\n  }\n}\n","id":"changeJSON"},{"code":"// Answers matching requests itself, so you can see how the app copes with an error.\nfunction onRequest(request) {\n  return respond(503, JSON.stringify({ error: \"Down for maintenance\" }), {\n    \"Content-Type\": \"application/json\",\n  });\n}\n","id":"answer"},{"code":"// Sends matching requests to staging instead of production.\nfunction onRequest(request) {\n  request.url = request.url.replace(\"https://api.example.com\", \"https://staging.example.com\");\n}\n","id":"sendElsewhere"},{"code":"// Keeps the token a sign-in returns, and sends it with the requests after it.\n// `shared` keeps what you put in it from one run to the next, while Reqly runs.\nfunction onResponse(response, request) {\n  if (request.url.endsWith(\"/login\") && response.json?.token) {\n    shared.token = response.json.token;\n    console.log(\"Remembered a token\");\n  }\n}\n\nfunction onRequest(request) {\n  if (shared.token) {\n    request.headers.set(\"Authorization\", `Bearer ${shared.token}`);\n  }\n}\n","id":"rememberToken"},{"code":"// Writes each matching request and response to the request's Overview.\nfunction onRequest(request) {\n  console.log(request.method, request.url);\n}\n\nfunction onResponse(response, request) {\n  console.log(response.status, response.headers.get(\"Content-Type\"));\n}\n","id":"log"}]}
+
+call {"call":"networkPresets"}
+reply {"result":[{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250},{"downloadBytesPerSecond":1500000,"latency":50,"name":"LTE","packetLoss":0,"uploadBytesPerSecond":500000},{"downloadBytesPerSecond":125000,"latency":300,"name":"Lossy","packetLoss":0.05,"uploadBytesPerSecond":125000}]}
+
+call {"call":"qrCode","text":"http://192.168.1.125:9090"}
+reply {"result":{"rows":["1111111000011100101111111","1000001011001000001000001","1011101010101010101011101","1011101010010111101011101","1011101001001010001011101","1000001001110100101000001","1111111010101010101111111","0000000010010000000000000","1000001010010101111001110","0101100000110001110011110","1000111011101011001101011","0001110101000011100011001","0001011001001010111000001","1000010111000111000000010","1000011110111101010101011","1010110100110010100010101","1001011111011100111110100","0000000010101111100010100","1111111000111110101011001","1000001000101010100010011","1011101001000101111111100","1011101001111000001101011","1011101000000000010000101","1000001001001001101110001","1111111010000011101001001"]}}
+
+call {"call":"qrCode","text":"weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather weather "}
+reply {"problem":{"code":"badRequest","message":"The text is too long for a QR code."}}
+
+call {"call":"checkHosts","text":"api.bank.dev, *.bank.dev"}
+reply {"result":{"count":2}}
+
+call {"call":"checkHosts","text":"api.bank.dev, bad/host"}
+reply {"result":{"count":1,"problem":"“bad/host” isn't a host name or a pattern such as *.example.com."}}
+
+call {"call":"https"}
+reply {"problem":{"code":"notAvailable","message":"This session doesn't decrypt HTTPS: it's a saved one, or it has no certificate store."}}
+
+call {"call":"setSearch","text":"status"}
+reply {"result":{}}
+event {"event":"rows","shown":1,"steps":[{"removed":[0,1,2,3,5,6,7]}],"total":8,"version":2}
+
+call {"call":"setSearch","text":"Lisbon"}
+reply {"result":{}}
+event {"event":"rows","shown":0,"steps":[{"removed":[0]}],"total":8,"version":3}
+event {"event":"rows","shown":1,"steps":[{"inserted":[{"id":2,"row":0}]}],"total":8,"version":4}
+
+call {"call":"setSearch","text":""}
+reply {"result":{}}
+event {"event":"rows","shown":8,"steps":[{"inserted":[{"id":1,"row":0},{"id":3,"row":2},{"id":4,"row":3},{"id":5,"row":4},{"id":6,"row":5},{"id":7,"row":6},{"id":8,"row":7}]}],"total":8,"version":5}
+
+call {"call":"setFilter","filter":{"statuses":["clientError","failed"]}}
+reply {"result":{}}
+event {"event":"rows","shown":2,"steps":[{"removed":[0,1,2,3,5,6]}],"total":8,"version":6}
+
+call {"call":"setFilter","filter":{"contents":["json"],"host":"api.weatherly.dev"}}
+reply {"result":{}}
+event {"event":"rows","shown":1,"steps":[{"removed":[0,1]},{"inserted":[{"id":1,"row":0}]}],"total":8,"version":7}
+
+call {"call":"setFilter","filter":{"method":"POST","device":""}}
+reply {"result":{}}
+event {"event":"rows","shown":2,"steps":[{"removed":[0]},{"inserted":[{"id":2,"row":0},{"id":8,"row":1}]}],"total":8,"version":8}
+
+call {"call":"setFilter","filter":{}}
+reply {"result":{}}
+event {"event":"rows","shown":8,"steps":[{"inserted":[{"id":1,"row":0},{"id":3,"row":2},{"id":4,"row":3},{"id":5,"row":4},{"id":6,"row":5},{"id":7,"row":6}]}],"total":8,"version":9}
+
+call {"call":"setFilter","filter":{"statuses":["teapot"]}}
+reply {"problem":{"code":"badRequest","message":"There's no status \"teapot\"."}}
+
+call {"call":"setScope","key":"app\u001f\u001fWeather\u001fC:\\Apps\\Weather.exe\u001f"}
+reply {"result":{}}
+event {"event":"rows","shown":2,"steps":[{"removed":[2,3,4,5,6,7]}],"total":8,"version":10}
+
+call {"call":"setScope","key":"host\u001fstatus.weatherly.dev"}
+reply {"result":{}}
+event {"event":"rows","shown":1,"steps":[{"removed":[0,1]},{"inserted":[{"id":5,"row":0}]}],"total":8,"version":11}
+
+call {"call":"setScope","key":"device\u001fmac:aa:bb:cc:dd:ee:ff"}
+reply {"result":{}}
+
+call {"call":"setScope","key":"pinned"}
+reply {"result":{}}
+event {"event":"rows","shown":0,"steps":[{"removed":[0]}],"total":8,"version":12}
+
+call {"call":"setScope","key":"all"}
+reply {"result":{}}
+event {"event":"rows","shown":8,"steps":[{"inserted":[{"id":1,"row":0},{"id":2,"row":1},{"id":3,"row":2},{"id":4,"row":3},{"id":5,"row":4},{"id":6,"row":5},{"id":7,"row":6},{"id":8,"row":7}]}],"total":8,"version":13}
+
+call {"call":"setScope","key":"host-nowhere"}
+reply {"problem":{"code":"notFound","message":"The sidebar has no row host-nowhere."}}
+
+call {"call":"annotate","id":2,"isPinned":true,"color":"red","comment":"  Slow on 3G  "}
+reply {"result":{}}
+event {"event":"rows","shown":8,"steps":[{"changed":[2]}],"total":8,"version":14}
+event {"counts":{"all":8,"app\u001f\u001fWeather\u001fC:\\Apps\\Weather.exe\u001f":2,"device\u001f":7,"host\u001fapi.weatherly.dev":5,"pinned":1},"event":"counts","pinned":1,"total":8}
+event {"event":"rows","shown":8,"steps":[{"changed":[2]}],"total":8,"version":15}
+
+call {"call":"annotate","id":2,"color":null}
+reply {"result":{}}
+event {"event":"rows","shown":8,"steps":[{"changed":[2]}],"total":8,"version":16}
+event {"event":"rows","shown":8,"steps":[{"changed":[2]}],"total":8,"version":17}
+
+call {"call":"annotate","id":2,"comment":" "}
+reply {"result":{}}
+event {"event":"rows","shown":8,"steps":[{"changed":[2]}],"total":8,"version":18}
+event {"event":"rows","shown":8,"steps":[{"changed":[2]}],"total":8,"version":19}
+
+call {"call":"annotate","id":99,"isPinned":true}
+reply {"problem":{"code":"notFound","message":"The session has no exchange 99."}}
+
+call {"call":"rows","ids":[2]}
+reply {"result":{"rows":[{"app":"Weather","appPath":"C:\\Apps\\Weather.exe","bytesReceived":0,"bytesSent":0,"contentType":"text/plain","duration":0.25,"host":"api.weatherly.dev","id":2,"isPinned":true,"kind":"http","messageCount":0,"method":"POST","port":443,"scheme":"https","started":1793448002,"state":"completed","status":201,"statusClass":"success","target":"/v2/report"}]}}
+
+call {"call":"openRules","path":"$FOLDER/Settings/Rules.json"}
+reply {"result":{"kindsOn":[],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[]}}
+
+call {"call":"rules"}
+reply {"result":{"kindsOn":[],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[]}}
+
+call {"call":"newRuleDraft","kind":"mapRemote","id":1}
+reply {"result":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"https://api.weatherly.dev","exchange":1,"file":"","host":"api.weatherly.dev","id":"$UUID1","isNew":true,"isOn":true,"kind":"mapRemote","method":"GET","name":"","path":"/v2/forecast","phase":"both","status":200}}
+
+call {"call":"checkRuleDraft","draft":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"staging","exchange":1,"file":"","host":"api.weatherly.dev","id":"$UUID1","isNew":true,"isOn":true,"kind":"mapRemote","method":"GET","name":"","path":"/v2/forecast","phase":"both","status":200}}
+reply {"result":{"defaultName":"api.weatherly.dev/v2/forecast","matchCount":1,"problem":"Enter a URL that starts with http:// or https://."}}
+
+call {"call":"saveRuleDraft","draft":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"staging","exchange":1,"file":"","host":"api.weatherly.dev","id":"$UUID1","isNew":true,"isOn":true,"kind":"mapRemote","method":"GET","name":"","path":"/v2/forecast","phase":"both","status":200}}
+reply {"problem":{"code":"badRequest","message":"Enter a URL that starts with http:// or https://."}}
+
+call {"call":"saveRuleDraft","draft":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"https://staging.weatherly.dev","exchange":1,"file":"","host":"api.weatherly.dev","id":"$UUID1","isNew":true,"isOn":true,"kind":"mapRemote","method":"GET","name":"","path":"/v2/forecast","phase":"both","status":200}}
+reply {"result":{"kindsOn":["mapRemote"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"api.weatherly.dev/v2/forecast","tag":"staging.weatherly.dev"}]}}
+
+call {"call":"ruleDraft","rule":"$UUID1"}
+reply {"result":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"https://staging.weatherly.dev","file":"","host":"api.weatherly.dev","id":"$UUID1","isNew":false,"isOn":true,"kind":"mapRemote","method":"GET","name":"api.weatherly.dev/v2/forecast","path":"/v2/forecast","phase":"both","status":200}}
+
+call {"call":"saveRuleDraft","draft":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"https://staging.weatherly.dev","file":"","host":"api.weatherly.dev","id":"$UUID1","isNew":false,"isOn":true,"kind":"mapRemote","method":"GET","name":"Staging","path":"/v2/forecast","phase":"both","status":200}}
+reply {"result":{"kindsOn":["mapRemote"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"Staging","tag":"staging.weatherly.dev"}]}}
+
+call {"call":"newRuleDraft","kind":"block"}
+reply {"result":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"","file":"","host":"","id":"$UUID2","isNew":true,"isOn":true,"kind":"block","method":"","name":"","path":"","phase":"both","status":200}}
+
+call {"call":"saveRuleDraft","draft":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"","file":"","host":"","id":"$UUID2","isNew":true,"isOn":true,"kind":"block","method":"","name":"Ads","path":"","phase":"both","status":200}}
+reply {"result":{"kindsOn":["mapRemote","block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"Staging","tag":"staging.weatherly.dev"},{"id":"$UUID2","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"}]}}
+
+call {"call":"newRuleDraft","kind":"block"}
+reply {"result":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"","file":"","host":"","id":"$UUID3","isNew":true,"isOn":true,"kind":"block","method":"","name":"","path":"","phase":"both","status":200}}
+
+call {"call":"saveRuleDraft","draft":{"blockStatus":451,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"","file":"","host":"","id":"$UUID3","isNew":true,"isOn":true,"kind":"block","method":"","name":"Trackers","path":"","phase":"both","status":200}}
+reply {"result":{"kindsOn":["mapRemote","block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"Staging","tag":"staging.weatherly.dev"},{"id":"$UUID2","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"}]}}
+
+call {"call":"newRuleDraft","kind":"breakpoint"}
+reply {"result":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"","file":"","host":"","id":"$UUID4","isNew":true,"isOn":true,"kind":"breakpoint","method":"","name":"","path":"","phase":"both","status":200}}
+
+call {"call":"saveRuleDraft","draft":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"","file":"","host":"","id":"$UUID4","isNew":true,"isOn":true,"kind":"breakpoint","method":"","name":"","path":"","phase":"response","status":200}}
+reply {"result":{"kindsOn":["breakpoint","mapRemote","block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"Staging","tag":"staging.weatherly.dev"},{"id":"$UUID2","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"},{"id":"$UUID4","isOn":true,"kind":"breakpoint","match":"Any method · */*","name":"Any host","tag":"Response"}]}}
+
+call {"call":"moveRule","rule":"$UUID3","to":0}
+reply {"result":{"kindsOn":["breakpoint","mapRemote","block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"Staging","tag":"staging.weatherly.dev"},{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"},{"id":"$UUID2","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID4","isOn":true,"kind":"breakpoint","match":"Any method · */*","name":"Any host","tag":"Response"}]}}
+
+call {"call":"duplicateRule","rule":"$UUID2"}
+reply {"result":{"kindsOn":["breakpoint","mapRemote","block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"Staging","tag":"staging.weatherly.dev"},{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"},{"id":"$UUID2","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID4","isOn":true,"kind":"breakpoint","match":"Any method · */*","name":"Any host","tag":"Response"},{"id":"$UUID5","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads copy","tag":"403"}]}}
+
+call {"call":"setRuleOn","isOn":false,"rule":"$UUID2"}
+reply {"result":{"kindsOn":["breakpoint","mapRemote","block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"Staging","tag":"staging.weatherly.dev"},{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"},{"id":"$UUID2","isOn":false,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID4","isOn":true,"kind":"breakpoint","match":"Any method · */*","name":"Any host","tag":"Response"},{"id":"$UUID5","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads copy","tag":"403"}]}}
+
+call {"call":"setRuleKindOn","kind":"breakpoint","isOn":false}
+reply {"result":{"kindsOn":["mapRemote","block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID1","isOn":true,"kind":"mapRemote","match":"GET · api.weatherly.dev/v2/forecast","name":"Staging","tag":"staging.weatherly.dev"},{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"},{"id":"$UUID2","isOn":false,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID4","isOn":true,"kind":"breakpoint","match":"Any method · */*","name":"Any host","tag":"Response"},{"id":"$UUID5","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads copy","tag":"403"}]}}
+
+call {"call":"removeRules","ruleIDs":["$UUID1"]}
+reply {"result":{"kindsOn":["mapRemote","block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"},{"id":"$UUID2","isOn":false,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID4","isOn":true,"kind":"breakpoint","match":"Any method · */*","name":"Any host","tag":"Response"},{"id":"$UUID5","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads copy","tag":"403"}]}}
+
+call {"call":"networkPresets"}
+reply {"result":[{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250},{"downloadBytesPerSecond":1500000,"latency":50,"name":"LTE","packetLoss":0,"uploadBytesPerSecond":500000},{"downloadBytesPerSecond":125000,"latency":300,"name":"Lossy","packetLoss":0.05,"uploadBytesPerSecond":125000}]}
+
+call {"call":"setNetwork","network":{"hosts":["*.weatherly.dev"],"profile":{"downloadBytesPerSecond":1500000,"latency":50,"name":"LTE","packetLoss":0,"uploadBytesPerSecond":500000}}}
+reply {"result":{"kindsOn":["mapRemote","block"],"network":{"hosts":["*.weatherly.dev"],"profile":{"downloadBytesPerSecond":1500000,"latency":50,"name":"LTE","packetLoss":0,"uploadBytesPerSecond":500000}},"rules":[{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"},{"id":"$UUID2","isOn":false,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID4","isOn":true,"kind":"breakpoint","match":"Any method · */*","name":"Any host","tag":"Response"},{"id":"$UUID5","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads copy","tag":"403"}]}}
+
+call {"call":"setRuleKindOn","kind":"slowNetwork","isOn":true}
+reply {"result":{"kindsOn":["mapRemote","block","slowNetwork"],"network":{"hosts":["*.weatherly.dev"],"profile":{"downloadBytesPerSecond":1500000,"latency":50,"name":"LTE","packetLoss":0,"uploadBytesPerSecond":500000}},"rules":[{"id":"$UUID3","isOn":true,"kind":"block","match":"Any method · */*","name":"Trackers","tag":"451"},{"id":"$UUID2","isOn":false,"kind":"block","match":"Any method · */*","name":"Ads","tag":"403"},{"id":"$UUID4","isOn":true,"kind":"breakpoint","match":"Any method · */*","name":"Any host","tag":"Response"},{"id":"$UUID5","isOn":true,"kind":"block","match":"Any method · */*","name":"Ads copy","tag":"403"}]}}
+
+call {"call":"newRuleDraft","kind":"script"}
+reply {"result":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"","file":"","host":"","id":"$UUID6","isNew":true,"isOn":true,"kind":"script","method":"","name":"","path":"","phase":"both","status":200}}
+
+call {"call":"checkRuleDraft","draft":{"blockStatus":403,"changes":[],"closesConnection":false,"code":"// onRequest runs before each matching request goes to the server, and onResponse\n// before each response goes back to the app. Change what they get, and it goes on\n// changed. The Examples menu has more to start from.\n\nfunction onRequest(request) {\n  // request.method, request.url, request.headers, request.body, request.json\n}\n\nfunction onResponse(response, request) {\n  // response.status, response.headers, response.body, response.json\n}\n","contentType":"","destination":"","file":"","host":"","id":"$UUID6","isNew":true,"isOn":true,"kind":"script","method":"","name":"","path":"","phase":"both","status":200}}
+reply {"result":{"defaultName":"Any host","matchCount":7,"matching":[{"description":"POST api.weatherly.dev/v2/alerts","id":8},{"description":"GET images.weatherly.dev/icons/sun.png · 200","id":7},{"description":"GET status.weatherly.dev/v1/status · 404","id":5},{"description":"GET api.weatherly.dev/v2/live · 101","id":4},{"description":"GET api.weatherly.dev/v1/forecast · 200","id":3},{"description":"POST api.weatherly.dev/v2/report · 201","id":2},{"description":"GET api.weatherly.dev/v2/forecast?city=Tehran&units=metric · 200","id":1}]}}
+
+call {"call":"newRuleDraft","kind":"block","id":99}
+reply {"problem":{"code":"notFound","message":"There's no exchange 99."}}
+
+call {"call":"newRuleDraft","kind":"slowNetwork"}
+reply {"problem":{"code":"badRequest","message":"Slow Network has no rules of its own."}}
+
+call {"call":"ruleDraft","rule":"$UUID7"}
+reply {"problem":{"code":"notFound","message":"There's no rule $UUID7."}}
+
+call {"call":"setRules","rules":{"kindsOn":["block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"action":{"answer":"status","status":403,"type":"block"},"id":"$UUID8","isOn":true,"match":{"host":"ads.weatherly.dev","path":"*"},"name":"No ads"}]}}
+reply {"result":{}}
+
+call {"call":"rules"}
+reply {"result":{"kindsOn":["block"],"network":{"hosts":[],"profile":{"downloadBytesPerSecond":97500,"latency":100,"name":"3G","packetLoss":0,"uploadBytesPerSecond":41250}},"rules":[{"id":"$UUID8","isOn":true,"kind":"block","match":"Any method · ads.weatherly.dev/*","name":"No ads","tag":"403"}]}}
+
+call {"call":"openProtobuf","path":"$FOLDER/Protobuf.json"}
+reply {"result":{"problems":[],"sources":[],"summary":"","types":[],"version":1}}
+
+call {"call":"presentBody","id":3,"part":"response"}
+reply {"result":{"details":[],"formatted":{"isCode":true,"text":"1: \"Tehran\"\n2: 3\n","tokens":[[0,1,"key"],[3,8,"string"],[12,1,"key"],[15,1,"number"]]},"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Protobuf","modes":["formatted","tree","hex"],"readsAsProtobuf":true,"size":10,"tree":{"nodes":[{"children":[1,2],"depth":0,"label":"Response","style":"container","summary":"2 fields","type":"message"},{"children":[],"depth":1,"label":"1","parent":0,"style":"string","summary":"\"Tehran\"","type":"string"},{"children":[],"depth":1,"label":"2","parent":0,"style":"number","summary":"3","type":"varint"}]},"treeIsTooBig":false,"wireSize":10}}
+
+call {"call":"addProtobufSources","paths":["$FOLDER/protos"]}
+reply {"result":{"problems":[{"file":"broken.proto","line":2,"message":"A message never ends."}],"sources":[{"count":2,"isFolder":true,"name":"protos","path":"$FOLDER/protos/"}],"summary":"2 message types.","types":["weather.v1.Forecast","weather.v1.Other"],"version":2}}
+
+call {"call":"addProtobufSources","paths":["$FOLDER/protos"]}
+reply {"result":{"problems":[{"file":"broken.proto","line":2,"message":"A message never ends."}],"sources":[{"count":2,"isFolder":true,"name":"protos","path":"$FOLDER/protos/"}],"summary":"2 message types.","types":["weather.v1.Forecast","weather.v1.Other"],"version":2}}
+
+call {"call":"protobuf"}
+reply {"result":{"problems":[{"file":"broken.proto","line":2,"message":"A message never ends."}],"sources":[{"count":2,"isFolder":true,"name":"protos","path":"$FOLDER/protos/"}],"summary":"2 message types.","types":["weather.v1.Forecast","weather.v1.Other"],"version":2}}
+
+call {"call":"presentBody","id":3,"part":"response"}
+reply {"result":{"details":[],"formatted":{"isCode":true,"text":"1: \"Tehran\"\n2: 3\n","tokens":[[0,1,"key"],[3,8,"string"],[12,1,"key"],[15,1,"number"]]},"hasMessageTypes":true,"isImage":false,"isTruncated":false,"kind":"Protobuf","modes":["formatted","tree","hex"],"readsAsProtobuf":true,"size":10,"tree":{"nodes":[{"children":[1,2],"depth":0,"label":"Response","style":"container","summary":"2 fields","type":"message"},{"children":[],"depth":1,"label":"1","parent":0,"style":"string","summary":"\"Tehran\"","type":"string"},{"children":[],"depth":1,"label":"2","parent":0,"style":"number","summary":"3","type":"varint"}]},"treeIsTooBig":false,"wireSize":10}}
+
+call {"call":"chooseMessageType","id":3,"part":"response","type":"weather.v1.Forecast"}
+reply {"result":{}}
+
+call {"call":"presentBody","id":3,"part":"response"}
+reply {"result":{"chosenType":"weather.v1.Forecast","details":[],"formatted":{"isCode":true,"text":"city: \"Tehran\"\ndays: 3\n","tokens":[[0,4,"key"],[6,8,"string"],[15,4,"key"],[21,1,"number"]]},"hasMessageTypes":true,"isImage":false,"isTruncated":false,"kind":"Protobuf","modes":["formatted","tree","hex"],"protobufType":"weather.v1.Forecast","readsAsProtobuf":true,"size":10,"tree":{"nodes":[{"children":[1,2],"depth":0,"label":"Response","style":"container","summary":"2 fields","type":"Forecast"},{"children":[],"depth":1,"label":"city","parent":0,"style":"string","summary":"\"Tehran\"","type":"string"},{"children":[],"depth":1,"label":"days","parent":0,"style":"number","summary":"3","type":"int32"}]},"treeIsTooBig":false,"wireSize":10}}
+
+call {"call":"reloadProtobuf"}
+reply {"result":{"problems":[{"file":"broken.proto","line":2,"message":"A message never ends."}],"sources":[{"count":2,"isFolder":true,"name":"protos","path":"$FOLDER/protos/"}],"summary":"2 message types.","types":["weather.v1.Forecast","weather.v1.Other"],"version":3}}
+
+call {"call":"chooseMessageType","id":3,"part":"response"}
+reply {"result":{}}
+
+call {"call":"removeProtobufSource","path":"$FOLDER/protos/"}
+reply {"result":{"problems":[],"sources":[],"summary":"","types":[],"version":4}}
+
+call {"call":"presentBody","id":3,"part":"response"}
+reply {"result":{"details":[],"formatted":{"isCode":true,"text":"1: \"Tehran\"\n2: 3\n","tokens":[[0,1,"key"],[3,8,"string"],[12,1,"key"],[15,1,"number"]]},"hasMessageTypes":false,"isImage":false,"isTruncated":false,"kind":"Protobuf","modes":["formatted","tree","hex"],"readsAsProtobuf":true,"size":10,"tree":{"nodes":[{"children":[1,2],"depth":0,"label":"Response","style":"container","summary":"2 fields","type":"message"},{"children":[],"depth":1,"label":"1","parent":0,"style":"string","summary":"\"Tehran\"","type":"string"},{"children":[],"depth":1,"label":"2","parent":0,"style":"number","summary":"3","type":"varint"}]},"treeIsTooBig":false,"wireSize":10}}
+
+call {"call":"openDevices","path":"$FOLDER/Devices.json"}
+reply {"result":{"addresses":[],"allowsNetworkDevices":false,"known":[],"waiting":[]}}
+
+call {"call":"renameDevice","device":"mac:aa:bb:cc:dd:ee:ff","name":"Parsa's phone"}
+reply {"result":{"addresses":[],"allowsNetworkDevices":false,"known":[],"waiting":[]}}
+event {"event":"rows","shown":8,"steps":[{"changed":[5]}],"total":8,"version":20}
+event {"apps":[{"count":2,"key":"app\u001f\u001fWeather\u001fC:\\Apps\\Weather.exe\u001f","name":"Weather","path":"C:\\Apps\\Weather.exe"}],"devices":[{"apps":[{"count":2,"key":"app\u001f\u001fWeather\u001fC:\\Apps\\Weather.exe\u001f","name":"Weather","path":"C:\\Apps\\Weather.exe"}],"count":7,"id":"","key":"device\u001f","otherHosts":[{"count":3,"key":"deviceHost\u001f\u001fapi.weatherly.dev","name":"api.weatherly.dev"},{"count":1,"key":"deviceHost\u001f\u001fbank.example","name":"bank.example"},{"count":1,"key":"deviceHost\u001f\u001fimages.weatherly.dev","name":"images.weatherly.dev"}]},{"apps":[],"count":1,"id":"mac:aa:bb:cc:dd:ee:ff","key":"device\u001fmac:aa:bb:cc:dd:ee:ff","kind":"network","name":"Parsa's phone","otherHosts":[{"count":1,"key":"deviceHost\u001fmac:aa:bb:cc:dd:ee:ff\u001fstatus.weatherly.dev","name":"status.weatherly.dev"}]}],"event":"sidebar","hosts":[{"count":5,"key":"host\u001fapi.weatherly.dev","name":"api.weatherly.dev"},{"count":1,"key":"host\u001fbank.example","name":"bank.example"},{"count":1,"key":"host\u001fimages.weatherly.dev","name":"images.weatherly.dev"},{"count":1,"key":"host\u001fstatus.weatherly.dev","name":"status.weatherly.dev"}],"methods":["GET","POST","CONNECT"],"pinned":1,"sources":[{"name":"Weather","path":"C:\\Apps\\Weather.exe"}],"total":8}
+
+call {"call":"rows","ids":[5]}
+reply {"result":{"rows":[{"bytesReceived":0,"bytesSent":0,"contentType":"application/json","device":"Parsa's phone","duration":0.25,"host":"status.weatherly.dev","id":5,"isPinned":false,"kind":"http","messageCount":0,"method":"GET","port":80,"scheme":"http","started":1793448005,"state":"completed","status":404,"statusClass":"clientError","target":"/v1/status"}]}}
+
+call {"call":"renameDevice","device":"mac:aa:bb:cc:dd:ee:ff","name":" "}
+reply {"problem":{"code":"badRequest","message":"Enter a name for the device."}}
+
+call {"call":"saveSession","hidesSecrets":true,"path":"$FOLDER/Saved.reqly"}
+reply {"result":{}}
+
+call {"call":"exportHAR","path":"$FOLDER/All.har","version":"0.1"}
+reply {"result":{"exported":7}}
+event {"done":0,"event":"exportProgress","total":8}
+
+call {"call":"exportHAR","hidesSecrets":false,"ids":[2,6],"includesResponseBodies":false,"path":"$FOLDER/Two.har"}
+reply {"result":{"exported":1}}
+event {"done":0,"event":"exportProgress","total":2}
+
+call {"call":"clear"}
+reply {"result":{}}
+event {"event":"rows","shown":1,"steps":[{"removed":[0,2,3,4,5,6,7]}],"total":1,"version":21}
+event {"apps":[{"count":1,"key":"app\u001f\u001fWeather\u001fC:\\Apps\\Weather.exe\u001f","name":"Weather","path":"C:\\Apps\\Weather.exe"}],"devices":[],"event":"sidebar","hosts":[{"count":1,"key":"host\u001fapi.weatherly.dev","name":"api.weatherly.dev"}],"methods":["POST"],"pinned":1,"sources":[{"name":"Weather","path":"C:\\Apps\\Weather.exe"}],"total":1}
+event {"event":"rows","shown":1,"steps":[{"changed":[2]}],"total":1,"version":22}
+
+call {"call":"unpinAll"}
+reply {"result":{}}
+event {"event":"rows","shown":1,"steps":[{"changed":[2]}],"total":1,"version":23}
+event {"apps":[{"count":1,"key":"app\u001f\u001fWeather\u001fC:\\Apps\\Weather.exe\u001f","name":"Weather","path":"C:\\Apps\\Weather.exe"}],"devices":[],"event":"sidebar","hosts":[{"count":1,"key":"host\u001fapi.weatherly.dev","name":"api.weatherly.dev"}],"methods":["POST"],"pinned":0,"sources":[{"name":"Weather","path":"C:\\Apps\\Weather.exe"}],"total":1}
+event {"event":"rows","shown":1,"steps":[{"changed":[2]}],"total":1,"version":24}
+
+call {"call":"rowIDs"}
+reply {"result":{"ids":[2],"version":24}}
+
+call {"call":"trafficSummary"}
+reply {"result":{"bytes":0,"newest":{"app":"Weather","appPath":"C:\\Apps\\Weather.exe","bytesReceived":0,"bytesSent":0,"contentType":"text/plain","duration":0.25,"host":"api.weatherly.dev","id":2,"isPinned":false,"kind":"http","messageCount":0,"method":"POST","port":443,"scheme":"https","started":1793448002,"state":"completed","status":201,"statusClass":"success","target":"/v2/report"},"total":1}}
