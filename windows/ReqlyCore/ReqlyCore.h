@@ -1,6 +1,6 @@
 // ReqlyCore.dll: Reqly's core for the Windows app. The app opens sessions, sends them requests
 // and gets events back, all as UTF-8 JSON. The messages are described in
-// Sources/CoreInterface/Messages.swift; their version is `interfaceVersion` there.
+// core-interface/Sources/CoreInterface/Messages.swift; their version is `interfaceVersion` there.
 //
 // Threads:
 // - Callbacks come on the core's own threads. Copy the text out and return quickly; move work

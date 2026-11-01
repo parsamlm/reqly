@@ -1,5 +1,6 @@
 #if os(Windows)
     import CWinINet
+    import ReqlyModel
     import WinSDK
 
     /// Your user's proxy settings for the local network, read and changed through WinINet. Apps

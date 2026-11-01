@@ -3,7 +3,6 @@ import Foundation
 import Presentation
 import ProxyEngine
 import ReqlyModel
-import WindowsSystem
 
 /// How Reqly's own connections go, as Settings edit them: through an upstream proxy, from reverse
 /// proxies, and with client certificates. They're kept in the same file the Mac keeps them in,
@@ -16,7 +15,7 @@ struct ConnectionsBook {
     private(set) var problem: String?
     private var identities: [UUID: ClientIdentity] = [:]
     private var file: URL?
-    private var secretFile: SecretFile?
+    private var secretFile: (any SecretStorage)?
     private var secrets: [String: Data] = [:]
 
     static let passwordName = "Reqly Upstream Proxy/password"
@@ -25,7 +24,7 @@ struct ConnectionsBook {
         "Reqly Client Certificate/\(id.uuidString)"
     }
 
-    mutating func open(_ url: URL, secrets secretFile: SecretFile) {
+    mutating func open(_ url: URL, secrets secretFile: any SecretStorage) {
         file = url
         self.secretFile = secretFile
         let loaded = ConnectionsFile.load(from: url)

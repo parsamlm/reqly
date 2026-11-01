@@ -1,6 +1,7 @@
 import CCrashStack
 import CoreInterface
 import Foundation
+import ReqlyModel
 import TrafficStore
 import WindowsSystem
 
@@ -25,7 +26,7 @@ public func reqlyOpen(
     let send: @Sendable (Data) -> Void = { deliver($0, to: events, context) }
     let opened = wait { () async -> Result<SessionHost, Problem> in
         do throws(Problem) {
-            return .success(try await SessionHost.open(decoded, send: send))
+            return .success(try await SessionHost.open(decoded, system: .windows, send: send))
         } catch {
             return .failure(error)
         }
@@ -97,7 +98,7 @@ public func reqlyRestoreProxy(_ restoreFile: UnsafePointer<CChar>?) -> Int32 {
 @_cdecl("reqly_remove_root")
 public func reqlyRemoveRoot(_ rootFile: UnsafePointer<CChar>?, _ standIn: Int32) -> Int32 {
     guard let rootFile else { return RootRemoval.failed.rawValue }
-    return RootRemoval.remove(rootFile: String(cString: rootFile), standIn: standIn != 0).rawValue
+    return RootRemoval.remove(rootFile: String(cString: rootFile), standIn: standIn != 0, system: .windows).rawValue
 }
 
 @_cdecl("reqly_close")

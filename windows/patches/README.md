@@ -18,4 +18,4 @@ Each patch starts with what it does and where it comes from. Reqly's own changes
 
 ## When SwiftNIO or swift-nio-ssl updates
 
-After updating either package in ReqlyKit and `windows/ReqlyCore`, put its new version, revision and repository in `VERSION`, and build on Windows. If a patch no longer applies, `patch-packages.ps1` stops and names it. To update one, check out the new version, apply the patches before it, apply what still fits of that one, fix the rest, and save `git diff` under the same name, keeping its first lines. When a release has a patch's fix, delete the patch; when a package needs none, delete its folder.
+After updating either package in ReqlyKit, `core-interface` and `windows/ReqlyCore`, put its new version, revision and repository in `VERSION`, and build on Windows. If a patch no longer applies, `patch-packages.ps1` stops and names it. To update one, check out the new version, apply the patches before it, apply what still fits of that one, fix the rest, and save `git diff` under the same name, keeping its first lines. When a release has a patch's fix, delete the patch; when a package needs none, delete its folder.

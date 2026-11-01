@@ -24,11 +24,11 @@ For anything bigger than a fix, open an issue first to talk about the approach, 
    swift test --package-path core
    ```
 
-   The Mac's own modules have theirs in `mac/ReqlyMacKit`, and the Windows app's core interface in `windows/ReqlyCore`. On Windows, `windows\scripts\core.ps1 test` runs the core's tests with the patches Windows needs. CI runs them on macOS, Linux and Windows, and every test has to pass on each.
+   The Mac's own modules have theirs in `mac/ReqlyMacKit`, the core interface, which answers the Windows app's messages, in `core-interface`, and the Windows app's C functions and Windows' own pieces in `windows/ReqlyCore`. On Windows, `windows\scripts\core.ps1 test` runs the core's tests with the patches Windows needs. CI runs them on macOS, Linux and Windows, and every test has to pass on each.
 4. Format Swift code with `swift format`, as CI checks it:
 
    ```bash
-   xcrun swift-format lint --strict --recursive --configuration .swift-format mac/Reqly mac/ReqlyHelper mac/ReqlyMacKit/Sources mac/ReqlyMacKit/Tests mac/ReqlyMacKit/Package.swift core/Sources core/Tests core/Package.swift windows/ReqlyCore/Sources windows/ReqlyCore/Tests windows/ReqlyCore/Package.swift
+   xcrun swift-format lint --strict --recursive --configuration .swift-format mac/Reqly mac/ReqlyHelper mac/ReqlyMacKit/Sources mac/ReqlyMacKit/Tests mac/ReqlyMacKit/Package.swift core/Sources core/Tests core/Package.swift core-interface/Sources core-interface/Tests core-interface/Package.swift windows/ReqlyCore/Sources windows/ReqlyCore/Tests windows/ReqlyCore/Package.swift
    ```
 
 5. Open a pull request that says what changed and why, and how you checked it.

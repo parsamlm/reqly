@@ -1,7 +1,7 @@
 # Assembles BoringSSL's x86-64 assembly for Windows (windows/third-party/boringssl-asm) into a static
 # library, CNIOBoringSSLAsm.lib, which NIOSSL links on Windows. BoringSSL writes it for NASM, which
 # SwiftPM can't run, so it's built before the Swift build, as SQLite is.
-#   windows\scripts\build-boringssl-asm.ps1 -PackagePath <core or ReqlyCore> [-Arch x64|arm64] [-Nasm <nasm.exe>]
+#   windows\scripts\build-boringssl-asm.ps1 -PackagePath <core, core-interface or windows\ReqlyCore> [-Arch x64|arm64] [-Nasm <nasm.exe>]
 # NASM is the one given, or $env:NASM, nasm on the PATH, or windows\.build\nasm\nasm.exe. The library
 # goes in windows\.build\boringssl-asm\<arch>, and is built again only when its sources change.
 param(
