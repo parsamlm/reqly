@@ -7,7 +7,7 @@ public enum RootRemoval: Int32, Sendable {
     case removed = 1
     /// There was none, as when HTTPS was never set up or the certificate was removed already.
     case nothing = 0
-    /// You said no when Windows asked.
+    /// You said no when the system asked: Windows' question, or Linux's password dialog.
     case declined = 2
     case failed = -1
 

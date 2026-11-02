@@ -115,7 +115,8 @@ public actor SessionHost {
             store: store, systemProxy: systemProxy(options, system), extraTrustedRoots: extraRoots,
             findOrigin: originFinder(options, system, devices: origins))
         let https = rootStore(options, system).map { HTTPSHost(store: $0, capture: capture) }
-        await https?.load()
+        // The certificate may wait for your keyring, so the session opens without waiting for it.
+        await https?.startLoading()
         let host = SessionHost(
             capture: capture, https: https, protobuf: protobuf, origins: origins, system: system, events: events)
         await host.begin(showingStoredTraffic: options.file != nil)
@@ -601,9 +602,10 @@ public actor SessionHost {
 
     // MARK: - HTTPS
 
-    /// Whether HTTPS is set up, and the hosts to decrypt.
+    /// Whether HTTPS is set up, and the hosts to decrypt. As the session opens, it waits for the
+    /// certificate to be read, as each of the HTTPS calls does.
     public func https() async throws(Problem) -> HTTPSState {
-        try await withHTTPS { await $0.state }
+        try await withHTTPS { await $0.currentState() }
     }
 
     /// Makes Reqly's certificate if there isn't one, and asks the system to trust it.
@@ -616,6 +618,15 @@ public actor SessionHost {
     public func removeHTTPS() async throws(Problem) -> HTTPSState {
         let https = try await withHTTPS { $0 }
         return try await https.remove()
+    }
+
+    /// Reads the certificate from the store again, and whether it's trusted, after the app made
+    /// it or trusted it itself, as the Linux app does, place by place. The session decrypts once
+    /// any place trusts it. A session that doesn't decrypt, such as a saved one, says HTTPS isn't
+    /// set up.
+    public func reloadHTTPS() async -> HTTPSState {
+        guard let httpsHost else { return HTTPSState(status: .notSetUp, hosts: DecryptedHosts()) }
+        return await httpsHost.reload()
     }
 
     /// The hosts to decrypt, as the app saved them.
@@ -807,7 +818,10 @@ public actor SessionHost {
     /// certificates' keys go in the secrets file, which the system keeps for your user unless
     /// `protectsSecrets` is false, as for a test run.
     public func openConnections(_ file: URL, secrets: URL, protectsSecrets: Bool = true) async -> ConnectionsState {
-        connectionsBook.open(file, secrets: system.secrets(secrets, protectsSecrets))
+        // Reading the secrets may wait for you to unlock your keyring.
+        let storage = system.secrets(secrets, protectsSecrets)
+        let loaded = await offThread { Result { try storage.load() } }
+        connectionsBook.open(file, secrets: storage, loaded: loaded)
         capture.setUpstreamProxy(connectionsBook.activeUpstreamProxy)
         capture.setClientIdentities(connectionsBook.activeIdentities)
         await applyReverseProxies()

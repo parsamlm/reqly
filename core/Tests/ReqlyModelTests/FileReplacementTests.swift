@@ -16,6 +16,19 @@ import Testing
         #expect(try Data(contentsOf: file) == Data("new".utf8))
     }
 
+    @Test func replacesAFileDurablyAndLeavesNothingElse() throws {
+        let folder = URL.temporaryDirectory.appending(path: "ReqlyTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "State").appending(path: "ProxyRestore.json")
+        try FileReplacement.writeDurably(Data("old".utf8), to: file)
+        try FileReplacement.writeDurably(Data("new".utf8), to: file)
+        #expect(try Data(contentsOf: file) == Data("new".utf8))
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path) == [
+                "ProxyRestore.json"
+            ])
+    }
+
     #if os(Windows)
         @Test func waitsWhileAnotherProgramHasTheFileOpen() throws {
             let folder = URL.temporaryDirectory.appending(path: "ReqlyTests-\(UUID().uuidString)")

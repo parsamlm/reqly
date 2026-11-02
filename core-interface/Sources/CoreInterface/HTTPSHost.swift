@@ -10,27 +10,66 @@ actor HTTPSHost {
     private let store: any RootStore
     private let capture: CaptureSession
     private var root: RootIdentity?
-    private var authority: CertificateAuthority?
+    /// Signs the certificates of the hosts decrypted, made from `root` once a place trusts it.
+    private(set) var authority: CertificateAuthority?
     private var hosts = DecryptedHosts()
     private var status = HTTPSState.Status.notSetUp
+    /// Why the certificate couldn't be read, the last time it was read.
+    private var readProblem: String?
+    /// The first reading, which everything else waits for.
+    private var loading: Task<Void, Never>?
 
     init(store: any RootStore, capture: CaptureSession) {
         self.store = store
         self.capture = capture
     }
 
-    func load() async {
-        let store = self.store
-        root = await Self.offThread { try? store.load() }
-        refresh()
+    /// Starts reading the certificate as the session opens, without waiting for it: on Linux, it
+    /// may wait for you to unlock your keyring. The session captures meanwhile, decrypting
+    /// nothing until it's read, and everything here waits for it.
+    func startLoading() {
+        loading = Task { await load() }
     }
 
-    /// Makes the certificate if there isn't one, then asks the system to trust it, which on
-    /// Windows asks you to confirm. Saying no isn't a failure: the status says it isn't trusted.
+    private func load() async {
+        let store = self.store
+        let loaded = await offThread { Result { try store.load() } }
+        take(try? loaded.get())
+        if case .failure(let error) = loaded {
+            readProblem = Self.explain(error)
+        } else {
+            readProblem = nil
+        }
+        await refresh()
+    }
+
+    /// Waits for the first reading, while it's still going.
+    private func loaded() async {
+        await loading?.value
+    }
+
+    /// Reads the certificate and whether it's trusted again, as the session does as it opens,
+    /// after the app changed them in the store itself.
+    func reload() async -> HTTPSState {
+        await loaded()
+        await load()
+        return state
+    }
+
+    /// The state, once the certificate has been read.
+    func currentState() async -> HTTPSState {
+        await loaded()
+        return state
+    }
+
+    /// Makes the certificate if there isn't one, then asks the system to trust it, which asks you
+    /// to confirm on Windows, and for an administrator's password on Linux, for the computer's
+    /// list. Saying no isn't a failure: the status says it isn't trusted.
     func setUp() async throws(Problem) -> HTTPSState {
+        await loaded()
         let store = self.store
         let existing = root
-        let result = await Self.offThread { () -> Result<RootIdentity, any Error> in
+        let result = await offThread { () -> Result<RootIdentity, any Error> in
             Result {
                 let root = try existing ?? store.load() ?? RootIdentity.create()
                 try store.save(root)
@@ -40,45 +79,58 @@ actor HTTPSHost {
         }
         switch result {
         case .success(let made):
-            root = made
+            take(made)
         case .failure(let error) where (error as? CertificateStoreError) == .cancelled:
-            root = await Self.offThread { try? store.load() }
+            take(await offThread { try? store.load() })
         case .failure(let error):
-            root = await Self.offThread { try? store.load() }
-            refresh()
+            take(await offThread { try? store.load() })
+            await refresh()
             throw Problem(.failed, "Reqly couldn't set up HTTPS. \(Self.explain(error))")
         }
-        refresh()
+        await refresh()
         return state
     }
 
-    /// Removes the certificate, its key and the system's trust in it, which on Windows asks you
-    /// to confirm.
+    /// Takes `new` as the certificate. Another certificate than the one before gets an authority
+    /// of its own once a place trusts it, so leaf certificates are never signed by one nothing
+    /// trusts, such as one removed outside the app.
+    private func take(_ new: RootIdentity?) {
+        if (try? new?.certificateDER) != (try? root?.certificateDER) {
+            authority = nil
+        }
+        root = new
+    }
+
+    /// Removes the certificate, its key and the system's trust in it, which asks you to confirm
+    /// on Windows, and for an administrator's password on Linux, for the computer's list.
     func remove() async throws(Problem) -> HTTPSState {
+        await loaded()
         guard let root else { return state }
         let store = self.store
-        let result = await Self.offThread { Result { try store.remove(root) } }
+        let result = await offThread { Result { try store.remove(root) } }
         switch result {
         case .success:
             self.root = nil
         case .failure(let error) where (error as? CertificateStoreError) == .cancelled:
             break
         case .failure(let error):
-            refresh()
+            await refresh()
             throw Problem(.failed, "Reqly couldn't remove its certificate. \(Self.explain(error))")
         }
-        refresh()
+        await refresh()
         return state
     }
 
     /// Changes the hosts to decrypt. Reqly decrypts by the new list from the next connection on.
-    func changeHosts(_ change: @Sendable (inout DecryptedHosts) -> Void) -> HTTPSState {
+    func changeHosts(_ change: @Sendable (inout DecryptedHosts) -> Void) async -> HTTPSState {
+        await loaded()
         change(&hosts)
         apply()
         return state
     }
 
-    func addHost(_ text: String) throws(Problem) -> HTTPSState {
+    func addHost(_ text: String) async throws(Problem) -> HTTPSState {
+        await loaded()
         if let problem = hosts.add(text) {
             throw Problem(.badRequest, problem.message)
         }
@@ -93,18 +145,24 @@ actor HTTPSHost {
     var state: HTTPSState {
         HTTPSState(
             status: status, certificateName: root?.name, created: root?.created,
-            certificate: status == .trusted ? (try? root?.certificateDER).map { Data($0) } : nil, hosts: hosts)
+            certificate: status == .trusted ? (try? root?.certificateDER).map { Data($0) } : nil, hosts: hosts,
+            readProblem: readProblem)
     }
 
-    /// Reads whether the system trusts the certificate, and decrypts only if it does.
-    private func refresh() {
+    /// Reads whether the system trusts the certificate, and decrypts only if it does. On Linux
+    /// that runs certutil, so it's read on a thread of its own.
+    private func refresh() async {
         guard let root else {
             status = .notSetUp
             authority = nil
             apply()
             return
         }
-        status = store.isTrusted(root) ? .trusted : .notTrusted
+        let store = self.store
+        let trusted = await offThread { store.isTrusted(root) }
+        // The certificate changed meanwhile, and the refresh that came with it reads it.
+        guard let current = self.root, (try? current.certificateDER) == (try? root.certificateDER) else { return }
+        status = trusted ? .trusted : .notTrusted
         if status == .trusted, authority == nil {
             authority = try? CertificateAuthority(root: root)
         } else if status != .trusted {
@@ -121,14 +179,14 @@ actor HTTPSHost {
         if case CertificateStoreError.failed(let message) = error { return message }
         return error.localizedDescription
     }
+}
 
-    /// Runs work that may wait a long time, such as for you to answer the system's question, on a
-    /// thread of its own, so none of Swift's shared threads waits with it.
-    private static func offThread<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
-        await withCheckedContinuation { continuation in
-            let thread = Thread { continuation.resume(returning: work()) }
-            thread.start()
-        }
+/// Runs work that may wait a long time, such as for you to answer the system's question or unlock
+/// your keyring, on a thread of its own, so none of Swift's shared threads waits with it.
+func offThread<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { continuation in
+        let thread = Thread { continuation.resume(returning: work()) }
+        thread.start()
     }
 }
 
@@ -151,15 +209,20 @@ public struct HTTPSState: Sendable, Equatable {
     /// it, since only then does Reqly decrypt.
     public var certificate: Data?
     public var hosts: DecryptedHosts
+    /// Why the certificate couldn't be read, such as on Linux when you didn't unlock your keyring.
+    /// The status then says it isn't set up, though it may be; reading it again tries again. The
+    /// Swift API has it; the JSON leaves it out.
+    public var readProblem: String?
 
     public init(
         status: Status, certificateName: String? = nil, created: Date? = nil, certificate: Data? = nil,
-        hosts: DecryptedHosts
+        hosts: DecryptedHosts, readProblem: String? = nil
     ) {
         self.status = status
         self.certificateName = certificateName
         self.created = created
         self.certificate = certificate
         self.hosts = hosts
+        self.readProblem = readProblem
     }
 }

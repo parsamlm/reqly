@@ -1,0 +1,110 @@
+import Foundation
+
+/// A place that decides whether apps trust Reqly's certificate, as Set Up HTTPS and Settings ›
+/// HTTPS show it. Linux has no one store for your account, as the Mac and Windows do.
+public struct TrustPlace: Sendable, Equatable {
+    public enum Kind: String, Codable, Sendable, CaseIterable {
+        /// The NSS databases that Chrome, Chromium, Edge, Brave and Electron apps read.
+        case browsers
+        /// Firefox's profiles, each with its own database. Firefox doesn't read the computer's list.
+        case firefox
+        /// The computer's list, which curl, GNOME's apps, Python, Node and most others read.
+        case computer
+    }
+
+    public enum Status: Sendable, Equatable {
+        /// It trusts the certificate: every database or profile it covers does.
+        case trusted
+        /// It doesn't yet, or not everywhere it covers.
+        case notTrusted
+        /// There's nothing to trust it in, such as a Firefox that hasn't been opened.
+        case notFound
+        /// Reqly can't change it, for this reason, such as a missing package.
+        case unavailable(String)
+        /// It trusts Reqly's old certificate, whose key has gone from your keyring, so Reqly can't
+        /// use it. Setting up HTTPS again takes it out, or puts the new one in its place.
+        case trustsOldCertificate
+    }
+
+    public var kind: Kind
+    public var status: Status
+    /// The databases or Firefox profiles it covers, or the computer's list itself.
+    public var locations: [URL]
+
+    /// Its name, as a line of `reqly --remove-certificate` starts with it.
+    public var name: String {
+        switch kind {
+        case .browsers: "Chrome and other browsers built on it"
+        case .firefox: "Firefox"
+        case .computer: "Command-line tools and most other apps"
+        }
+    }
+
+    /// Its name as a row's title or a switch's label, in the app, which GNOME's guidelines give
+    /// header capitalization.
+    public var title: String {
+        switch kind {
+        case .browsers: "Chrome and Other Browsers Built on It"
+        case .firefox: "Firefox"
+        case .computer: "Command-Line Tools and Most Other Apps"
+        }
+    }
+
+    /// Whether changing it asks for an administrator's password.
+    public var needsPassword: Bool { kind == .computer }
+
+    /// Whether Reqly can add the certificate to it now, as Set Up HTTPS and Trust… do: there's
+    /// something to add it to, Reqly can change it, and it doesn't trust the certificate yet, but
+    /// maybe the old one.
+    public var canTrust: Bool { status == .notTrusted || status == .trustsOldCertificate }
+
+    /// Its status in a word or two, as Settings › HTTPS shows it beside its name, a label with
+    /// header capitalization.
+    public var statusName: String {
+        switch status {
+        case .trusted: "Trusted"
+        case .notTrusted: "Not Trusted"
+        case .notFound: "Not Found"
+        case .unavailable: "Unavailable"
+        case .trustsOldCertificate: "Old Certificate"
+        }
+    }
+
+    /// A sentence about it, for the app to show under its name.
+    public var detail: String {
+        if case .unavailable(let reason) = status { return reason }
+        if status == .trustsOldCertificate {
+            return kind == .computer
+                ? "It still trusts Reqly's old certificate, for every account on it, though Reqly can't use it without "
+                    + "its key. Setting up HTTPS again puts the new one in its place, and Linux asks for an "
+                    + "administrator's password."
+                : "It still trusts Reqly's old certificate, which Reqly can't use without its key. Setting up HTTPS "
+                    + "again takes it out."
+        }
+        switch kind {
+        case .browsers:
+            return switch locations.count {
+            case 0: "Open Chrome, or another browser built on it, once, then come back."
+            case 1: "One certificate database. Restart your browsers afterwards."
+            default: "\(locations.count) certificate databases. Restart your browsers afterwards."
+            }
+        case .firefox:
+            return switch locations.count {
+            case 0: "Open Firefox once, then come back."
+            case 1: "One profile. Restart Firefox afterwards."
+            default: "\(locations.count) profiles. Restart Firefox afterwards."
+            }
+        case .computer where status == .trusted:
+            return "It's in this computer's list, for every account on it."
+        case .computer:
+            return "This adds the certificate to this computer's list, for every account on it. "
+                + "Linux asks for an administrator's password."
+        }
+    }
+
+    public init(kind: Kind, status: Status, locations: [URL]) {
+        self.kind = kind
+        self.status = status
+        self.locations = locations
+    }
+}

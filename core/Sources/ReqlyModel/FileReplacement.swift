@@ -1,5 +1,11 @@
 import Foundation
 
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
+
 /// Saving a file in one step, so whoever reads it finds the old file or the new one, never part of
 /// one, as Reqly saves its settings and sessions.
 public enum FileReplacement {
@@ -7,6 +13,40 @@ public enum FileReplacement {
     public static func write(_ data: Data, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try retrying { try data.write(to: url, options: .atomic) }
+    }
+
+    /// Writes `data` to `url` as ``write(_:to:)`` does, and waits until the disk has the file and
+    /// its name, so it's there whole even after a power cut, as the file that puts your proxy
+    /// settings back has to be. On Windows, it's ``write(_:to:)``.
+    public static func writeDurably(_ data: Data, to url: URL) throws {
+        #if canImport(Darwin) || canImport(Glibc)
+            let folder = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let temporary = folder.appending(path: ".\(url.lastPathComponent).\(UUID().uuidString)")
+            let path = temporary.path(percentEncoded: false)
+            let descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666)
+            guard descriptor >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+            do {
+                let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+                try file.write(contentsOf: data)
+                try file.synchronize()
+                try file.close()
+                guard rename(path, url.path(percentEncoded: false)) == 0 else {
+                    throw POSIXError(.init(rawValue: errno) ?? .EIO)
+                }
+            } catch {
+                unlink(path)
+                throw error
+            }
+            // The folder keeps the new name only once it's on the disk too.
+            let folderDescriptor = open(folder.path(percentEncoded: false), O_RDONLY | O_CLOEXEC)
+            if folderDescriptor >= 0 {
+                fsync(folderDescriptor)
+                close(folderDescriptor)
+            }
+        #else
+            try write(data, to: url)
+        #endif
     }
 
     /// Runs `step`, which puts a new file in an old one's place, again for up to about a second

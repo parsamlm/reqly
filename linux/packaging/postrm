@@ -1,0 +1,43 @@
+#!/bin/sh
+# The package's postrm, which dpkg runs as root after it removes Reqly: it takes every account's
+# Reqly root out of this computer's list, as reqly-trust remove does for one account, so the
+# computer trusts no certificate of Reqly's once Reqly is gone. apt has no window to ask in, and a
+# package doesn't touch home folders, so the copies in each account's browsers and Firefox, and the
+# keys, stay; linux/README.md says how to take those out. The .deb installs it, in Step 6.
+#   postrm remove|purge   takes the roots out
+#   postrm <anything else> such as upgrade, does nothing
+# A failure here only goes to standard error: removing Reqly goes on.
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+folder=/usr/local/share/ca-certificates/reqly
+hooks=/etc/ca-certificates/update.d
+
+case ${1:-} in
+    remove | purge) ;;
+    *) exit 0 ;;
+esac
+# Only a folder reqly-trust made, never a link to somewhere else.
+{ [ -d "$folder" ] && [ ! -L "$folder" ]; } || exit 0
+
+# The links update-ca-certificates made, for the hooks below.
+links=
+for file in "$folder"/reqly-ca-*.crt; do
+    [ -e "$file" ] || continue
+    link=/etc/ssl/certs/$(basename "$file" .crt).pem
+    [ ! -e "$link" ] || links="$links $link"
+done
+rm -rf "$folder"
+said=$(update-ca-certificates --fresh 2>&1) || echo "reqly: update-ca-certificates failed: $said" >&2
+# update-ca-certificates never tells its hooks, such as Java's keystore, about a local certificate
+# it took out, so they hear it here as reqly-trust remove tells them: "-" and each link's path, a
+# line each, on standard input.
+if [ -n "$links" ] && [ -d "$hooks" ]; then
+    run-parts --test -- "$hooks" | while read -r hook; do
+        for link in $links; do
+            printf -- '-%s\n' "$link"
+        done | "$hook" >/dev/null 2>&1 || echo "reqly: $hook failed." >&2
+    done
+fi
+exit 0

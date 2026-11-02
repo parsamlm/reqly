@@ -24,18 +24,26 @@ struct ConnectionsBook {
         "Reqly Client Certificate/\(id.uuidString)"
     }
 
-    mutating func open(_ url: URL, secrets secretFile: any SecretStorage) {
+    /// Opens the settings at `url`, with the secrets `secretFile` keeps, which `loaded` holds when
+    /// they were read already, as off the actor while a keyring asks to be unlocked.
+    mutating func open(
+        _ url: URL, secrets secretFile: any SecretStorage, loaded: Result<[String: Data], any Error>? = nil
+    ) {
         file = url
         self.secretFile = secretFile
-        let loaded = ConnectionsFile.load(from: url)
-        contents = loaded.contents
-        problem = loaded.problem
+        let read = ConnectionsFile.load(from: url)
+        contents = read.contents
+        problem = read.problem
         do {
-            secrets = try secretFile.load()
+            secrets = try (loaded ?? Result { try secretFile.load() }).get()
         } catch {
             secrets = [:]
             problem = "Reqly couldn't read the passwords and keys it keeps. \(error.localizedDescription)"
         }
+        // Keys of certificates no longer listed, such as one removed while its key couldn't be
+        // read, go with the next save.
+        let listed = Set(contents.clientCertificates.map { Self.keyName($0.id) } + [Self.passwordName])
+        secrets = secrets.filter { listed.contains($0.key) }
         if var proxy = contents.upstreamProxy, proxy.username != nil, let password = secrets[Self.passwordName] {
             proxy.password = String(decoding: password, as: UTF8.self)
             contents.upstreamProxy = proxy

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Lets Reqly add its certificate to this computer's list, or take it out, through pkexec and the
+     helper, once an administrator types their password. Only from the desktop you're using: never
+     over SSH or from a session in the background. Installed as
+     /usr/share/polkit-1/actions/net.reqly.trust.policy. -->
+<policyconfig>
+  <vendor>Reqly</vendor>
+  <vendor_url>https://reqly.net</vendor_url>
+  <action id="net.reqly.trust">
+    <description>Change whether this computer trusts Reqly's certificate</description>
+    <message>Reqly wants to add its certificate to this computer's list, or take it out. The list applies to every account on this computer.</message>
+    <icon_name>net.reqly.Reqly</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/reqly/reqly-trust</annotate>
+  </action>
+</policyconfig>
