@@ -42,9 +42,9 @@ Everything from Phase 1 on Windows 11, built on the same core. A session saved o
 
 Everything from Phase 1 on Debian, Ubuntu and the systems based on them, such as Linux Mint, built on the same core. A session saved on a Mac or a Windows PC opens on Linux, and the other way around.
 
-- [ ] Capture Linux apps' traffic on GNOME and KDE with one switch. Reqly sets your desktop's proxy and always puts it back.
-- [ ] HTTPS decryption, set up for your browsers and command-line tools, and removable at any time.
-- [ ] A terminal set up for Reqly, so curl, git and other tools are captured too.
+- [x] Capture Linux apps' traffic on GNOME and KDE with one switch. Reqly sets your desktop's proxy and always puts it back.
+- [x] HTTPS decryption, set up for your browsers and command-line tools, and removable at any time.
+- [x] A terminal set up for Reqly, so curl, git and other tools are captured too.
 - [ ] The request list, details, search and filters.
 - [ ] Sending and saving, rules and scripts, devices, protocols and connections.
 - [ ] An icon in the notification area, on desktops that show one.
