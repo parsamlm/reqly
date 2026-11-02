@@ -137,7 +137,9 @@ jobs:
       - name: Build the Linux app
         run: linux/scripts/app.sh build
 
+      # In a container, steps run in sh unless they say otherwise, and Ubuntu's sh has no pipefail.
       - name: Test the Linux app
+        shell: bash
         run: |
           set -o pipefail
           linux/scripts/app.sh test 2>&1 | tee "$RUNNER_TEMP/linux.log" || {
