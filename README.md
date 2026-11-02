@@ -64,11 +64,11 @@ Each platform has a folder of its own, and the code they share sits beside them:
 
 | Folder | What's in it |
 |---|---|
-| [core](core) | ReqlyKit, the Swift package with the engine, certificates, rules, scripts, storage and file formats. The Mac app and the Windows app share it, and the Linux app will too. |
-| [core-interface](core-interface) | CoreInterface, the Swift package above the core with the request list, rules, connections, devices and HTTPS, as a Swift API, which the Linux app will call directly, with JSON messages over it for the Windows app. |
+| [core](core) | ReqlyKit, the Swift package with the engine, certificates, rules, scripts, storage and file formats. The Mac, Windows and Linux apps share it. |
+| [core-interface](core-interface) | CoreInterface, the Swift package above the core with the request list, rules, connections, devices and HTTPS, as a Swift API, which the Linux app calls directly, with JSON messages over it for the Windows app. |
 | [mac](mac) | Reqly for Mac: the Xcode project, the app, its helper, ReqlyMacKit with the modules that reach the Mac's own services, and the Homebrew cask. |
 | [windows](windows) | Reqly for Windows, in beta, from Phase 2. |
-| [linux](linux) | Reqly for Linux, which comes in Phase 3. |
+| [linux](linux) | Reqly for Linux, from Phase 3, not released yet: the app, in Swift on GTK 4 and libadwaita, with capture and HTTPS so far. |
 | [ios](ios) | The companion app for iPhone and iPad, which comes in Phase 4. |
 | [android](android) | The companion app for Android, which comes in Phase 5. |
 | [design](design) | The logo and the design guidelines, for every platform. |

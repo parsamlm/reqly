@@ -17,18 +17,18 @@ Open an issue that says what you're trying to do, and where Reqly gets in the wa
 For anything bigger than a fix, open an issue first to talk about the approach, before you spend time on it.
 
 1. Fork the repository, and make a branch from `main`.
-2. Build Reqly as the [README](README.md#building) says for the Mac, or [windows/README.md](windows/README.md#building) for Windows. [ARCHITECTURE.md](ARCHITECTURE.md) explains how the parts fit together.
+2. Build Reqly as the [README](README.md#building) says for the Mac, [windows/README.md](windows/README.md#building) for Windows, or [linux/README.md](linux/README.md#building-the-package) for Linux. [ARCHITECTURE.md](ARCHITECTURE.md) explains how the parts fit together.
 3. Run the tests for what you changed. The core's run on macOS and Linux:
 
    ```bash
    swift test --package-path core
    ```
 
-   The Mac's own modules have theirs in `mac/ReqlyMacKit`, the core interface, which answers the Windows app's messages, in `core-interface`, and the Windows app's C functions and Windows' own pieces in `windows/ReqlyCore`. On Windows, `windows\scripts\core.ps1 test` runs the core's tests with the patches Windows needs. CI runs them on macOS, Linux and Windows, and every test has to pass on each.
+   The Mac's own modules have theirs in `mac/ReqlyMacKit`, the core interface, which the Linux app calls and which answers the Windows app's messages, in `core-interface`, the Windows app's C functions and Windows' own pieces in `windows/ReqlyCore`, and the Linux app and Linux's own pieces in `linux`, which `linux/scripts/app.sh test` runs in Ubuntu 24.04's image. On Windows, `windows\scripts\core.ps1 test` runs the core's tests with the patches Windows needs. CI runs them on macOS, Linux and Windows, and every test has to pass on each.
 4. Format Swift code with `swift format`, as CI checks it:
 
    ```bash
-   xcrun swift-format lint --strict --recursive --configuration .swift-format mac/Reqly mac/ReqlyHelper mac/ReqlyMacKit/Sources mac/ReqlyMacKit/Tests mac/ReqlyMacKit/Package.swift core/Sources core/Tests core/Package.swift core-interface/Sources core-interface/Tests core-interface/Package.swift windows/ReqlyCore/Sources windows/ReqlyCore/Tests windows/ReqlyCore/Package.swift
+   xcrun swift-format lint --strict --recursive --configuration .swift-format mac/Reqly mac/ReqlyHelper mac/ReqlyMacKit/Sources mac/ReqlyMacKit/Tests mac/ReqlyMacKit/Package.swift core/Sources core/Tests core/Package.swift core-interface/Sources core-interface/Tests core-interface/Package.swift windows/ReqlyCore/Sources windows/ReqlyCore/Tests windows/ReqlyCore/Package.swift linux/Sources linux/Tests linux/Package.swift
    ```
 
 5. Open a pull request that says what changed and why, and how you checked it.

@@ -9,7 +9,7 @@ The app is Swift, with GTK 4 and libadwaita, and links the core and the [core in
 | `Package.swift`, `Sources/`, `Tests/` | The `ReqlyLinux` package: the app, the program `reqly` (`ReqlyApp`, with `AppSetup` for its command line, settings and folders), on GTK 4 and libadwaita through `CGtk`, `CGtkShim` and `GtkBinding`; and what only Linux has, which the app hands the core as its `SystemParts`, as `WindowsSystem` does on Windows. `LinuxDesktop` sets your desktop's proxy, `LinuxTrust` keeps and trusts Reqly's certificate, `LinuxApps` finds which app opened a connection, and `LinuxSystem` puts them together. `CGio`, `CSecret`, `CSQLite` and `CLinux` reach GIO, libsecret, SQLite and the kernel. |
 | `packaging/` | `reqly-trust`, the helper that adds Reqly's root to the computer's list as root, and its polkit action, `net.reqly.trust.policy`; `postrm`, which takes every account's root out of the computer's list as the package is removed; `net.reqly.Reqly.desktop`, the app's desktop file. |
 | `docker/` | The image the package is built and tested in, `reqly-linux-dev:noble`: Ubuntu 24.04 with Swift 6.4.1 and the development packages. |
-| `scripts/` | `app.sh` builds and tests the package, and runs the app's self-check through `self-check.sh`. `core.sh` builds and tests the core, or `libReqlyCore.so`. `stage-core.sh` gathers a release build of `libReqlyCore.so` with the parts of Swift's runtime it needs, and `check-core.sh` checks that they start on a system without Swift, with `smoke.c`, a small program that loads the library and sends a request through it. |
+| `scripts/` | `app.sh` builds and tests the package, and runs the app's self-check through `self-check.sh`. `core.sh` builds and tests the core, the core interface, or `libReqlyCore.so`. `stage-core.sh` gathers a release build of `libReqlyCore.so` with the parts of Swift's runtime it needs, and `check-core.sh` checks that they start on a system without Swift, with `smoke.c`, a small program that loads the library and sends a request through it. |
 
 ## Building the package
 
@@ -113,6 +113,7 @@ On Ubuntu 24.04 with Swift 6.4.1, `libsqlite3-dev` and `zlib1g-dev`, as in the `
 
 ```bash
 linux/scripts/core.sh test                          # the core's tests
+linux/scripts/core.sh test --package core-interface # the core interface's tests
 linux/scripts/core.sh test --package ReqlyCore      # the C interface's tests
 linux/scripts/core.sh build --package ReqlyCore -c release
 linux/scripts/stage-core.sh linux/.build/core
