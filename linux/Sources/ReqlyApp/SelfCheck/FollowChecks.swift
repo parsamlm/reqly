@@ -108,6 +108,38 @@ extension SelfCheck {
         try require(resetWaits.longest < 250, "the window's thread waited \(resetWaits.longest) ms as every row came")
         try require(
             list.reveals - revealsBefore == 1, "the list showed its newest row \(list.reveals - revealsBefore) times")
+        try await checkKeepingTheSelection(session, &follower)
+    }
+
+    /// The selection stays with its request through a burst, through a search that hides its
+    /// row, when the details still show it, and as the search ends, when its row is selected
+    /// again.
+    private func checkKeepingTheSelection(_ session: SessionHost, _ follower: inout Follower) async throws {
+        let list = window.list
+        let details = window.details
+        let chosen = try present(list.exchange(at: list.count / 2), "the list has no middle row")
+        list.select(id: chosen)
+        try await until("the row to be selected", seconds: 3) {
+            list.selected == chosen && list.shownSelection == chosen && details.shown == chosen
+        }
+        // Chosen in the middle, the list doesn't follow.
+        try await follower.send(50, follows: false)
+        try require(
+            list.selected == chosen && list.shownSelection == chosen, "after a burst, the selection is somewhere else")
+        await session.setSearch("n=first")
+        try await until("the search to leave one row", seconds: 20) { list.count == 1 && list.isSettled }
+        try require(
+            list.selected == chosen && list.shownSelection == nil && details.shown == chosen,
+            "hidden by a search, the request isn't selected, or the details don't show it")
+        await session.setSearch("")
+        let rows = await session.rowIDs().ids.count
+        try await until("every row to come back", seconds: 60) { list.count == rows && list.isSettled }
+        try require(
+            list.selected == chosen && list.shownSelection == chosen, "once the search ended, its row isn't selected")
+        note(
+            "the selection: #\(chosen.rawValue) stays selected through a burst, hidden by a search with the details "
+                + "showing it, and its row selected again as the search ends")
+        list.select(id: nil)
     }
 
     /// In a copy whose session keeps `limit` requests: a burst fills it, then single requests and
@@ -160,6 +192,18 @@ extension SelfCheck {
             value < 1 && list.reveals == reveals,
             "scrolled up, the list moved to \(value), with \(list.reveals - reveals) reveals")
         note("scrolled up: \(follower.said.joined(separator: "; ")), and the list stays at its top")
+
+        // The oldest request, selected, goes as the session trims it, and the details with it.
+        let oldest = try present(list.exchange(at: 0), "the list has no first row")
+        list.select(id: oldest)
+        try await until("the oldest row to be selected", seconds: 3) {
+            list.selected == oldest && self.window.details.shown == oldest
+        }
+        try await follower.send(5, follows: false)
+        try await until("the selection to go with its request", seconds: 5) {
+            list.selected == nil && self.window.details.shown == nil
+        }
+        note("the selection: the oldest request, selected, went as the session trimmed it, and the details with it")
     }
 }
 

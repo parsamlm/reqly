@@ -94,6 +94,11 @@ final class RequestList {
     private(set) var total = 0
     /// The selected row's request, which may be one a filter hides.
     private(set) var selected: ExchangeID?
+
+    /// The request of the row GTK shows selected: ``selected``, unless no row shows it.
+    var shownSelection: ExchangeID? {
+        gtk_single_selection_get_selected_item(selection).map(Self.id(of:))
+    }
     /// Runs when the selected row's request changes: as you choose a row, or once its request has
     /// left the session, with `nil`.
     var onSelection: ((ExchangeID?) -> Void)?
