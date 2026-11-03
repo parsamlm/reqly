@@ -64,16 +64,17 @@ public sealed partial class MainWindow
         await SendAsync(through, url, warmUp, Math.Min(parallel, warmUp));
         await SettleAsync();
 
-        var before = list?.Total ?? 0;
+        // The rows that come, since past the store's limit as many go and the total stays the same.
+        var before = list?.Inserted ?? 0;
         var straightRun = await SendAsync(straight, url, requests, parallel);
         var watch = new ThreadWatch(DispatcherQueue);
         var collected = GcSnapshot.Now();
         var throughRun = await SendAsync(through, url, requests, parallel);
         var (longest, stalls, _) = watch.Stop();
         var collections = collected.Since();
-        // From the last response until the list stops growing.
+        // From the last response until the list stops taking in rows.
         var shown = await SettleAsync();
-        var rows = (list?.Total ?? 0) - before;
+        var rows = (list?.Inserted ?? 0) - before;
         Log($"speed: {name}: straight {straightRun.Describe(requests)} · through Reqly {throughRun.Describe(requests)}" +
             $" · {rows} new rows, the last {shown:F0} ms after the last response" +
             $" · window's thread: longest wait {longest:F0} ms, {stalls} over 100 ms · {collections}");
@@ -214,18 +215,22 @@ public sealed partial class MainWindow
         return new HttpClient(handler, disposeHandler: true) { Timeout = TimeSpan.FromSeconds(60) };
     }
 
-    /// <summary>Waits until the list has stopped growing for half a second, and returns when it last grew, in ms from now.</summary>
+    /// <summary>
+    /// Waits until no rows have come for half a second and no events wait their turn, and returns
+    /// when rows last came, in ms from now. It counts the rows that come, not the rows there are,
+    /// which stop changing at the store's limit.
+    /// </summary>
     private async Task<double> SettleAsync()
     {
         var watch = Stopwatch.StartNew();
-        var last = list?.Total ?? 0;
+        var last = list?.Inserted ?? 0;
         var changed = watch.Elapsed;
-        while (watch.Elapsed - changed < TimeSpan.FromMilliseconds(500) && watch.Elapsed < TimeSpan.FromSeconds(60))
+        while ((watch.Elapsed - changed < TimeSpan.FromMilliseconds(500) || list?.IsIdle == false) && watch.Elapsed < TimeSpan.FromSeconds(60))
         {
             await Task.Delay(20);
-            if ((list?.Total ?? 0) != last)
+            if ((list?.Inserted ?? 0) != last)
             {
-                last = list?.Total ?? 0;
+                last = list?.Inserted ?? 0;
                 changed = watch.Elapsed;
             }
         }

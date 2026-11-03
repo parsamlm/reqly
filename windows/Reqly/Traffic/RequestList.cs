@@ -25,6 +25,12 @@ public sealed class RequestList(CoreSession session)
     /// <summary>How many exchanges the session has, shown or not.</summary>
     public int Total { get; private set; }
 
+    /// <summary>
+    /// Rows put in so far, all told, a reset's too. It goes on growing past the store's limit,
+    /// where as many old rows go as new ones come and the row count stays the same.
+    /// </summary>
+    public long Inserted { get; private set; }
+
     public event Action? Changed;
 
     private readonly Dictionary<ulong, RequestRow> byID = [];
@@ -64,6 +70,10 @@ public sealed class RequestList(CoreSession session)
 
     private readonly Queue<Update> pending = new();
     private bool isApplying;
+
+    /// <summary>Whether every event so far is in the rows, with none waiting for its turn.</summary>
+    public bool IsIdle => pending.Count == 0 && !isApplying;
+
     /// <summary>
     /// When the list last brought its newest row into view. Each time, it lays out a screen of
     /// new rows, so during a burst it does that ten times a second at most, then once at the end.
@@ -86,6 +96,7 @@ public sealed class RequestList(CoreSession session)
         // While new rows wait to be revealed, the list isn't at its end, but it's still following.
         var follows = (isFollowing && hasUnrevealedRows) || ShowsEnd?.Invoke() == true;
         var before = Rows.Count;
+        var insertedBefore = Inserted;
         while (pending.TryPeek(out var update) && started.Elapsed < Slice)
         {
             if (update.ApplySome(this, started))
@@ -94,7 +105,9 @@ public sealed class RequestList(CoreSession session)
                 Total = update.Total;
             }
         }
-        hasUnrevealedRows = follows && (hasUnrevealedRows || Rows.Count != before);
+        // New rows, even when as many old ones went, as past the store's limit: the count alone
+        // stays the same there.
+        hasUnrevealedRows = follows && (hasUnrevealedRows || Rows.Count != before || Inserted != insertedBefore);
         if (hasUnrevealedRows && Rows.Count > 0 && (pending.Count == 0 || sinceRevealed.Elapsed >= RevealEvery))
         {
             Reveal?.Invoke(Rows[^1]);
@@ -170,6 +183,7 @@ public sealed class RequestList(CoreSession session)
                             list.byID[inserted.ID] = inserted;
                             list.Rows.Insert(rows[done], inserted);
                             list.Want(inserted.ID);
+                            list.Inserted++;
                             break;
                         case "changed":
                             list.Want(ids[done]);
@@ -179,6 +193,7 @@ public sealed class RequestList(CoreSession session)
                             list.byID[row.ID] = row;
                             list.Rows.Add(row);
                             list.Want(row.ID);
+                            list.Inserted++;
                             break;
                     }
                     done++;
