@@ -55,18 +55,24 @@ final class MainWindow {
     let search: SearchBar
     let filters: FilterBar
     let list: RequestList
+    /// What shows in the list's place while there's traffic, but none of it shows.
+    let noMatches: NoMatchesPage
     let details: DetailsPane
     /// The sidebar's pane and the list's, each a toolbar view under its header bar.
     let sidebarPane: Widget
     let listPane: Widget
     let statusLine: Widget
     let statusLabel: Widget
+    /// How many of the session's requests the list shows, at the status line's end.
+    let statusCount: Widget
     /// The window's breakpoints: up to 1100 sp, the details go over the list, and up to 760 sp, the
     /// sidebar folds away too.
     let detailsOver: OpaquePointer
     let sidebarFolds: OpaquePointer
     private let statusDot: Widget
     private let toasts: Widget
+    /// The list, or the no-matches page in its place.
+    private let listContent: Widget
     /// Whether the switch is being set to the model's state, rather than by you.
     private var isShowingCapture = false
     /// How many of the session's requests are pinned, which Clear keeps.
@@ -158,19 +164,27 @@ final class MainWindow {
         statusLabel = gtk_label_new(nil)
         gtk_label_set_xalign(cast(statusLabel), 0)
         gtk_label_set_ellipsize(cast(statusLabel), PANGO_ELLIPSIZE_END)
+        gtk_widget_set_hexpand(statusLabel, 1)
+        statusCount = gtk_label_new(nil)
+        gtk_widget_add_css_class(statusCount, "numeric")
         gtk_box_append(cast(statusLine), statusDot)
         gtk_box_append(cast(statusLine), statusLabel)
+        gtk_box_append(cast(statusLine), statusCount)
 
         // The list's pane: the header bar, the search bar and the filter bar, then the list, and
         // the status line under it.
         search = SearchBar(model: model)
         filters = FilterBar(model: model)
         list = RequestList(model: model)
+        noMatches = NoMatchesPage()
+        listContent = gtk_stack_new()
+        gtk_stack_add_named(cast(listContent), list.widget, "list")
+        gtk_stack_add_named(cast(listContent), noMatches.widget, "no-matches")
         listPane = adw_toolbar_view_new()
         adw_toolbar_view_add_top_bar(cast(listPane), listHeader)
         adw_toolbar_view_add_top_bar(cast(listPane), search.widget)
         adw_toolbar_view_add_top_bar(cast(listPane), filters.widget)
-        adw_toolbar_view_set_content(cast(listPane), list.widget)
+        adw_toolbar_view_set_content(cast(listPane), listContent)
         adw_toolbar_view_add_bottom_bar(cast(listPane), statusLine)
         search.captureTyping(in: listPane)
 
@@ -236,6 +250,9 @@ final class MainWindow {
         list.onComment = { [weak self] id in self?.editComment(id) }
         sidebar.onScope = { [weak self] _ in self?.scopeChosen() }
         sidebar.onCount = { [weak self] in self?.showTitle() }
+        search.onSearch = { [weak self] in self?.showTitle() }
+        filters.onFilter = { [weak self] in self?.showTitle() }
+        noMatches.onClear = { [weak self] in self?.filters.clear() }
         connect(captureSwitch, "notify::active") { [weak self] in
             guard let self, !self.isShowingCapture else { return }
             self.captureSwitched(on: gtk_switch_get_active(cast(self.captureSwitch)) != 0)
@@ -299,15 +316,26 @@ final class MainWindow {
         showTitle()
     }
 
-    /// The list's title, by the scope you chose, and its count, and whether there's anything to
-    /// clear.
+    /// The list's title, by the scope you chose, and its count, and the session's at the status
+    /// line's end; whether there's anything to clear; and the no-matches page in the list's place
+    /// while there's traffic, but none of it shows.
     private func showTitle() {
+        // The list hears the session's count with its rows, which traffic the filters leave out
+        // doesn't send, and the sidebar hears it a moment after them, so the window goes by the
+        // larger, and likewise for the scope's.
+        let total = max(list.total, sidebar.total)
         let title = ListTitle(
-            scope: sidebar.scope.title, shown: list.count, inScope: sidebar.count ?? list.total, total: list.total,
-            isCapturing: model.isCapturing, isSaved: model.options.smokeSession != nil)
+            scope: sidebar.scope.title, shown: list.count, inScope: max(sidebar.count ?? total, list.count),
+            total: total, isCapturing: model.isCapturing, isSaved: model.options.smokeSession != nil)
         adw_window_title_set_title(cast(listTitle), title.title)
         adw_window_title_set_subtitle(cast(listTitle), title.subtitle)
-        g_simple_action_set_enabled(clearAction, cBool(model.session != nil && list.total > pinned))
+        gtk_label_set_text(cast(statusCount), ListTitle.sessionCount(shown: list.count, total: total))
+        g_simple_action_set_enabled(clearAction, cBool(model.session != nil && total > pinned))
+        let nothingMatches = total > 0 && list.count == 0
+        if nothingMatches {
+            noMatches.show(NoMatches(query: search.query, filtersAreSet: filters.isActive))
+        }
+        gtk_stack_set_visible_child(cast(listContent), nothingMatches ? noMatches.widget : list.widget)
     }
 
     private func counted(pinned: Int) {
