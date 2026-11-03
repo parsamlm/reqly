@@ -6,6 +6,7 @@ extension SelfCheck {
     /// The window's own parts, which the features build on.
     static let windowParts: [Part] = [
         Part(name: "window") { try await $0.checkWindow() },
+        Part(name: "layout", seconds: 90) { try await $0.checkLayout() },
         Part(name: "settings") { try await $0.checkSettings() },
         Part(name: "about") { try await $0.checkAbout() },
         Part(name: "events") { try await $0.checkEvents() },
