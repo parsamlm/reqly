@@ -506,7 +506,8 @@ final class MainWindow {
                 return false
             }
             let focus = gtk_root_get_focus(cast(window))
-            if focus.map({ gtk_widget_get_mapped($0) == 0 }) ?? true, gtk_widget_grab_focus(list.view) == 0 {
+            // The list takes it only while it shows: GTK gives an empty list's hidden rows the focus.
+            if focus.map({ gtk_widget_get_mapped($0) == 0 }) ?? true, !list.focusSelection() {
                 gtk_widget_grab_focus(captureSwitch)
             }
             return false

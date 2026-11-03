@@ -311,8 +311,9 @@ extension SelfCheck {
         }
     }
 
-    /// The session with nothing in it, pinned requests too, the list with no rows and the details
-    /// beside it or gone back.
+    /// The session with nothing in it, pinned requests too, the list with no rows, the details
+    /// beside it or gone back, and the keyboard's focus on what shows, as the rows it may have
+    /// been on have gone.
     @discardableResult
     func emptyTheList() async throws -> SessionHost {
         let session = try await session()
@@ -321,6 +322,8 @@ extension SelfCheck {
         await session.clear()
         try await until("the list to be empty", seconds: 10) { list.total == 0 && list.count == 0 && list.isSettled }
         adw_navigation_split_view_set_show_content(window.inner, 0)
+        await settle()
+        window.focusContent()
         return session
     }
 
