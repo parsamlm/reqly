@@ -6,7 +6,8 @@ import GtkBinding
 /// Status column and on Settings › HTTPS, the arrows of the list's empty page, and Settings ›
 /// General's gear. Debian's Cinnamon uses the `gnome` theme, which has none of them, so GTK would
 /// draw its broken-image picture. Reqly writes its own, simple ones to a folder of its own, which
-/// GTK looks in after every theme, so your theme's own still come first.
+/// GTK looks in after every theme, so your theme's own still come first. And the app's own icon,
+/// for a run from the build folder.
 enum Icons {
     /// Each icon's name and its SVG, drawn on a 16-pixel grid in one color, which GTK paints in
     /// the text's color, as with any symbolic icon.
@@ -52,6 +53,22 @@ enum Icons {
         // Icons right in a folder on the search path, in no theme, come after every theme.
         gtk_icon_theme_add_search_path(theme, folder.path)
     }
+
+    /// Adds the app's own icon, `net.reqly.Reqly`, for the window and About, when Reqly runs from
+    /// its build folder: linux/packaging/icons, in the hicolor theme's folders, from the checkout
+    /// it was built from, while that's where it was. A package puts the folder in
+    /// /usr/share/icons, where GTK looks anyway.
+    @MainActor
+    static func installAppIcon() {
+        guard let display = gdk_display_get_default(), let theme = gtk_icon_theme_get_for_display(display),
+            FileManager.default.fileExists(atPath: builtFrom.appending(path: "hicolor").path)
+        else { return }
+        gtk_icon_theme_add_search_path(theme, builtFrom.path)
+    }
+
+    /// linux/packaging/icons in the checkout this program was built from.
+    static let builtFrom = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appending(path: "packaging/icons", directoryHint: .isDirectory)
 
     /// The icons' folder: Reqly's in `XDG_RUNTIME_DIR`, which only you can open, or in your cache
     /// folder.

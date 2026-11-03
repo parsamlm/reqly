@@ -359,16 +359,17 @@ Reqly/
 │   └── scripts/            builds the core, SQLite and the app on Windows, and the installer
 ├── linux/                  Reqly for Linux, in Phase 3: the ReqlyLinux package, with the
 │                           app on GTK 4 and libadwaita and LinuxSystem, Linux's own parts,
-│                           and the root helper's and the desktop's files
+│                           and the root helper's and the desktop's files, and the app's icon
 ├── ios/                    the companion app for iPhone and iPad, in Phase 4
 ├── android/                the companion app for Android, in Phase 5
 ├── design/                 logo and design guidelines
 ├── website/                reqly.net: the home page, the docs and the privacy page
 ├── tools/                  acknowledgements.py, which collects both apps' open-source licenses,
 │                           licenses/, texts the package checkouts lack,
-│                           velopack_crates.py, which writes the Rust libraries' ones, and
+│                           velopack_crates.py, which writes the Rust libraries' ones,
 │                           windows_icon.py, which makes the Windows app's icons, the
-│                           notification area's with render_svg.swift
+│                           notification area's with render_svg.swift, and linux_icon.py,
+│                           which makes the Linux app's
 ├── ARCHITECTURE.md
 └── ROADMAP.md
 ```

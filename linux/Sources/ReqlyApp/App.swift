@@ -99,6 +99,7 @@ final class App {
     private func startUp() {
         Styles.install(theme: options.theme)
         Icons.install()
+        Icons.installAppIcon()
         // GtkSourceView's types and translations, once, before any code view.
         gtk_source_init()
         addActions()

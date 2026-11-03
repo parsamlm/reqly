@@ -7,7 +7,7 @@ The app is Swift, with GTK 4 and libadwaita, and links the core and the [core in
 | Folder | What's in it |
 |---|---|
 | `Package.swift`, `Sources/`, `Tests/` | The `ReqlyLinux` package: the app, the program `reqly` (`ReqlyApp`, with `AppSetup` for its command line, settings and folders), on GTK 4, libadwaita and GtkSourceView through `CGtk`, `CGtkSource`, `CGtkShim` and `GtkBinding`; and what only Linux has, which the app hands the core as its `SystemParts`, as `WindowsSystem` does on Windows. `LinuxDesktop` sets your desktop's proxy, `LinuxTrust` keeps and trusts Reqly's certificate, `LinuxApps` finds which app opened a connection, and `LinuxSystem` puts them together. `CGio`, `CSecret`, `CSQLite` and `CLinux` reach GIO, libsecret, SQLite and the kernel. |
-| `packaging/` | `reqly-trust`, the helper that adds Reqly's root to the computer's list as root, and its polkit action, `net.reqly.trust.policy`; `postrm`, which takes every account's root out of the computer's list as the package is removed; `net.reqly.Reqly.desktop`, the app's desktop file. |
+| `packaging/` | `reqly-trust`, the helper that adds Reqly's root to the computer's list as root, and its polkit action, `net.reqly.trust.policy`; `postrm`, which takes every account's root out of the computer's list as the package is removed; `net.reqly.Reqly.desktop`, the app's desktop file; and `icons/`, the app's icon at the sizes GNOME shows, from 16 to 512 pixels, in the hicolor theme's folders, which `tools/linux_icon.py` renders from `design/logo/Reqly.icon` on a Mac. A run from the build folder finds them in the checkout it was built from. |
 | `docker/` | The image the package is built and tested in, `reqly-linux-dev:noble`: Ubuntu 24.04 with Swift 6.4.1 and the development packages. |
 | `scripts/` | `app.sh` builds and tests the package, and runs the app's self-check through `self-check.sh`, whose parts read the window's accessibility tree with `accessibility-tree.py`. `core.sh` builds and tests the core, the core interface, or `libReqlyCore.so`. `stage-core.sh` gathers a release build of `libReqlyCore.so` with the parts of Swift's runtime it needs, and `check-core.sh` checks that they start on a system without Swift, with `smoke.c`, a small program that loads the library and sends a request through it. |
 
@@ -63,7 +63,7 @@ install -D -m 0755 reqly ~/.local/bin/reqly
 mkdir -p ~/.local/share/applications
 sed "s|^Exec=reqly\$|Exec=\"$HOME/.local/bin/reqly\"|" linux/packaging/net.reqly.Reqly.desktop \
     > ~/.local/share/applications/net.reqly.Reqly.desktop
-install -D -m 0644 design/logo/exports/reqly-icon.svg ~/.local/share/icons/hicolor/scalable/apps/net.reqly.Reqly.svg
+mkdir -p ~/.local/share/icons && cp -R linux/packaging/icons/hicolor ~/.local/share/icons/
 ```
 
 A real run points that desktop's proxy setting at Reqly while it captures, and Set Up HTTPS changes its browsers and, with a password, the computer's list. A test run with stand-ins and files of its own, as the self-check's, changes none of it, and runs beside a real one. A sessions folder a test run names should be one of its own: Reqly deletes the sessions in it that no Reqly holds, though nothing else, and leaves its permissions as they are.

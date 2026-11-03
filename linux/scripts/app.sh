@@ -15,7 +15,8 @@
 # settings (linux/scripts/self-check.sh), and prints the report. Where Docker is, the self-check
 # runs in a container of its own, as an ordinary account, with no network but its own 127.0.0.1,
 # and only the scripts and saved sessions its parts use from the repository, read-only, where they
-# are in it.
+# are in it, and the app's icons where the build had them, in /work, as Reqly looks for them in
+# the checkout it was built from.
 # Options:
 #   --volume NAME       the build volume (default reqly-linux-build). One build at a time uses it:
 #                       the container is named after it, so a second one is refused.
@@ -152,6 +153,7 @@ if [[ $command == self-check ]]; then
     exec docker run --rm --init "${tty[@]+"${tty[@]}"}" --name "$volume-self-check" \
         --network none --user 1000:1000 \
         -v "$root/linux/scripts:/src/linux/scripts:ro" -v "$root/$sessions:/src/$sessions:ro" \
+        -v "$root/linux/packaging/icons:/work/linux/packaging/icons:ro" \
         -v "$volume:/build:ro" ${kept[@]+"${kept[@]}"} "$image" \
         timeout --kill-after=30s "${minutes}m" /src/linux/scripts/self-check.sh /build/reqly ${rest[@]+"${rest[@]}"}
 fi
