@@ -12,6 +12,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var startsCapturingOnLaunch = false
     /// The hosts to decrypt, each switched on or off.
     public var decryptedHosts = DecryptedHosts()
+    /// Whether the sidebar's Apps, Devices and Hosts show their rows, or are folded away, with the
+    /// Mac's names. They show at first.
+    public var sidebarShowsApps = true
+    public var sidebarShowsDevices = true
+    public var sidebarShowsHosts = true
 
     public init() {}
 
@@ -25,6 +30,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
         }
         if let hosts = try? container.decodeIfPresent(DecryptedHosts.self, forKey: .decryptedHosts) {
             decryptedHosts = hosts
+        }
+        if let shows = try? container.decodeIfPresent(Bool.self, forKey: .sidebarShowsApps) {
+            sidebarShowsApps = shows
+        }
+        if let shows = try? container.decodeIfPresent(Bool.self, forKey: .sidebarShowsDevices) {
+            sidebarShowsDevices = shows
+        }
+        if let shows = try? container.decodeIfPresent(Bool.self, forKey: .sidebarShowsHosts) {
+            sidebarShowsHosts = shows
         }
     }
 
