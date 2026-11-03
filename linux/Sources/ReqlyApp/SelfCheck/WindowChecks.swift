@@ -18,25 +18,27 @@ extension SelfCheck {
         "set-up-https", "open-terminal", "copy-terminal-setup", "settings", "about", "quit",
     ]
 
-    /// The window shows its header bar, with the capture switch and the main menu, whose every
-    /// entry has its action, and the status line.
+    /// The window shows the list's header bar, with the capture switch, and the sidebar's, with
+    /// the main menu, whose every entry has its action, and the status line.
     func checkWindow() async throws {
         let window = window
         try await until("the window to show") { gtk_widget_get_mapped(window.window) != 0 }
-        try require(gtk_widget_get_mapped(window.headerBar) != 0, "the header bar doesn't show")
-        note("header bar: \(typeName(raw(window.headerBar)))")
+        try require(gtk_widget_get_mapped(window.listHeader) != 0, "the list's header bar doesn't show")
+        note("list's header bar: \(typeName(raw(window.listHeader)))")
 
         let captureSwitch = window.captureSwitch
         try require(
             typeName(raw(captureSwitch)) == "GtkSwitch", "the capture switch is a \(typeName(raw(captureSwitch)))")
         try require(
-            gtk_widget_is_ancestor(captureSwitch, window.headerBar) != 0, "the capture switch isn't in the header bar")
+            gtk_widget_is_ancestor(captureSwitch, window.listHeader) != 0,
+            "the capture switch isn't in the list's header bar")
         try require(gtk_widget_get_mapped(captureSwitch) != 0, "the capture switch doesn't show")
         let isOn = gtk_switch_get_active(cast(captureSwitch)) != 0
-        note("capture switch: in the header bar, \(isOn ? "on" : "off")")
+        note("capture switch: in the list's header bar, \(isOn ? "on" : "off")")
 
         try require(
-            gtk_widget_is_ancestor(window.menuButton, window.headerBar) != 0, "the main menu isn't in the header bar")
+            gtk_widget_is_ancestor(window.menuButton, window.sidebarHeader) != 0,
+            "the main menu isn't in the sidebar's header bar")
         let entries = menuEntries(window.menu)
         for entry in entries {
             let name = entry.action.hasPrefix("app.") ? String(entry.action.dropFirst(4)) : entry.action

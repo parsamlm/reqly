@@ -3,29 +3,75 @@ import CoreInterface
 import Foundation
 import GtkBinding
 
-/// The window: an AdwApplicationWindow with a toast overlay around a toolbar view, with the header
-/// bar, which holds the capture switch and the main menu; the request list; and the status line.
+/// The window: three panes, each under a header bar of its own, after libadwaita's triple-pane
+/// layout, in a toast overlay. An overlay split view has the sidebar, beside a navigation split
+/// view of the request list and the details:
 ///
-/// What the switch, the menu's entries and the list do belongs to the features, in their own
-/// folders: capturing in `Capture/`, the terminal in `Terminal/`, HTTPS in `HTTPS/` and the list
-/// in `Traffic/`. App.swift registers the menu's actions in one place.
+/// - the sidebar, under a header bar with Reqly's name and the main menu;
+/// - the list, under a header bar with the sidebar's toggle, the capture switch, what the list
+///   shows and how many, Clear, the search button, and the main menu once the sidebar has folded
+///   away; then the search bar and the filter bar, and the status line under the list;
+/// - the details, under a header bar of their own.
+///
+/// Up to 1100 sp wide, the details open over the list, with Enter or a click on a row, and go back
+/// with Escape, Alt+← or the back button. Up to 760 sp, the sidebar folds away too, and shows over
+/// the list, and the main menu moves into the list's header bar. F9 shows and hides the sidebar at
+/// any width. The panes' widths are in sp, so they grow with the text, and libadwaita works them
+/// out again when its size changes.
+///
+/// What the panes hold belongs to the features, each in its own folder: the sidebar in `Sidebar/`,
+/// search and filters in `Find/`, the list in `Traffic/`, the details in `Details/` and the bodies
+/// in `Bodies/`; capturing in `Capture/`, the terminal in `Terminal/` and HTTPS in `HTTPS/`. This
+/// file puts them in place and tells each what another did. App.swift registers the menu's actions,
+/// and WindowActions.swift the window's own, with their shortcuts.
 @MainActor
 final class MainWindow {
     unowned let app: App
     let model: AppModel
     let window: Widget
-    let headerBar: Widget
+    /// The sidebar's split view, around the list's and the details'.
+    let outer: OpaquePointer
+    /// The list's and the details' split view.
+    let inner: OpaquePointer
+    let sidebarHeader: Widget
+    /// The list's header bar, with the capture switch.
+    let listHeader: Widget
     let captureSwitch: Widget
+    /// Shows and hides the sidebar, in the list's header bar, while the sidebar is folded away or
+    /// hidden.
+    let sidebarToggle: Widget
+    /// What the list shows, and how many, as the header bar's title.
+    let listTitle: Widget
+    let clearButton: Widget
+    let searchButton: Widget
+    /// The main menu's button, in the sidebar's header bar.
     let menuButton: Widget
+    /// The main menu's button in the list's header bar, while the sidebar is folded away.
+    let listMenuButton: Widget
     /// The main menu's model, a GMenu of sections.
     let menu: OpaquePointer
+    let sidebar: Sidebar
+    let search: SearchBar
+    let filters: FilterBar
     let list: RequestList
+    let details: DetailsPane
+    /// The sidebar's pane and the list's, each a toolbar view under its header bar.
+    let sidebarPane: Widget
+    let listPane: Widget
     let statusLine: Widget
     let statusLabel: Widget
+    /// The window's breakpoints: up to 1100 sp, the details go over the list, and up to 760 sp, the
+    /// sidebar folds away too.
+    let detailsOver: OpaquePointer
+    let sidebarFolds: OpaquePointer
     private let statusDot: Widget
     private let toasts: Widget
     /// Whether the switch is being set to the model's state, rather than by you.
     private var isShowingCapture = false
+    /// How many of the session's requests are pinned, which Clear keeps.
+    private var pinned = 0
+    /// Clear's action, which is on while there's something to clear.
+    var clearAction: OpaquePointer?
     /// Settings and Set Up HTTPS…, each made the first time it opens and kept, as they keep
     /// their pages.
     private(set) var settings: SettingsDialog?
@@ -38,21 +84,10 @@ final class MainWindow {
         window = adw_application_window_new(cast(app.application))
         gtk_window_set_title(cast(window), "Reqly")
         gtk_window_set_icon_name(cast(window), App.id)
-        gtk_window_set_default_size(cast(window), 1000, 700)
+        let size = Self.openingSize(within: Self.workArea())
+        gtk_window_set_default_size(cast(window), Int32(size.width), Int32(size.height))
         // The smallest size GNOME's adaptive windows design for.
         gtk_widget_set_size_request(window, 360, 294)
-
-        // The header bar: the capture switch at the start, the main menu at the end.
-        headerBar = adw_header_bar_new()
-        let capture = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
-        let captureLabel = gtk_label_new("Capture")!
-        captureSwitch = gtk_switch_new()
-        gtk_widget_set_valign(captureSwitch, GTK_ALIGN_CENTER)
-        setAccessibleLabel(captureSwitch, "Capture Traffic")
-        gtk_box_append(cast(capture), captureLabel)
-        gtk_box_append(cast(capture), captureSwitch)
-        gtk_widget_set_margin_start(capture, 6)
-        adw_header_bar_pack_start(cast(headerBar), capture)
 
         menu = g_menu_new()
         let tools = g_menu_new()!
@@ -67,15 +102,51 @@ final class MainWindow {
             g_menu_append_section(menu, nil, cast(section))
             g_object_unref(raw(section))
         }
-        menuButton = gtk_menu_button_new()
-        gtk_menu_button_set_icon_name(cast(menuButton), "open-menu-symbolic")
-        gtk_widget_set_tooltip_text(menuButton, "Main Menu")
-        // F10 opens it.
-        gtk_menu_button_set_primary(cast(menuButton), 1)
-        gtk_menu_button_set_menu_model(cast(menuButton), cast(menu))
-        adw_header_bar_pack_end(cast(headerBar), menuButton)
 
-        list = RequestList(model: model)
+        // The sidebar's pane: Reqly's name and the main menu, which F10 opens while it shows.
+        sidebar = Sidebar(model: model)
+        menuButton = Self.mainMenuButton(menu)
+        gtk_menu_button_set_primary(cast(menuButton), 1)
+        sidebarHeader = adw_header_bar_new()
+        adw_header_bar_set_title_widget(cast(sidebarHeader), adw_window_title_new("Reqly", nil))
+        adw_header_bar_pack_end(cast(sidebarHeader), menuButton)
+        sidebarPane = adw_toolbar_view_new()
+        adw_toolbar_view_add_top_bar(cast(sidebarPane), sidebarHeader)
+        adw_toolbar_view_set_content(cast(sidebarPane), sidebar.widget)
+
+        // The list's header bar: the sidebar's toggle and the capture switch at the start, what
+        // the list shows in the middle, and at the end Clear, search, and the main menu, which
+        // shows once the sidebar has folded away.
+        listHeader = adw_header_bar_new()
+        sidebarToggle = gtk_toggle_button_new()
+        gtk_button_set_icon_name(cast(sidebarToggle), "sidebar-show-symbolic")
+        gtk_widget_set_tooltip_text(sidebarToggle, "Show Sidebar")
+        setAccessibleLabel(sidebarToggle, "Show Sidebar")
+        adw_header_bar_pack_start(cast(listHeader), sidebarToggle)
+        let capture = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
+        let captureLabel = gtk_label_new("Capture")!
+        captureSwitch = gtk_switch_new()
+        gtk_widget_set_valign(captureSwitch, GTK_ALIGN_CENTER)
+        setAccessibleLabel(captureSwitch, "Capture Traffic")
+        gtk_box_append(cast(capture), captureLabel)
+        gtk_box_append(cast(capture), captureSwitch)
+        gtk_widget_set_margin_start(capture, 6)
+        adw_header_bar_pack_start(cast(listHeader), capture)
+        listTitle = adw_window_title_new(Sidebar.Scope.all.title, nil)
+        adw_header_bar_set_title_widget(cast(listHeader), listTitle)
+        listMenuButton = Self.mainMenuButton(menu)
+        gtk_widget_set_visible(listMenuButton, 0)
+        adw_header_bar_pack_end(cast(listHeader), listMenuButton)
+        searchButton = gtk_toggle_button_new()
+        gtk_button_set_icon_name(cast(searchButton), "system-search-symbolic")
+        gtk_widget_set_tooltip_text(searchButton, "Search")
+        setAccessibleLabel(searchButton, "Search")
+        adw_header_bar_pack_end(cast(listHeader), searchButton)
+        clearButton = gtk_button_new_from_icon_name("user-trash-symbolic")
+        gtk_widget_set_tooltip_text(clearButton, "Clear Traffic. Pinned requests stay.")
+        setAccessibleLabel(clearButton, "Clear Traffic")
+        gtk_actionable_set_action_name(cast(clearButton), "win.clear")
+        adw_header_bar_pack_end(cast(listHeader), clearButton)
 
         // The status line: a dot that shows while Reqly captures, and what it's doing.
         statusLine = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)
@@ -89,14 +160,80 @@ final class MainWindow {
         gtk_box_append(cast(statusLine), statusDot)
         gtk_box_append(cast(statusLine), statusLabel)
 
-        let toolbar = adw_toolbar_view_new()!
-        adw_toolbar_view_add_top_bar(cast(toolbar), headerBar)
-        adw_toolbar_view_set_content(cast(toolbar), list.widget)
-        adw_toolbar_view_add_bottom_bar(cast(toolbar), statusLine)
+        // The list's pane: the header bar, the search bar and the filter bar, then the list, and
+        // the status line under it.
+        search = SearchBar(model: model)
+        filters = FilterBar(model: model)
+        list = RequestList(model: model)
+        listPane = adw_toolbar_view_new()
+        adw_toolbar_view_add_top_bar(cast(listPane), listHeader)
+        adw_toolbar_view_add_top_bar(cast(listPane), search.widget)
+        adw_toolbar_view_add_top_bar(cast(listPane), filters.widget)
+        adw_toolbar_view_set_content(cast(listPane), list.widget)
+        adw_toolbar_view_add_bottom_bar(cast(listPane), statusLine)
+        search.captureTyping(in: listPane)
+
+        details = DetailsPane(model: model)
+
+        // The list and the details side by side, the list taking three fifths, or the details
+        // over the list.
+        let listPage = adw_navigation_page_new(listPane, "Requests")!
+        adw_navigation_page_set_tag(listPage, "list")
+        let detailsPage = adw_navigation_page_new(details.widget, "Details")!
+        adw_navigation_page_set_tag(detailsPage, "details")
+        inner = cast(adw_navigation_split_view_new())
+        adw_navigation_split_view_set_sidebar(inner, listPage)
+        adw_navigation_split_view_set_content(inner, detailsPage)
+        adw_navigation_split_view_set_sidebar_width_unit(inner, ADW_LENGTH_UNIT_SP)
+        adw_navigation_split_view_set_min_sidebar_width(inner, 560)
+        // No limit: the details have what's left.
+        adw_navigation_split_view_set_max_sidebar_width(inner, 10_000)
+        adw_navigation_split_view_set_sidebar_width_fraction(inner, 0.6)
+
+        // The sidebar beside them, a fifth of the window, from 200 to 280 sp.
+        outer = cast(adw_overlay_split_view_new())
+        adw_overlay_split_view_set_sidebar(outer, sidebarPane)
+        adw_overlay_split_view_set_content(outer, cast(inner))
+        adw_overlay_split_view_set_sidebar_width_unit(outer, ADW_LENGTH_UNIT_SP)
+        adw_overlay_split_view_set_min_sidebar_width(outer, 200)
+        adw_overlay_split_view_set_max_sidebar_width(outer, 280)
+        adw_overlay_split_view_set_sidebar_width_fraction(outer, 0.2)
+
         toasts = adw_toast_overlay_new()
-        adw_toast_overlay_set_child(cast(toasts), toolbar)
+        adw_toast_overlay_set_child(cast(toasts), cast(outer))
         adw_application_window_set_content(cast(window), toasts)
 
+        // The list needs 560 sp and the details 320, beside a sidebar of up to 280, and the list
+        // 560 beside the narrowest sidebar, 200. Of the breakpoints that fit, the last one added
+        // applies, so the second says all the first says.
+        let detailsOver = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 1100sp"))!
+        let sidebarFolds = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 760sp"))!
+        let collapsed: [(OpaquePointer, UnsafeMutableRawPointer?, String, Bool)] = [
+            (detailsOver, raw(inner), "collapsed", true),
+            (sidebarFolds, raw(inner), "collapsed", true), (sidebarFolds, raw(outer), "collapsed", true),
+            // F10 opens the main menu that shows.
+            (sidebarFolds, raw(menuButton), "visible", false), (sidebarFolds, raw(menuButton), "primary", false),
+            (sidebarFolds, raw(listMenuButton), "visible", true), (sidebarFolds, raw(listMenuButton), "primary", true),
+        ]
+        for (breakpoint, object, property, value) in collapsed {
+            Value.bool(value).with { adw_breakpoint_add_setter(breakpoint, cast(object), property, $0) }
+        }
+        adw_application_window_add_breakpoint(cast(window), detailsOver)
+        adw_application_window_add_breakpoint(cast(window), sidebarFolds)
+        self.detailsOver = detailsOver
+        self.sidebarFolds = sidebarFolds
+
+        bind(raw(outer), "show-sidebar", to: raw(sidebarToggle), "active")
+        bind(raw(search.widget), "search-mode-enabled", to: raw(searchButton), "active")
+        connect(outer, "notify::show-sidebar") { [weak self] in self?.sidebarChanged() }
+        connect(outer, "notify::collapsed") { [weak self] in self?.sidebarChanged() }
+        connect(inner, "notify::show-content") { [weak self] in self?.detailsChanged() }
+        connect(raw(search.widget), "notify::search-mode-enabled") { [weak self] in self?.searchChanged() }
+        list.onSelection = { [weak self] id in self?.details.show(id) }
+        list.onActivate = { [weak self] _ in self?.openDetails() }
+        list.onRows = { [weak self] in self?.showTitle() }
+        sidebar.onScope = { [weak self] _ in self?.scopeChosen() }
+        sidebar.onCount = { [weak self] in self?.showTitle() }
         connect(captureSwitch, "notify::active") { [weak self] in
             guard let self, !self.isShowingCapture else { return }
             self.captureSwitched(on: gtk_switch_get_active(cast(self.captureSwitch)) != 0)
@@ -108,10 +245,15 @@ final class MainWindow {
         }
         model.observe { [weak self] in self?.update() }
         model.listen { [weak self] event in
-            if case .storageProblem(let problem?) = event {
-                self?.toast(problem)
+            switch event {
+            case .storageProblem(let problem?): self?.toast(problem)
+            case .sidebar(let sidebar): self?.counted(pinned: sidebar.pinned)
+            case .counts(_, let pinned, _): self?.counted(pinned: pinned)
+            default: break
             }
         }
+        addActions()
+        showSidebarToggle()
         update()
     }
 
@@ -124,7 +266,17 @@ final class MainWindow {
         adw_toast_overlay_add_toast(cast(toasts), adw_toast_new(text))
     }
 
-    /// Shows the switch and the status line as the model has them.
+    /// A button that opens the main menu, `menu`.
+    private static func mainMenuButton(_ menu: OpaquePointer) -> Widget {
+        let button = gtk_menu_button_new()!
+        gtk_menu_button_set_icon_name(cast(button), "open-menu-symbolic")
+        gtk_widget_set_tooltip_text(button, "Main Menu")
+        setAccessibleLabel(button, "Main Menu")
+        gtk_menu_button_set_menu_model(cast(button), cast(menu))
+        return button
+    }
+
+    /// Shows the switch, the status line and the list's title as they are now.
     private func update() {
         let isOn = model.capture == .starting || model.capture == .capturing
         isShowingCapture = true
@@ -142,6 +294,159 @@ final class MainWindow {
         } else {
             gtk_widget_remove_css_class(statusDot, "capturing")
         }
+        showTitle()
+    }
+
+    /// The list's title, by the scope you chose, and its count, and whether there's anything to
+    /// clear.
+    private func showTitle() {
+        let title = ListTitle(
+            scope: sidebar.scope.title, shown: list.count, inScope: sidebar.count ?? list.total, total: list.total,
+            isCapturing: model.isCapturing, isSaved: model.options.smokeSession != nil)
+        adw_window_title_set_title(cast(listTitle), title.title)
+        adw_window_title_set_subtitle(cast(listTitle), title.subtitle)
+        g_simple_action_set_enabled(clearAction, cBool(model.session != nil && list.total > pinned))
+    }
+
+    private func counted(pinned: Int) {
+        self.pinned = pinned
+        showTitle()
+    }
+
+    // MARK: - The panes
+
+    /// Whether the details show over the list.
+    var detailsAreOver: Bool {
+        adw_navigation_split_view_get_collapsed(inner) != 0 && adw_navigation_split_view_get_show_content(inner) != 0
+    }
+
+    /// Whether the sidebar shows over the list.
+    var sidebarIsOver: Bool {
+        adw_overlay_split_view_get_collapsed(outer) != 0 && adw_overlay_split_view_get_show_sidebar(outer) != 0
+    }
+
+    /// Shows the details over the list, when they don't fit beside it, as a row's Enter or click
+    /// asks. Choosing a row with the arrow keys doesn't.
+    func openDetails() {
+        if adw_navigation_split_view_get_collapsed(inner) != 0 {
+            adw_navigation_split_view_set_show_content(inner, 1)
+        }
+    }
+
+    /// The details went over the list, or back. Back, libadwaita gives the keyboard's focus back to
+    /// what had it in the list's pane, such as the row that opened them, and when it doesn't, the
+    /// selected row has it. The list's pane may not show yet, so the search field, which Ctrl+F
+    /// gave it to, keeps it.
+    private func detailsChanged() {
+        guard adw_navigation_split_view_get_show_content(inner) == 0 else { return }
+        idle { [weak self] in
+            guard let self else { return false }
+            let focus = gtk_root_get_focus(cast(window))
+            if focus.map({ isInside($0, details.widget) }) ?? true {
+                focusContent()
+            }
+            return false
+        }
+    }
+
+    /// The sidebar was shown or hidden, or folded away or back. Shown over the list, or with the
+    /// toggle, which goes as it shows, the sidebar has the keyboard's focus; hidden, the pane that
+    /// shows has it. As a breakpoint changes the panes, what has the focus may not show for a
+    /// moment, so only nothing or the toggle having it counts as the focus gone.
+    private func sidebarChanged() {
+        showSidebarToggle()
+        let focus = gtk_root_get_focus(cast(window))
+        let isInSidebar = focus.map { isInside($0, sidebarPane) } ?? false
+        let isLost = focus.map { $0 == sidebarToggle } ?? true
+        if adw_overlay_split_view_get_show_sidebar(outer) != 0 {
+            if !isInSidebar, sidebarIsOver || isLost, !sidebar.focus() {
+                gtk_widget_child_focus(sidebarPane, GTK_DIR_TAB_FORWARD)
+            }
+        } else if isInSidebar || isLost {
+            focusContent()
+        }
+    }
+
+    /// The sidebar's toggle shows while the sidebar is folded away, or hidden with F9.
+    private func showSidebarToggle() {
+        let isDocked = adw_overlay_split_view_get_collapsed(outer) == 0
+        let shows = adw_overlay_split_view_get_show_sidebar(outer) != 0
+        gtk_widget_set_visible(sidebarToggle, cBool(!(isDocked && shows)))
+    }
+
+    /// The search bar opened or closed. Closed, the list has the keyboard's focus, when the bar
+    /// had it.
+    private func searchChanged() {
+        guard !search.isOpen else { return }
+        let focus = gtk_root_get_focus(cast(window))
+        if focus.map({ isInside($0, search.widget) || gtk_widget_get_mapped($0) == 0 }) ?? true {
+            focusContent()
+        }
+    }
+
+    /// You chose a scope in the sidebar: it shows in the list's header bar, and the sidebar goes,
+    /// when it showed over the list.
+    private func scopeChosen() {
+        showTitle()
+        if sidebarIsOver {
+            adw_overlay_split_view_set_show_sidebar(outer, 0)
+        }
+    }
+
+    /// Gives the keyboard's focus to the pane that shows: the details over the list, or the list's
+    /// selected row, or while the list is empty, the capture switch.
+    func focusContent() {
+        if detailsAreOver {
+            if gtk_widget_child_focus(details.widget, GTK_DIR_TAB_FORWARD) != 0 {
+                return
+            }
+        } else if list.focusSelection() {
+            return
+        }
+        if gtk_widget_get_sensitive(captureSwitch) == 0 || gtk_widget_grab_focus(captureSwitch) == 0 {
+            gtk_widget_child_focus(listPane, GTK_DIR_TAB_FORWARD)
+        }
+    }
+
+    /// Whether `widget` is `ancestor` or inside it.
+    func isInside(_ widget: Widget, _ ancestor: Widget) -> Bool {
+        widget == ancestor || gtk_widget_is_ancestor(widget, ancestor) != 0
+    }
+
+    // MARK: - Its size
+
+    /// The monitor's work area, without the desktop's panels, where X11 says what it is, and the
+    /// whole monitor elsewhere, as on Wayland: the first monitor's, since the window has none yet.
+    private static func workArea() -> (width: Int, height: Int) {
+        guard let display = gdk_display_get_default(), let monitors = gdk_display_get_monitors(display),
+            let monitor = g_list_model_get_item(monitors, 0)
+        else { return (1200, 760) }
+        defer { g_object_unref(monitor) }
+        var area = GdkRectangle()
+        gdk_monitor_get_geometry(cast(monitor), &area)
+        // GDK's X11 backend's own, which isn't in the headers the app is built against.
+        typealias WorkArea = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<GdkRectangle>?) -> Void
+        if typeName(raw(display)) == "GdkX11Display",
+            let workArea = Newer.lookup("gdk_x11_monitor_get_workarea", as: WorkArea.self)
+        {
+            workArea(monitor, &area)
+        }
+        return (Int(area.width), Int(area.height))
+    }
+
+    /// The window's size as it opens: 1200 by 760, but never more than `area`, the monitor's work
+    /// area, nor more than three quarters of it, in the same shape, as GNOME's window manager
+    /// maximizes a window that opens on most of it. At least GNOME's smallest, 360 by 294.
+    nonisolated static func openingSize(within area: (width: Int, height: Int)) -> (width: Int, height: Int) {
+        var width = min(1200, area.width)
+        var height = min(760, area.height)
+        let most = Double(area.width) * Double(area.height) * 3 / 4
+        if Double(width * height) > most {
+            let scale = (most / Double(width * height)).squareRoot()
+            width = Int(Double(width) * scale)
+            height = Int(Double(height) * scale)
+        }
+        return (max(360, width), max(294, height))
     }
 
     // MARK: - Dialogs

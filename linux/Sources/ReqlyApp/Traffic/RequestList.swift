@@ -9,6 +9,11 @@ import ReqlyModel
 /// columns are the app that sent the request, with its icon, the method, the host, the path, the
 /// status and the size. Until there's traffic, a status page says how to start. A list that shows
 /// its last row follows new traffic, as on the Mac.
+///
+/// One row is selected at a time, and the window shows its request in the details, through
+/// ``onSelection``. Enter, a double click or a click on a row opens it, through ``onActivate``, so
+/// the window shows the details over the list when they don't fit beside it; choosing a row with
+/// the arrow keys doesn't. ``onRows`` tells the window the counts its header bar shows.
 @MainActor
 final class RequestList {
     enum Column: CaseIterable {
@@ -44,7 +49,17 @@ final class RequestList {
     let icons = AppIcons()
     /// How many requests the session has.
     private(set) var total = 0
+    /// The selected row's request.
+    private(set) var selected: ExchangeID?
+    /// Runs when the selected row's request changes: as you choose a row, or once its request has
+    /// left the session, with `nil`.
+    var onSelection: ((ExchangeID?) -> Void)?
+    /// Runs when you open a row's request, with Enter, a double click or a click.
+    var onActivate: ((ExchangeID) -> Void)?
+    /// Runs after each change to the rows, or to the session's count.
+    var onRows: (() -> Void)?
     private let model: AppModel
+    private let selection: OpaquePointer
     private let scroller: Widget
     private let empty: Widget
     /// The rows' exchange IDs, as text, which the view shows.
@@ -63,7 +78,7 @@ final class RequestList {
     init(model: AppModel) {
         self.model = model
         items = gtk_string_list_new(nil)
-        let selection = gtk_single_selection_new(cast(items))!
+        selection = gtk_single_selection_new(cast(items))
         gtk_single_selection_set_autoselect(selection, 0)
         gtk_single_selection_set_can_unselect(selection, 1)
         view = gtk_column_view_new(cast(selection))
@@ -81,6 +96,19 @@ final class RequestList {
             add(column)
         }
         icons.onFound = { [weak self] key in self?.iconFound(key) }
+        connect(selection, "notify::selected") { [weak self] in self?.selectionChanged() }
+        connect(view, "activate") { [weak self] (arguments: Arguments) in
+            self?.activated(at: Int(arguments.uint(1)))
+        }
+        // A click on a row, once the row has been selected. A click on the column titles never
+        // gets here.
+        let click = gtk_gesture_click_new()!
+        connect(click, "released") { [weak self] (arguments: Arguments) in
+            if arguments.int(1) == 1 {
+                self?.clicked(x: arguments.double(2), y: arguments.double(3))
+            }
+        }
+        gtk_widget_add_controller(view, cast(click))
         model.listen { [weak self] event in
             guard let self, case .rows(let version, let total, _, let steps) = event else { return }
             self.total = total
@@ -90,6 +118,7 @@ final class RequestList {
             if mirror.isWaitingForRows {
                 readEveryRow()
             }
+            onRows?()
         }
         model.observe { [weak self] in self?.showState() }
         showState()
@@ -107,6 +136,62 @@ final class RequestList {
     func cell(_ column: Column, of id: ExchangeID) -> Widget? {
         let item = itemsByID[id]?.first { bound[$0]?.column == column }
         return item.flatMap { gtk_list_item_get_child(cast($0)) }
+    }
+
+    // MARK: - The selection
+
+    /// Selects the row showing `id`'s request, and scrolls to it, or selects none.
+    func select(id: ExchangeID?) {
+        guard let id, let row = mirror.ids.firstIndex(of: id) else {
+            gtk_single_selection_set_selected(selection, UInt32.max)
+            return
+        }
+        gtk_column_view_scroll_to(cast(view), UInt32(row), nil, GTK_LIST_SCROLL_SELECT, nil)
+    }
+
+    /// Gives the keyboard's focus to the selected row, or to the list when none is, and says
+    /// whether it could: not while the list is empty, and its status page shows.
+    @discardableResult
+    func focusSelection() -> Bool {
+        guard gtk_widget_get_mapped(view) != 0 else { return false }
+        let row = gtk_single_selection_get_selected(selection)
+        // GTK moves the focus to the row itself only while the list has it, so the list then
+        // gives it to the row.
+        if row != UInt32.max {
+            gtk_column_view_scroll_to(cast(view), row, nil, GTK_LIST_SCROLL_FOCUS, nil)
+        }
+        return gtk_widget_grab_focus(view) != 0
+    }
+
+    private func selectionChanged() {
+        let id = gtk_single_selection_get_selected_item(selection).map(Self.id(of:))
+        guard id != selected else { return }
+        selected = id
+        onSelection?(id)
+    }
+
+    private func activated(at row: Int) {
+        if mirror.ids.indices.contains(row) {
+            onActivate?(mirror.ids[row])
+        }
+    }
+
+    /// Opens the request of the row at the point clicked, in the view's own coordinates: the row
+    /// whose cell has the widget there.
+    private func clicked(x: Double, y: Double) {
+        var widget = gtk_widget_pick(view, x, y, GTK_PICK_DEFAULT)
+        while let found = widget, found != view {
+            if let cell = bound.first(where: { gtk_list_item_get_child(cast($0.key)) == found }) {
+                onActivate?(cell.value.id)
+                return
+            }
+            widget = gtk_widget_get_parent(found)
+        }
+    }
+
+    /// The exchange a row's item shows: its ID, as text.
+    private static func id(of item: UnsafeMutableRawPointer) -> ExchangeID {
+        ExchangeID(rawValue: strtoull(gtk_string_object_get_string(cast(item)), nil, 10))
     }
 
     // MARK: - The rows
@@ -138,6 +223,7 @@ final class RequestList {
             let rows = await session.rowIDs()
             isReadingRows = false
             apply(mirror.reset(version: rows.version, ids: rows.ids))
+            onRows?()
             if mirror.isWaitingForRows {
                 readEveryRow()
             }
@@ -270,7 +356,7 @@ final class RequestList {
 
     private func bind(_ item: UnsafeMutableRawPointer, _ column: Column) {
         guard let object = gtk_list_item_get_item(cast(item)) else { return }
-        let id = ExchangeID(rawValue: strtoull(gtk_string_object_get_string(cast(object)), nil, 10))
+        let id = Self.id(of: object)
         bound[item] = (id, column)
         itemsByID[id, default: []].append(item)
         fill(item, column, id)

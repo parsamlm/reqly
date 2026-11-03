@@ -25,6 +25,8 @@ public struct Arguments: @unchecked Sendable {
     public func int(_ index: Int) -> Int32 { g_value_get_int(value(index)) }
     public func uint(_ index: Int) -> UInt32 { g_value_get_uint(value(index)) }
     public func double(_ index: Int) -> Double { g_value_get_double(value(index)) }
+    /// Flags, such as a key's GdkModifierType.
+    public func flags(_ index: Int) -> UInt32 { g_value_get_flags(value(index)) }
 
     /// A GVariant, such as a D-Bus method call's parameters.
     public func variant(_ index: Int) -> OpaquePointer? { g_value_get_variant(value(index)) }
