@@ -5,10 +5,12 @@ import GtkBinding
 import ReqlyModel
 
 extension SelfCheck {
-    /// The request list's parts: its cells and words, and following new traffic.
+    /// The request list's parts: its cells and words, following new traffic, and pins, colors and
+    /// comments.
     static let trafficParts: [Part] = [
         Part(name: "list", seconds: 90) { try await $0.checkList() },
         Part(name: "follow", seconds: 240) { try await $0.checkFollowing() },
+        Part(name: "annotate", seconds: 90) { try await $0.checkAnnotating() },
     ]
 
     /// A row of each kind, through Reqly's proxy: 2xx to 5xx, one that failed, one in progress,

@@ -27,9 +27,10 @@ enum FakeInput {
         _ = x.flush(x.display)
     }
 
-    /// Clicks the left button in the middle of `widget`, which shows, and gives where on the screen.
+    /// Clicks the left button in the middle of `widget`, which shows, or `button`, such as 3 for
+    /// the right one, and gives where on the screen.
     @discardableResult
-    static func click(_ widget: Widget) throws -> (x: Int32, y: Int32) {
+    static func click(_ widget: Widget, button: UInt32 = 1) throws -> (x: Int32, y: Int32) {
         let x = try X.shared()
         guard let native = gtk_widget_get_native(widget), let surface = gtk_native_get_surface(native) else {
             throw SelfCheck.Failure("\(typeName(raw(widget))) doesn't show, so it can't be clicked")
@@ -53,8 +54,8 @@ enum FakeInput {
             Int32((Double(inWindow.y) + top) * scale), &rootX, &rootY, &child)
         // A moment apart, as a hand would, so GTK sees a click rather than a press and a release.
         _ = x.fakeMotion(x.display, -1, rootX, rootY, 0)
-        _ = x.fakeButton(x.display, 1, 1, 20)
-        _ = x.fakeButton(x.display, 1, 0, 50)
+        _ = x.fakeButton(x.display, button, 1, 20)
+        _ = x.fakeButton(x.display, button, 0, 50)
         _ = x.flush(x.display)
         return (rootX, rootY)
     }

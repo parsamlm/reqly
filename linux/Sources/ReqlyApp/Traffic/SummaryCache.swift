@@ -92,6 +92,16 @@ struct SummaryCache {
         return filled
     }
 
+    /// Changes a row's contents at once, as a pin does before the session says so, and gives the
+    /// new entry, or `nil` when there's none to change.
+    mutating func update(_ id: ExchangeID, _ change: (inout ExchangeSummary) -> Void) -> Entry? {
+        guard var summary = entries[id]?.summary else { return nil }
+        change(&summary)
+        let entry = Entry(summary: summary, text: RowText(summary, locale: locale, timeZone: timeZone))
+        entries[id] = entry
+        return entry
+    }
+
     private mutating func want(_ id: ExchangeID) {
         if isWanted.insert(id).inserted {
             wanted.append(id)

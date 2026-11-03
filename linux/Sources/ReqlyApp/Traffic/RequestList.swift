@@ -25,7 +25,8 @@ import ReqlyModel
 ///
 /// Tab goes into the list and out of it in one stop, the row with the focus, since its cells take
 /// none, and screen readers hear each row as its cells' words and where it is, "Request 3 of
-/// 10,000".
+/// 10,000". A row's menu, ``RowMenu``, pins it, marks it with a color, opens its comment through
+/// ``onComment``, and decrypts its host.
 @MainActor
 final class RequestList {
     enum Column: String, CaseIterable {
@@ -86,6 +87,8 @@ final class RequestList {
     /// search, the filters or the sidebar's choice leave none: "No Matching Requests", unless
     /// what narrowed the list words it otherwise.
     let noMatches: Widget
+    /// The menu on a row.
+    let menu: RowMenu
     let icons = AppIcons()
     /// How many requests the session has, once the list shows them.
     private(set) var total = 0
@@ -98,6 +101,9 @@ final class RequestList {
     var onActivate: ((ExchangeID) -> Void)?
     /// Runs after each change to the rows, or to the session's count.
     var onRows: (() -> Void)?
+    /// Runs when you choose Add or Edit Comment… in a row's menu, with its request, which the
+    /// window then shows on the details' Overview, where its comment is written.
+    var onComment: ((ExchangeID) -> Void)?
     /// How many times the list has brought its newest row into view, following new traffic.
     private(set) var reveals = 0
     private let model: AppModel
@@ -153,6 +159,7 @@ final class RequestList {
         // One Tab stop, the row with the focus, and the arrow keys between rows.
         gtk_column_view_set_tab_behavior(cast(view), GTK_LIST_TAB_ITEM)
         setAccessibleLabel(view, "Requests")
+        menu = RowMenu(on: view)
         scroller = gtk_scrolled_window_new()
         gtk_scrolled_window_set_child(cast(scroller), view)
         empty = adw_status_page_new()
@@ -186,6 +193,7 @@ final class RequestList {
             }
         }
         gtk_widget_add_controller(view, cast(click))
+        setUpMenu()
         model.listen { [weak self] event in
             guard let self, case .rows(let version, let total, _, let steps) = event else { return }
             latestTotal = total
@@ -749,6 +757,98 @@ final class RequestList {
                 describe(row)
             }
             return false
+        }
+    }
+
+    // MARK: - The row's menu
+
+    private func setUpMenu() {
+        menu.onPin = { [weak self] summary in
+            self?.annotate(summary.id, isPinned: !summary.annotation.isPinned)
+        }
+        menu.onColor = { [weak self] summary, color in
+            self?.annotate(summary.id, color: color.map { .set($0) } ?? .remove)
+        }
+        menu.onComment = { [weak self] summary in self?.onComment?(summary.id) }
+        menu.decrypts = { [weak self] host in
+            guard let self, model.options.smokeSession == nil, let state = model.https.state else { return nil }
+            return state.hosts.decrypts(host)
+        }
+        menu.onDecrypt = { [weak self] host, isOn in
+            guard let https = self?.model.https else { return }
+            Task { await https.setDecrypts(isOn, host: host) }
+        }
+        // A click with the right button, on the row it's on.
+        let press = gtk_gesture_click_new()!
+        gtk_gesture_single_set_button(cast(press), UInt32(GDK_BUTTON_SECONDARY))
+        connect(press, "pressed") { [weak self] (arguments: Arguments) in
+            let x = arguments.double(2)
+            let y = arguments.double(3)
+            guard let self, let id = id(at: x, y) else { return }
+            gtk_gesture_set_state(cast(press), GTK_EVENT_SEQUENCE_CLAIMED)
+            openMenu(for: id, at: GdkRectangle(x: Int32(x), y: Int32(y), width: 1, height: 1))
+        }
+        gtk_widget_add_controller(view, cast(press))
+        // Shift+F10 or the Menu key, on the row with the focus.
+        let keys = gtk_event_controller_key_new()!
+        connect(keys, "key-pressed") { [weak self] (arguments: Arguments) in
+            let key = arguments.uint(1)
+            let shortcut = GDK_CONTROL_MASK.rawValue | GDK_SHIFT_MASK.rawValue | GDK_ALT_MASK.rawValue
+            let modifiers = arguments.flags(3) & shortcut
+            let isMenuKey = key == UInt32(GDK_KEY_Menu) && modifiers == 0
+            let isShiftF10 = key == UInt32(GDK_KEY_F10) && modifiers == GDK_SHIFT_MASK.rawValue
+            guard let self, isMenuKey || isShiftF10 else { return }
+            arguments.returns(openMenuOnFocus())
+        }
+        gtk_widget_add_controller(view, keys)
+    }
+
+    /// Opens the menu of the row with the keyboard's focus, under its Request cell, and says
+    /// whether there was one.
+    @discardableResult
+    func openMenuOnFocus() -> Bool {
+        guard let focus = gtk_root_get_focus(gtk_widget_get_root(view)) else { return false }
+        let id = rows.keys.first { id in
+            rowWidget(of: id).map { focus == $0 || gtk_widget_is_ancestor(focus, $0) != 0 } ?? false
+        }
+        guard let id, let cell = cell(.request, of: id) else { return false }
+        var bounds = graphene_rect_t()
+        guard gtk_widget_compute_bounds(cell, view, &bounds) != 0 else { return false }
+        let rect = GdkRectangle(
+            x: Int32(bounds.origin.x), y: Int32(bounds.origin.y), width: Int32(min(bounds.size.width, 120)),
+            height: Int32(bounds.size.height))
+        openMenu(for: id, at: rect)
+        return true
+    }
+
+    private func openMenu(for id: ExchangeID, at rect: GdkRectangle) {
+        guard let summary = cache[id]?.summary else { return }
+        menu.open(for: summary, at: rect)
+    }
+
+    /// Pins a request or marks it with a color: its row shows it at once, then the session keeps
+    /// it.
+    private func annotate(_ id: ExchangeID, isPinned: Bool? = nil, color: ValueChange<MarkColor>? = nil) {
+        guard let session = model.session else { return }
+        let entry = cache.update(id) { summary in
+            if let isPinned {
+                summary.annotation.isPinned = isPinned
+            }
+            switch color {
+            case .set(let color): summary.annotation.color = color
+            case .remove: summary.annotation.color = nil
+            case nil: break
+            }
+        }
+        if let entry {
+            refill(entry)
+        }
+        Task {
+            do throws(Problem) {
+                try await session.annotate(id, isPinned: isPinned, color: color)
+            } catch {
+                AppLog.write("couldn't mark request \(id.rawValue): \(error.message)")
+            }
         }
     }
 }

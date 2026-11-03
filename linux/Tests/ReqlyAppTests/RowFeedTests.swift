@@ -199,4 +199,13 @@ import Testing
         _ = cache.received([Self.summary(1)]) { $0.rawValue <= 10 }
         #expect(cache.count == 10)
     }
+
+    @Test func showsAPinAtOnce() {
+        var cache = SummaryCache()
+        _ = cache.received([Self.summary(1)]) { _ in true }
+        let pinned = cache.update(ExchangeID(rawValue: 1)) { $0.annotation.isPinned = true }
+        #expect(pinned?.text.isPinned == true)
+        let missing = cache.update(ExchangeID(rawValue: 2)) { $0.annotation.isPinned = true }
+        #expect(missing == nil)
+    }
 }
