@@ -170,6 +170,27 @@ final class SelfCheck {
 
     // MARK: - What parts use
 
+    /// The self-check's scratch folder, which self-check.sh deletes.
+    var scratch: URL { report.deletingLastPathComponent() }
+
+    /// A file in the checkout self-check.sh runs from, `$REQLY_CHECKOUT`, such as a script or a
+    /// saved session a part uses.
+    static func checkoutFile(_ path: String) throws -> URL {
+        guard let checkout = ProcessInfo.processInfo.environment["REQLY_CHECKOUT"] else {
+            throw Failure("there's no checkout to find \(path) in: run the self-check with self-check.sh")
+        }
+        let file = URL(filePath: checkout, directoryHint: .isDirectory).appending(path: path)
+        guard FileManager.default.fileExists(atPath: file.path) else { throw Failure("the checkout has no \(path)") }
+        return file
+    }
+
+    /// A new folder in the scratch folder.
+    func scratchFolder(_ name: String) throws -> URL {
+        let folder = scratch.appending(path: "\(name)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
     /// Notes what the part found, for the report.
     func note(_ line: String) {
         notes.append(line)

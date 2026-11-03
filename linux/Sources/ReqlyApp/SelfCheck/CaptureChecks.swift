@@ -795,16 +795,6 @@ extension SelfCheck {
 
     // MARK: - What the parts share
 
-    /// The self-check's scratch folder, which self-check.sh deletes.
-    private var scratch: URL { report.deletingLastPathComponent() }
-
-    /// A new folder in the scratch folder.
-    private func scratchFolder(_ name: String) throws -> URL {
-        let folder = scratch.appending(path: "\(name)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder
-    }
-
     private func writeProgram(_ file: URL, _ script: String) throws {
         try script.write(to: file, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
@@ -817,12 +807,12 @@ extension SelfCheck {
     }
 
     /// The run's stand-in for your desktop's proxy setting.
-    private func standInFile() throws -> URL {
+    func standInFile() throws -> URL {
         URL(filePath: try present(model.options.proxySettingsStandIn, "the run has no --proxy-settings-stand-in"))
     }
 
     /// The capture switch, once the session is open and it can be used.
-    private func switchReady() async throws -> Widget {
+    func switchReady() async throws -> Widget {
         _ = try await session()
         let captureSwitch = window.captureSwitch
         try await until("the capture switch") { gtk_widget_get_sensitive(captureSwitch) != 0 }
@@ -830,7 +820,7 @@ extension SelfCheck {
     }
 
     /// Starts or stops capturing, as the switch does, and fails unless it did.
-    private func setCapture(on: Bool) async throws {
+    func setCapture(on: Bool) async throws {
         await model.setCapturing(on)
         try require(model.capture == (on ? .capturing : .stopped), model.problem ?? "capturing didn't change")
     }
@@ -897,174 +887,6 @@ private struct Kept: Decodable {
 /// The port Settings.json keeps.
 private struct AppSettingsPort: Decodable {
     var proxyPort: Int
-}
-
-/// The files a copy of Reqly that a part starts keeps, in a folder of its own: its own settings
-/// and stand-ins, as the self-check has, and its log.
-private struct ChildFiles {
-    let folder: URL
-
-    init(_ name: String, in scratch: URL) throws {
-        folder = scratch.appending(path: "\(name)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    }
-
-    var standIn: URL { folder.appending(path: "ProxySettings.json") }
-    var restoreFile: URL { folder.appending(path: "ProxyRestore.json") }
-    /// The restore file Reqly keeps beside the stand-in when the command line names none.
-    var standInsOwnRestoreFile: URL { folder.appending(path: "ProxySettings-Restore.json") }
-    var sessions: URL { folder.appending(path: "Sessions") }
-
-    /// Its command line: its files and stand-ins, with its log unless `logs` is false, so its
-    /// standard error stays where it was started with, and with ``restoreFile`` unless
-    /// `namesRestoreFile` is false.
-    func arguments(logs: Bool = true, namesRestoreFile: Bool = true) -> [String] {
-        func file(_ name: String) -> String { folder.appending(path: name).path }
-        return [
-            "--settings-file", file("Settings.json"), "--rules-file", file("Rules.json"),
-            "--connections-file", file("Connections.json"), "--protobuf-file", file("Protobuf.json"),
-            "--devices-file", file("Devices.json"), "--sessions-folder", sessions.path,
-            "--crash-reports-folder", file("Crashes"), "--proxy-settings-stand-in", standIn.path,
-            "--root-stand-in", file("Root.dat"), "--root-file", file("Certificate.dat"),
-            "--secrets-stand-in", file("Secrets.json"), "--allows-network-devices", "no",
-            "--checks-for-updates", "no", "--has-seen-welcome", "yes",
-        ] + (namesRestoreFile ? ["--proxy-restore-file", restoreFile.path] : [])
-            + (logs ? ["--log-file", file("Reqly.log")] : [])
-    }
-}
-
-/// A copy of Reqly that a part starts, through GIO, which closes the self-check's descriptors in
-/// it, and waits for without holding up the window.
-@MainActor
-private final class ChildRun {
-    private let process: OpaquePointer
-    /// Its process ID.
-    let identifier: String
-
-    /// Starts Reqly with `arguments`, and its standard error going to the file at `standardError`,
-    /// such as `/dev/full`, or the self-check's own, with the self-check's environment and
-    /// `environment`.
-    init(_ arguments: [String], standardError: String? = nil, environment: [String: String] = [:]) throws {
-        let launcher = g_subprocess_launcher_new(GSubprocessFlags(rawValue: 0))!
-        defer { g_object_unref(raw(launcher)) }
-        if let standardError {
-            g_subprocess_launcher_set_stderr_file_path(launcher, standardError)
-        }
-        for (name, value) in environment {
-            g_subprocess_launcher_setenv(launcher, name, value, 1)
-        }
-        var error: UnsafeMutablePointer<GError>?
-        let started = withCStrings([ProxyGuard.currentExecutable] + arguments) {
-            g_subprocess_launcher_spawnv(launcher, $0, &error)
-        }
-        guard let started else { throw SelfCheck.Failure("Reqly didn't start: \(message(error))") }
-        process = started
-        identifier = string(g_subprocess_get_identifier(started)) ?? "?"
-    }
-
-    isolated deinit {
-        g_object_unref(raw(process))
-    }
-
-    func send(_ signal: Int32) {
-        g_subprocess_send_signal(process, signal)
-    }
-
-    /// Ends it, unless it has ended.
-    func stop() {
-        g_subprocess_force_exit(process)
-    }
-
-    /// Waits for it to end, and returns its exit status, or `nil` when a signal ended it.
-    func wait() async -> Int32? {
-        await withCheckedContinuation { done in
-            let (callback, context) = whenReady { [process] _, result in
-                _ = g_subprocess_wait_finish(process, result, nil)
-                done.resume(
-                    returning: g_subprocess_get_if_exited(process) != 0 ? g_subprocess_get_exit_status(process) : nil)
-            }
-            g_subprocess_wait_async(process, nil, callback, context)
-        }
-    }
-}
-
-/// TCP on 127.0.0.1, with plain sockets, so the app lookup sees this process's own connections.
-private enum Loopback {
-    struct Failed: Error, CustomStringConvertible {
-        var step: String
-        var description: String { "\(step) failed: \(String(cString: strerror(errno)))" }
-    }
-
-    /// A socket listening on 127.0.0.1, on `port`, or one the kernel picks, and the port.
-    static func listen(port: Int = 0) throws -> (socket: Int32, port: Int) {
-        let listener = socket(AF_INET, Int32(SOCK_STREAM.rawValue) | Int32(SOCK_CLOEXEC.rawValue), 0)
-        guard listener >= 0 else { throw Failed(step: "socket") }
-        var address = loopback(port: port)
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard bound == 0, Glibc.listen(listener, 8) == 0 else {
-            close(listener)
-            throw Failed(step: "listening on port \(port)")
-        }
-        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        _ = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(listener, $0, &length) }
-        }
-        return (listener, Int(UInt16(bigEndian: address.sin_port)))
-    }
-
-    /// A connection to `port` on 127.0.0.1 that gives up reading after five seconds.
-    static func connect(to port: Int) throws -> Int32 {
-        let client = socket(AF_INET, Int32(SOCK_STREAM.rawValue) | Int32(SOCK_CLOEXEC.rawValue), 0)
-        guard client >= 0 else { throw Failed(step: "socket") }
-        var limit = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
-        var address = loopback(port: port)
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Glibc.connect(client, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard connected == 0 else {
-            close(client)
-            throw Failed(step: "connecting to port \(port)")
-        }
-        return client
-    }
-
-    static func write(_ text: String, to socket: Int32) {
-        let bytes = Array(text.utf8)
-        var offset = 0
-        while offset < bytes.count {
-            let count = bytes[offset...].withUnsafeBytes { send(socket, $0.baseAddress, $0.count, Int32(MSG_NOSIGNAL)) }
-            guard count > 0 else { return }
-            offset += count
-        }
-    }
-
-    /// What arrives on `socket` until `isWhole` says it's all there, the other end closes, or the
-    /// time runs out.
-    static func read(from socket: Int32, until isWhole: (String) -> Bool) -> String {
-        var received: [UInt8] = []
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while !isWhole(String(decoding: received, as: UTF8.self)) {
-            let count = recv(socket, &buffer, buffer.count, 0)
-            guard count > 0 else { break }
-            received += buffer[..<count]
-        }
-        return String(decoding: received, as: UTF8.self)
-    }
-
-    private static func loopback(port: Int) -> sockaddr_in {
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(port).bigEndian
-        address.sin_addr.s_addr = UInt32(0x7F00_0001).bigEndian
-        return address
-    }
 }
 
 /// A server on 127.0.0.1 that answers each request with "ok", one at a time, until it stops.
