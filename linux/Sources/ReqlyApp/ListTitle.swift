@@ -24,6 +24,18 @@ struct ListTitle: Equatable {
         }
     }
 
+    /// What the status line says of the whole session, as the Mac's status bar does: "12,871
+    /// requests", or "3 of 12,871 requests" while the list shows fewer. Nothing while it has none.
+    static func sessionCount(shown: Int, total: Int, locale: Locale = .current) -> String {
+        if total == 0 {
+            ""
+        } else if shown == total {
+            requests(total, locale: locale)
+        } else {
+            "\(shown.formatted(.number.locale(locale))) of \(requests(total, locale: locale))"
+        }
+    }
+
     /// "1 request", or "12,871 requests", as `locale` writes the number.
     static func requests(_ count: Int, locale: Locale = .current) -> String {
         count == 1 ? "1 request" : "\(count.formatted(.number.locale(locale))) requests"

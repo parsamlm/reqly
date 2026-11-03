@@ -60,6 +60,8 @@ final class MainWindow {
     let listPane: Widget
     let statusLine: Widget
     let statusLabel: Widget
+    /// How many of the session's requests the list shows, at the status line's end.
+    let statusCount: Widget
     /// The window's breakpoints: up to 1100 sp, the details go over the list, and up to 760 sp, the
     /// sidebar folds away too.
     let detailsOver: OpaquePointer
@@ -157,8 +159,12 @@ final class MainWindow {
         statusLabel = gtk_label_new(nil)
         gtk_label_set_xalign(cast(statusLabel), 0)
         gtk_label_set_ellipsize(cast(statusLabel), PANGO_ELLIPSIZE_END)
+        gtk_widget_set_hexpand(statusLabel, 1)
+        statusCount = gtk_label_new(nil)
+        gtk_widget_add_css_class(statusCount, "numeric")
         gtk_box_append(cast(statusLine), statusDot)
         gtk_box_append(cast(statusLine), statusLabel)
+        gtk_box_append(cast(statusLine), statusCount)
 
         // The list's pane: the header bar, the search bar and the filter bar, then the list, and
         // the status line under it.
@@ -297,15 +303,20 @@ final class MainWindow {
         showTitle()
     }
 
-    /// The list's title, by the scope you chose, and its count, and whether there's anything to
-    /// clear.
+    /// The list's title, by the scope you chose, and its count, and the session's at the status
+    /// line's end, and whether there's anything to clear.
     private func showTitle() {
+        // The list hears the session's count with its rows, which traffic the filters leave out
+        // doesn't send, and the sidebar hears it a moment after them, so the window goes by the
+        // larger, and likewise for the scope's.
+        let total = max(list.total, sidebar.total)
         let title = ListTitle(
-            scope: sidebar.scope.title, shown: list.count, inScope: sidebar.count ?? list.total, total: list.total,
-            isCapturing: model.isCapturing, isSaved: model.options.smokeSession != nil)
+            scope: sidebar.scope.title, shown: list.count, inScope: max(sidebar.count ?? total, list.count),
+            total: total, isCapturing: model.isCapturing, isSaved: model.options.smokeSession != nil)
         adw_window_title_set_title(cast(listTitle), title.title)
         adw_window_title_set_subtitle(cast(listTitle), title.subtitle)
-        g_simple_action_set_enabled(clearAction, cBool(model.session != nil && list.total > pinned))
+        gtk_label_set_text(cast(statusCount), ListTitle.sessionCount(shown: list.count, total: total))
+        g_simple_action_set_enabled(clearAction, cBool(model.session != nil && total > pinned))
     }
 
     private func counted(pinned: Int) {
