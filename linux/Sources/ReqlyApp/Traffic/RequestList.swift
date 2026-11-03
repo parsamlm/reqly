@@ -622,15 +622,26 @@ final class RequestList {
 
     /// Sets each column's width: its width in sp, at the text's size now, and at least room for
     /// its widest words, in the window's font.
+    /// The Request column has at least 120 sp, or less when the others take more of the list's
+    /// narrowest pane, 560 sp, with GTK's padding in their cells, so the list never scrolls
+    /// sideways beside the details. It has 64 sp at the least.
     private func size() {
         let sp = adw_length_unit_to_px(ADW_LENGTH_UNIT_SP, 1, gtk_widget_get_settings(view))
         isSizing = true
         defer { isSizing = false }
-        for column in Column.allCases {
+        var others: Int32 = 0
+        for column in Column.allCases where column != .request {
             let width = max(Int32(((widths[column] ?? column.width) * sp).rounded()), fitting(column))
             gtk_column_view_column_set_fixed_width(columns[column], width)
+            others += width
         }
+        let narrowest = Int32((Self.narrowestList * sp).rounded()) - others
+        let request = max(Int32((64 * sp).rounded()), min(Int32((Column.request.width * sp).rounded()), narrowest))
+        gtk_column_view_column_set_fixed_width(columns[.request], request)
     }
+
+    /// The narrowest the list's pane is beside the details, in sp, as the window has it.
+    static let narrowestList = 560.0
 
     /// You made a column wider or narrower: it keeps its width in sp, for when the text's size
     /// changes.
@@ -641,7 +652,7 @@ final class RequestList {
     }
 
     /// The room a column's widest words take in the window's font, its title's too, with the
-    /// cell's padding.
+    /// cell's padding, libadwaita's 6 pixels at each side, and a pixel at each for rounding.
     private func fitting(_ column: Column) -> Int32 {
         let (words, beside) = column.widest
         var widest: Int32 = 0
@@ -652,7 +663,7 @@ final class RequestList {
             g_object_unref(raw(layout))
             widest = max(widest, width + (text == column.title ? 0 : beside))
         }
-        return widest + 16
+        return widest + 14
     }
 
     /// A column's width, in pixels.

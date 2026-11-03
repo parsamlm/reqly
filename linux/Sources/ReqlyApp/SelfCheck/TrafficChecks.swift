@@ -112,6 +112,31 @@ extension SelfCheck {
         try await checkDots(list, ids)
         try await checkWhatScreenReadersHear(list, ids)
         try await checkTab(list, ids[.success]!)
+        try await checkBesideTheDetails(list)
+    }
+
+    /// At 1280 pixels, with the details beside the list, the columns fit the list's pane, so it
+    /// doesn't scroll sideways, with a picture of it.
+    private func checkBesideTheDetails(_ list: RequestList) async throws {
+        let window = window
+        var width: Int32 = 0
+        var height: Int32 = 0
+        gtk_window_get_default_size(cast(window.window), &width, &height)
+        gtk_window_set_default_size(cast(window.window), 1280, 760)
+        defer { gtk_window_set_default_size(cast(window.window), width, height) }
+        try await until("the details to show beside the list", seconds: 5) {
+            gtk_widget_get_width(window.window) > 1260 && adw_navigation_split_view_get_collapsed(window.inner) == 0
+        }
+        await settle()
+        let columns = RequestList.Column.allCases.map { "\($0.title) \(list.width(of: $0))" }
+        let sideways = try present(gtk_scrolled_window_get_hadjustment(cast(list.scroller)), "no adjustment")
+        let room = gtk_adjustment_get_page_size(sideways)
+        let needed = gtk_adjustment_get_upper(sideways)
+        note("beside the details: columns \(columns.joined(separator: ", ")) px, in the list's \(Int(room)) px")
+        try require(needed <= room + 1, "beside the details, the columns need \(Int(needed)) px of \(Int(room))")
+        let file = try picture("list-beside-the-details.png")
+        _ = try Pictures.own(window.window, to: file)
+        note("picture: \(file.lastPathComponent)")
     }
 
     /// A row's cells, each saying what the row's words say, and its status's dot or symbol.
