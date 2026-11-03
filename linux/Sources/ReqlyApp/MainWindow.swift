@@ -240,6 +240,7 @@ final class MainWindow {
         list.onRows = { [weak self] in self?.showTitle() }
         sidebar.onScope = { [weak self] _ in self?.scopeChosen() }
         sidebar.onCount = { [weak self] in self?.showTitle() }
+        search.onSearch = { [weak self] in self?.showTitle() }
         connect(captureSwitch, "notify::active") { [weak self] in
             guard let self, !self.isShowingCapture else { return }
             self.captureSwitched(on: gtk_switch_get_active(cast(self.captureSwitch)) != 0)
