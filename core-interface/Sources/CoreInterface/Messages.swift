@@ -34,11 +34,14 @@ public struct OpenOptions: Codable, Sendable {
     /// For test runs: more root certificates, in base64 DER, to trust when checking servers,
     /// such as a local test server's.
     public var extraTrustedRoots: [String]?
+    /// For test runs: the most requests the session keeps, in place of 100,000, as the Mac's
+    /// `-sessionLimit` does. Past it, the oldest finished ones go as new ones come.
+    public var sessionLimit: Int?
 
     public init(
         sessionsFolder: String, file: String? = nil, setsSystemProxy: Bool? = nil, proxyRestoreFile: String? = nil,
         proxySettingsStandIn: String? = nil, findsApps: Bool? = nil, rootFile: String? = nil,
-        rootStandIn: String? = nil, extraTrustedRoots: [String]? = nil
+        rootStandIn: String? = nil, extraTrustedRoots: [String]? = nil, sessionLimit: Int? = nil
     ) {
         self.sessionsFolder = sessionsFolder
         self.file = file
@@ -49,6 +52,7 @@ public struct OpenOptions: Codable, Sendable {
         self.rootFile = rootFile
         self.rootStandIn = rootStandIn
         self.extraTrustedRoots = extraTrustedRoots
+        self.sessionLimit = sessionLimit
     }
 }
 

@@ -80,6 +80,8 @@ public actor SessionHost {
         events: @escaping @Sendable (Event) -> Void
     ) async throws(Problem) -> SessionHost {
         let folder = URL(fileURLWithPath: options.sessionsFolder, isDirectory: true)
+        // A test run may keep fewer requests, as the Mac's -sessionLimit does.
+        let limits = options.sessionLimit.flatMap { $0 > 0 ? TrafficStore.Limits(exchanges: $0) : nil } ?? .init()
         let store: TrafficStore
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -93,12 +95,12 @@ public actor SessionHost {
                         messages[entry.exchange.id] = entry.messages
                     }
                     store = try await TrafficStore.newSession(
-                        in: folder, with: entries.map(\.exchange), messages: messages)
+                        in: folder, with: entries.map(\.exchange), messages: messages, limits: limits)
                 } else {
-                    store = try await TrafficStore.openSession(url, in: folder)
+                    store = try await TrafficStore.openSession(url, in: folder, limits: limits)
                 }
             } else {
-                store = try TrafficStore.newSession(in: folder)
+                store = try TrafficStore.newSession(in: folder, limits: limits)
             }
         } catch SessionFileError.notASession {
             throw Problem(.failed, "This file isn't a session that Reqly saved.")

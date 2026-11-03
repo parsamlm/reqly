@@ -391,6 +391,74 @@ final class SessionEvents: Sendable {
         await plain.close()
     }
 
+    /// A test run's limit on the session's requests: past it, the oldest finished ones go as new
+    /// ones come, and one `rows` event takes out as many rows as it puts in.
+    @Test func keepsTheSessionLimit() async throws {
+        let folder = Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let events = SessionEvents()
+        let host = try await SessionHost.open(
+            OpenOptions(sessionsFolder: folder.appending(path: "Sessions").path, findsApps: false, sessionLimit: 3),
+            system: .standIns, events: events.record)
+
+        // .invalid never resolves, so nothing leaves the computer, and each request soon fails.
+        // Only finished requests go, so the first three finish before more come.
+        var sent: [ExchangeID] = []
+        for number in 1...3 {
+            sent.append(try await host.send(RequestDraft(url: "weather.invalid/v2/\(number)")))
+        }
+        #expect(await events.waitForRows(shown: 3, total: 3))
+        for id in sent {
+            var exchange = try await host.exchange(id)
+            for _ in 0..<200 where !exchange.state.isFinished {
+                try await Task.sleep(for: .milliseconds(25))
+                exchange = try await host.exchange(id)
+            }
+            #expect(exchange.state.isFinished)
+        }
+
+        let seen = events.count
+        for number in 4...6 {
+            sent.append(try await host.send(RequestDraft(url: "weather.invalid/v2/\(number)")))
+        }
+        let moved = await events.wait(skipping: seen) { event -> (inserted: Int, removed: Int)? in
+            guard case .rows(_, 3, 3, let steps) = event else { return nil }
+            var moved = (inserted: 0, removed: 0)
+            for step in steps {
+                switch step {
+                case .inserted(let rows): moved.inserted += rows.count
+                case .removed(let rows): moved.removed += rows.count
+                case .changed, .reset: break
+                }
+            }
+            return moved.inserted > 0 ? moved : nil
+        }
+        let counts = try #require(moved)
+        #expect(counts.inserted == counts.removed)
+
+        // Once the last has come, the newest three are left, as the events say.
+        var ids: [ExchangeID] = []
+        for _ in 0..<200 {
+            ids = await host.rowIDs().ids
+            if ids == Array(sent.suffix(3)) { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(ids == Array(sent.suffix(3)))
+        #expect(await events.mirror(host))
+        #expect(await host.trafficSummary().total == 3)
+        await host.close()
+    }
+
+    /// The limit is a test run's, so Windows' JSON leaves it out unless it's set.
+    @Test func writesTheSessionLimitOnlyWhenSet() throws {
+        let plain = try JSONEncoder().encode(OpenOptions(sessionsFolder: "Sessions"))
+        let written = try #require(try JSONSerialization.jsonObject(with: plain) as? [String: Any])
+        #expect(written.keys.sorted() == ["sessionsFolder"])
+        let limited = Data(#"{"sessionsFolder":"Sessions","sessionLimit":300}"#.utf8)
+        #expect(try JSONDecoder().decode(OpenOptions.self, from: limited).sessionLimit == 300)
+        #expect(try JSONDecoder().decode(OpenOptions.self, from: plain).sessionLimit == nil)
+    }
+
     /// What an app's model would be, holding the session that hands it events.
     final class Model: Sendable {
         let events = SessionEvents()
