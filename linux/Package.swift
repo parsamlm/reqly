@@ -104,6 +104,7 @@ let package = Package(
                 "AppSetup", "CGio", "CGtk", "CGtkSource", "GtkBinding", "LinuxDesktop", "LinuxTrust", "LinuxApps",
                 "LinuxSystem",
                 .product(name: "CoreInterface", package: "core-interface"),
+                .product(name: "BodyKit", package: "core"),
                 .product(name: "CertificateAuthority", package: "core"),
                 .product(name: "Presentation", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
@@ -116,6 +117,8 @@ let package = Package(
             dependencies: [
                 "ReqlyApp", "AppSetup", "LinuxDesktop", "LinuxApps", "LinuxTrust",
                 .product(name: "CoreInterface", package: "core-interface"),
+                .product(name: "BodyKit", package: "core"),
+                .product(name: "Presentation", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
             ]
         ),
