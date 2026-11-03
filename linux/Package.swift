@@ -111,7 +111,8 @@ let package = Package(
             ]
         ),
         // The app's own logic that needs no window: what the status line says, the list's rows as
-        // the session's events change them, and where each app's icon comes from.
+        // the session's events change them, where each app's icon comes from, and what a body's
+        // views say and show.
         .testTarget(
             name: "ReqlyAppTests",
             dependencies: [

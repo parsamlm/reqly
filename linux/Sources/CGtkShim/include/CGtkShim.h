@@ -43,6 +43,13 @@ void reqly_accessible_set_relation_list(GtkWidget *widget, GtkAccessibleRelation
 /// "clicked", which C passes as variadic arguments.
 void reqly_emit(gpointer instance, const char *signal);
 
+/// A list of the numbers from 0 to `count` less one, each a GtkStringObject of its digits, made
+/// only as a list view asks for it, for lists too long to hold an object for each row (numbers.c).
+GListModel *reqly_numbers_new(guint count);
+
+/// Makes the list `count` long, adding or taking numbers at its end.
+void reqly_numbers_set_count(GListModel *numbers, guint count);
+
 /// Whether this is the process's main thread: its thread ID is the process's.
 gboolean reqly_is_main_thread(void);
 
