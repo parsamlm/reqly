@@ -40,7 +40,7 @@ import Testing
         #expect(shown == mirror.ids)
         #expect(second.changed == Self.ids([2]))
         #expect(second.inserted == Self.ids([4, 5]))
-        #expect(mirror.members == Set(Self.ids([2, 4, 5])))
+        #expect(!second.isReset)
         #expect(mirror.version == 2)
     }
 
@@ -97,23 +97,28 @@ import Testing
         let received = mirror.receive(version: 2, steps: [.reset(Self.ids([7, 8, 9]))])
         let change = try #require(received)
         #expect(change.splices == [RowMirror.Splice(position: 0, removing: 2, inserting: Self.ids([7, 8, 9]))])
-        #expect(mirror.members == Set(Self.ids([7, 8, 9])))
-        #expect(change.changed.isEmpty)
+        #expect(mirror.ids == Self.ids([7, 8, 9]))
+        #expect(change.isReset)
     }
 
     /// Every row comes in place of the steps when many join at once, so a row that stays, such as
-    /// a request that completed meanwhile, is asked for again.
-    @Test func asksAgainForRowsThatStayThroughEveryRow() throws {
+    /// a request that completed meanwhile, may show something new: the change says it's a reset.
+    @Test func saysEveryRowMayHaveChangedThroughEveryRow() throws {
         var mirror = RowMirror()
         _ = mirror.receive(version: 1, steps: [Self.inserted([(0, 1), (1, 2)])])
         let received = mirror.receive(version: 2, steps: [.reset(Self.ids([1, 2, 3]))])
         let change = try #require(received)
-        #expect(change.changed == Self.ids([1, 2]))
+        #expect(change.isReset)
         #expect(change.inserted == Self.ids([1, 2, 3]))
 
         // And when the mirror took every row after a missing event, whose changes it never saw.
         #expect(mirror.receive(version: 4, steps: [.changed(Self.ids([3]))]) == nil)
         let caughtUp = mirror.reset(version: 4, ids: Self.ids([2, 3, 4]))
-        #expect(caughtUp.changed == Self.ids([2, 3]))
+        #expect(caughtUp.isReset)
+        #expect(Self.spliced(Self.ids([1, 2, 3]), caughtUp.splices) == Self.ids([2, 3, 4]))
+        // An event after it isn't.
+        let after = mirror.receive(version: 5, steps: [.removed([0])])
+        let next = try #require(after)
+        #expect(!next.isReset)
     }
 }

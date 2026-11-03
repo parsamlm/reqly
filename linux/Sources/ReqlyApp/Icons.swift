@@ -3,11 +3,12 @@ import Foundation
 import GtkBinding
 
 /// The few symbolic icons Reqly shows that not every icon theme has: the lock in the list's
-/// Status column and on Settings › HTTPS, the arrows of the list's empty page, and Settings ›
-/// General's gear. Debian's Cinnamon uses the `gnome` theme, which has none of them, so GTK would
-/// draw its broken-image picture. Reqly writes its own, simple ones to a folder of its own, as
-/// hicolor's, which GTK looks in after every theme, so your theme's own still come first. And the
-/// app's own icon, for a run from the build folder.
+/// Status column and on Settings › HTTPS, the arrows of the list's empty page, Settings ›
+/// General's gear, and the list's warning, pause, pin and speech bubble, which KDE's Breeze and
+/// Adwaita lack some of. Debian's Cinnamon uses the `gnome` theme, which has none of them, so GTK
+/// would draw its broken-image picture. Reqly writes its own, simple ones to a folder of its own,
+/// as hicolor's, which GTK looks in after every theme, so your theme's own still come first. And
+/// the app's own icon, for a run from the build folder.
 enum Icons {
     /// Each icon's name and its SVG, drawn on a 16-pixel grid in one color, which GTK paints in
     /// the text's color, as with any symbolic icon.
@@ -27,7 +28,23 @@ enum Icons {
                         #"<path transform="rotate(\#($0) 8 8)" d="M6.75 1h2.5v3h-2.5zm0 11h2.5v3h-2.5z"/>"#
                     }.joined())
         ),
+        (warning, svg(#"<path fill-rule="evenodd" d="M8 1 15.5 15H.5zM7 6v4.5h2V6zm0 5.5v2h2v-2z"/>"#)),
+        (pause, svg(#"<path d="M4 2h3v12H4zm5 0h3v12H9z"/>"#)),
+        (pin, svg(#"<path d="M5 1h6v1.5L10 3v4l2.5 2.5V11H8.75v4h-1.5v-4H3.5V9.5L6 7V3L5 2.5z"/>"#)),
+        (
+            comment,
+            svg(
+                #"<path fill-rule="evenodd" d="M2 2h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H7.5L4 15v-3H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm2 3v1.5h8V5zm0 3v1.5h5V8z"/>"#
+            )
+        ),
     ]
+
+    /// The list's symbols: for a request that failed or paused, and one that's pinned or has a
+    /// comment.
+    static let warning = "dialog-warning-symbolic"
+    static let pause = "media-playback-pause-symbolic"
+    static let pin = "view-pin-symbolic"
+    static let comment = "edit-comment-symbolic"
 
     /// Writes the icons to their folder and adds it to the icon theme's search path. Without a
     /// display, or a folder to write in, the theme's own icons are all there is.

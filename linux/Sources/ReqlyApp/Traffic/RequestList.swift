@@ -1,55 +1,95 @@
 import CGtk
 import CoreInterface
+import Foundation
 import GtkBinding
 import ReqlyModel
 
 /// The request list: a GtkColumnView over a GtkStringList of exchange IDs, kept in step with the
-/// session's rows by its `rows` events, through ``RowMirror``, with each row's contents asked for
-/// with ``SessionHost/rows(_:)`` as it comes or changes, as the Windows app's list does. Its
-/// columns are the app that sent the request, with its icon, the method, the host, the path, the
-/// status and the size. Until there's traffic, a status page says how to start. A list that shows
-/// its last row follows new traffic, as on the Mac.
+/// session's rows by its `rows` events, through ``RowMirror``, as the Windows app's list is. Its
+/// columns are the Mac's: Status, Method, Request, App, Time, Duration and Size, with their widths
+/// in sp, so they grow with the text, and Request taking what's left. Until there's traffic, a
+/// status page says how to start, and while none of the session's requests show, another says so.
 ///
-/// One row is selected at a time, and the window shows its request in the details, through
-/// ``onSelection``. Enter, a double click or a click on a row opens it, through ``onActivate``, so
-/// the window shows the details over the list when they don't fit beside it; choosing a row with
-/// the arrow keys doesn't. ``onRows`` tells the window the counts its header bar shows.
+/// It keeps up with bursts: each event's changes go into the view a few milliseconds' worth at a
+/// time, with the window drawing between, through ``RowFeed``; and a row's contents are asked
+/// for as GTK binds it, a frame's rows together, through ``SummaryCache``, rather than for every
+/// row that arrives. A list that shows its last row follows new traffic, as on the Mac, past the
+/// store's limit too, through ``Following``.
+///
+/// One row is selected at a time, kept by its request through bursts, filters and trimming: a
+/// request a filter hides stays selected, though no row shows it, until it leaves the session.
+/// The window shows it in the details, through ``onSelection``. Enter, a double click or a click on
+/// a row opens it, through ``onActivate``, so the window shows the details over the list when they
+/// don't fit beside it; choosing a row with the arrow keys doesn't. ``onRows`` tells the window
+/// the counts its header bar shows.
+///
+/// Tab goes into the list and out of it in one stop, the row with the focus, since its cells take
+/// none, and screen readers hear each row as its cells' words and where it is, "Request 3 of
+/// 10,000".
 @MainActor
 final class RequestList {
-    enum Column: CaseIterable {
-        case app, method, host, path, status, size
+    enum Column: String, CaseIterable {
+        case status, method, request, app, time, duration, size
 
         var title: String {
             switch self {
-            case .app: "App"
-            case .method: "Method"
-            case .host: "Host"
-            case .path: "Path"
             case .status: "Status"
+            case .method: "Method"
+            case .request: "Request"
+            case .app: "App"
+            case .time: "Time"
+            case .duration: "Duration"
             case .size: "Size"
             }
         }
 
-        /// Its width at first, or `nil` for the one that takes the rest.
-        var width: Int32? {
+        /// Its width at first, in sp. The Request column's is the least it has, as it takes what
+        /// the others leave.
+        var width: Double {
             switch self {
-            case .app: 180
-            case .method: 80
-            case .host: 220
-            case .path: nil
-            case .status: 72
-            case .size: 88
+            case .status: 70
+            case .method: 64
+            case .request: 120
+            case .app: 96
+            case .time: 70
+            case .duration: 70
+            case .size: 64
             }
+        }
+
+        /// Words its cells show that should fit, and the room its symbols take beside them, in
+        /// pixels.
+        var widest: (words: [String], beside: Int32) {
+            switch self {
+            // Failed and Paused, after a symbol and the space before them.
+            case .status: (["Failed", "Paused", "000"], 20)
+            case .method: (["CONNECT", "OPTIONS"], 0)
+            case .time: (Self.times.map { Format.time($0) }, 0)
+            case .duration: (["888 ms", "88.88 s"], 0)
+            case .size: (["888 KB", "88.8 MB"], 0)
+            case .request, .app: ([], 0)
+            }
+        }
+
+        /// The widest times of day: before noon and after, in wide figures.
+        private static let times = [10, 22].compactMap {
+            Calendar.current.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: $0, minute: 58, second: 58))
         }
     }
 
-    /// The list, or the status page in its place.
+    /// The list, or a status page in its place.
     let widget: Widget
     let view: Widget
+    /// The view's scroller.
+    let scroller: Widget
+    /// The page in the list's place while the session has requests, but none of them show, as a
+    /// search, the filters or the sidebar's choice leave none: "No Matching Requests", unless
+    /// what narrowed the list words it otherwise.
+    let noMatches: Widget
     let icons = AppIcons()
-    /// How many requests the session has.
+    /// How many requests the session has, once the list shows them.
     private(set) var total = 0
-    /// The selected row's request.
+    /// The selected row's request, which may be one a filter hides.
     private(set) var selected: ExchangeID?
     /// Runs when the selected row's request changes: as you choose a row, or once its request has
     /// left the session, with `nil`.
@@ -58,43 +98,80 @@ final class RequestList {
     var onActivate: ((ExchangeID) -> Void)?
     /// Runs after each change to the rows, or to the session's count.
     var onRows: (() -> Void)?
+    /// How many times the list has brought its newest row into view, following new traffic.
+    private(set) var reveals = 0
     private let model: AppModel
     private let selection: OpaquePointer
-    private let scroller: Widget
     private let empty: Widget
     /// The rows' exchange IDs, as text, which the view shows.
     private let items: OpaquePointer
     private var mirror = RowMirror()
+    private var feed = RowFeed()
+    private var following = Following()
+    private var cache = SummaryCache()
+    /// The exchanges of the view's rows, as the feed has put them in so far, behind the mirror
+    /// while pieces wait.
+    private var shown: [ExchangeID] = []
+    /// The session's count as the latest event had it, which ``total`` becomes once the list
+    /// shows its rows.
+    private var latestTotal = 0
     private var isReadingRows = false
-    /// The rows' contents, as the session last gave them.
-    private var summaries: [ExchangeID: ExchangeSummary] = [:]
-    private var wanted: Set<ExchangeID> = []
+    private var isFeeding = false
+    /// Whether the list is changing its rows, or their selection, itself, so GTK's changes to the
+    /// selection meanwhile aren't yours.
+    private var isSplicing = false
     private var isFetching = false
+    private var isCheckingSelected = false
+    private var revealTimer: UInt32?
+    /// Whether the list goes to its very end once the newest row has been laid out.
+    private var isEnding = false
+    private var describeTimer: UInt32?
     /// The cells GTK has bound, by list item, and the list items showing each exchange, so a
     /// changed exchange's cells are filled in again where they are.
     private var bound: [UnsafeMutableRawPointer: (id: ExchangeID, column: Column)] = [:]
     private var itemsByID: [ExchangeID: [UnsafeMutableRawPointer]] = [:]
+    /// The rows GTK has bound, GtkColumnViewRows, by their exchange, and the description each
+    /// has, which screen readers hear.
+    private var rows: [ExchangeID: UnsafeMutableRawPointer] = [:]
+    private var descriptions: [UnsafeMutableRawPointer: String] = [:]
+    private var columns: [Column: OpaquePointer] = [:]
+    /// Each column's width in sp, as it starts or as you left it.
+    private var widths: [Column: Double] = [:]
+    private var isSizing = false
 
     init(model: AppModel) {
         self.model = model
+        ListStyles.install()
         items = gtk_string_list_new(nil)
         selection = gtk_single_selection_new(cast(items))
         gtk_single_selection_set_autoselect(selection, 0)
         gtk_single_selection_set_can_unselect(selection, 1)
         view = gtk_column_view_new(cast(selection))
         gtk_widget_add_css_class(view, "data-table")
+        gtk_widget_add_css_class(view, "requests")
         gtk_column_view_set_reorderable(cast(view), 0)
+        // One Tab stop, the row with the focus, and the arrow keys between rows.
+        gtk_column_view_set_tab_behavior(cast(view), GTK_LIST_TAB_ITEM)
         setAccessibleLabel(view, "Requests")
         scroller = gtk_scrolled_window_new()
         gtk_scrolled_window_set_child(cast(scroller), view)
         empty = adw_status_page_new()
         adw_status_page_set_icon_name(cast(empty), "network-transmit-receive-symbolic")
+        noMatches = adw_status_page_new()
+        adw_status_page_set_icon_name(cast(noMatches), "edit-find-symbolic")
+        adw_status_page_set_title(cast(noMatches), "No Matching Requests")
         widget = gtk_stack_new()
         gtk_stack_add_named(cast(widget), empty, "empty")
+        gtk_stack_add_named(cast(widget), noMatches, "none")
         gtk_stack_add_named(cast(widget), scroller, "list")
         for column in Column.allCases {
+            widths[column] = column.width
             add(column)
         }
+        setUpRows()
+        size()
+        // The columns' widths are in sp, so they grow as the text does.
+        connect(gtk_settings_get_default(), "notify::gtk-xft-dpi") { [weak self] in self?.size() }
         icons.onFound = { [weak self] key in self?.iconFound(key) }
         connect(selection, "notify::selected") { [weak self] in self?.selectionChanged() }
         connect(view, "activate") { [weak self] (arguments: Arguments) in
@@ -111,25 +188,37 @@ final class RequestList {
         gtk_widget_add_controller(view, cast(click))
         model.listen { [weak self] event in
             guard let self, case .rows(let version, let total, _, let steps) = event else { return }
-            self.total = total
+            latestTotal = total
             if let change = mirror.receive(version: version, steps: steps) {
-                apply(change)
+                take(change)
+            } else if !isFeeding {
+                self.total = total
+                onRows?()
             }
             if mirror.isWaitingForRows {
                 readEveryRow()
             }
-            onRows?()
         }
         model.observe { [weak self] in self?.showState() }
         showState()
     }
 
     /// How many rows the list shows.
-    var count: Int { mirror.ids.count }
+    var count: Int { shown.count }
 
     /// The exchange a row shows, and its contents once they're in.
     func summary(at row: Int) -> ExchangeSummary? {
-        mirror.ids.indices.contains(row) ? summaries[mirror.ids[row]] : nil
+        shown.indices.contains(row) ? cache[shown[row]]?.summary : nil
+    }
+
+    /// The exchange a row shows.
+    func exchange(at row: Int) -> ExchangeID? {
+        shown.indices.contains(row) ? shown[row] : nil
+    }
+
+    /// What a request's row says, while GTK has it bound and its contents are in.
+    func text(of id: ExchangeID) -> RowText? {
+        itemsByID[id] == nil ? nil : cache[id]?.text
     }
 
     /// The widget a column's cell shows an exchange with, while GTK has one bound.
@@ -138,15 +227,45 @@ final class RequestList {
         return item.flatMap { gtk_list_item_get_child(cast($0)) }
     }
 
+    /// The row's widget showing an exchange, while GTK has one bound.
+    func rowWidget(of id: ExchangeID) -> Widget? {
+        cell(.status, of: id).flatMap(RequestCells.row(of:))
+    }
+
+    /// What screen readers hear of an exchange's row, while GTK has one bound: its label and its
+    /// description.
+    func accessibleWords(of id: ExchangeID) -> (label: String, description: String)? {
+        guard let row = rows[id] else { return nil }
+        return (stringProperty(row, "accessible-label") ?? "", stringProperty(row, "accessible-description") ?? "")
+    }
+
+    /// Whether every change is in the view, with the contents of the rows it shows.
+    var isSettled: Bool {
+        feed.isEmpty && !mirror.isWaitingForRows && !isReadingRows && !isFetching && !cache.hasWanted && !isEnding
+    }
+
     // MARK: - The selection
 
-    /// Selects the row showing `id`'s request, and scrolls to it, or selects none.
+    /// Selects the row showing `id`'s request, and scrolls to it, or selects none. A request the
+    /// list doesn't show, as a filter hides it, is selected with no row.
     func select(id: ExchangeID?) {
-        guard let id, let row = mirror.ids.firstIndex(of: id) else {
+        guard let id else {
             gtk_single_selection_set_selected(selection, UInt32.max)
+            if selected != nil {
+                selected = nil
+                onSelection?(nil)
+            }
             return
         }
-        gtk_column_view_scroll_to(cast(view), UInt32(row), nil, GTK_LIST_SCROLL_SELECT, nil)
+        if let row = shown.firstIndex(of: id) {
+            gtk_column_view_scroll_to(cast(view), UInt32(row), nil, GTK_LIST_SCROLL_SELECT, nil)
+        } else if selected != id {
+            isSplicing = true
+            gtk_single_selection_set_selected(selection, UInt32.max)
+            isSplicing = false
+            selected = id
+            onSelection?(id)
+        }
     }
 
     /// Gives the keyboard's focus to the selected row, or to the list when none is, and says
@@ -164,29 +283,70 @@ final class RequestList {
     }
 
     private func selectionChanged() {
+        guard !isSplicing else { return }
         let id = gtk_single_selection_get_selected_item(selection).map(Self.id(of:))
         guard id != selected else { return }
         selected = id
+        if let id, let row = rows[id] {
+            describe(row)
+        }
         onSelection?(id)
     }
 
-    private func activated(at row: Int) {
-        if mirror.ids.indices.contains(row) {
-            onActivate?(mirror.ids[row])
+    /// After a change to the rows: the selected request's row is selected again where it is now,
+    /// as GTK lets go of a row that goes, even one that comes back. A request no row shows stays
+    /// selected while it's in the session.
+    private func keepSelection() {
+        guard let selected else { return }
+        let current = gtk_single_selection_get_selected_item(selection).map(Self.id(of:))
+        guard current != selected else { return }
+        if let row = shown.firstIndex(of: selected) {
+            isSplicing = true
+            gtk_single_selection_set_selected(selection, UInt32(row))
+            isSplicing = false
+        } else if feed.isEmpty {
+            forgetSelectionIfGone()
         }
     }
 
-    /// Opens the request of the row at the point clicked, in the view's own coordinates: the row
-    /// whose cell has the widget there.
+    /// Lets go of the selection once its request has left the session, as Clear or the store's
+    /// limit take requests out, rather than a filter.
+    private func forgetSelectionIfGone() {
+        guard let id = selected, !isCheckingSelected, let session = model.session else { return }
+        isCheckingSelected = true
+        Task {
+            let isThere = !(await session.rows([id])).isEmpty
+            isCheckingSelected = false
+            if !isThere, selected == id, !shown.contains(id) {
+                selected = nil
+                onSelection?(nil)
+            }
+        }
+    }
+
+    private func activated(at row: Int) {
+        if shown.indices.contains(row) {
+            onActivate?(shown[row])
+        }
+    }
+
+    /// Opens the request of the row at the point clicked, in the view's own coordinates.
     private func clicked(x: Double, y: Double) {
+        if let id = id(at: x, y) {
+            onActivate?(id)
+        }
+    }
+
+    /// The request of the row at a point in the view: the row whose cell has the widget there.
+    private func id(at x: Double, _ y: Double) -> ExchangeID? {
         var widget = gtk_widget_pick(view, x, y, GTK_PICK_DEFAULT)
         while let found = widget, found != view {
             if let cell = bound.first(where: { gtk_list_item_get_child(cast($0.key)) == found }) {
-                onActivate?(cell.value.id)
-                return
+                return cell.value.id
             }
             widget = gtk_widget_get_parent(found)
         }
+        return nil
     }
 
     /// The exchange a row's item shows: its ID, as text.
@@ -196,22 +356,117 @@ final class RequestList {
 
     // MARK: - The rows
 
-    /// Makes the change to the view's rows, then asks for the contents of the new and changed
-    /// ones.
-    private func apply(_ change: RowMirror.Change) {
-        let follows = showsEnd()
-        for splice in change.splices {
-            withCStrings(splice.inserting.map { String($0.rawValue) }) {
-                gtk_string_list_splice(items, UInt32(splice.position), UInt32(splice.removing), $0)
+    /// Takes in a change to the session's rows: the contents it makes old are forgotten, or asked
+    /// for again, and its splices wait their turn to go into the view.
+    private func take(_ change: RowMirror.Change) {
+        if change.isReset {
+            cache.forgetAll()
+        } else {
+            cache.inserted(change.inserted)
+        }
+        cache.changed(change.changed) { itemsByID[$0] != nil }
+        if cache.hasWanted {
+            fetchSoon()
+        }
+        feed.append(change)
+        if !isFeeding {
+            feedSome()
+        }
+    }
+
+    /// Puts pieces of the waiting changes into the view for up to 8 ms, then lets the window
+    /// draw before the next pieces. Whether the list follows them is decided before.
+    private func feedSome() {
+        isFeeding = true
+        let started = monotonicMicroseconds()
+        following.begin(showsEnd: isEnding || showsEnd())
+        var inserted = 0
+        isSplicing = true
+        while let piece = feed.next() {
+            splice(piece)
+            inserted += piece.inserting.count
+            if monotonicMicroseconds() - started >= 8_000 {
+                break
             }
         }
-        if change.splices.contains(where: { $0.removing > 0 }) {
-            summaries = summaries.filter { mirror.members.contains($0.key) }
+        isSplicing = false
+        keepSelection()
+        let now = monotonicMicroseconds()
+        respond(to: following.end(inserted: inserted, isDone: feed.isEmpty, isResetting: feed.isResetting, now: now))
+        if feed.isEmpty {
+            total = latestTotal
         }
-        want(change.inserted.filter { summaries[$0] == nil } + change.changed)
         showState()
-        if follows, count > 0, !change.inserted.isEmpty {
-            gtk_column_view_scroll_to(cast(view), UInt32(count - 1), nil, GTK_LIST_SCROLL_NONE, nil)
+        describeSoon()
+        onRows?()
+        guard !feed.isEmpty else {
+            isFeeding = false
+            return
+        }
+        idle { [weak self] in
+            self?.feedSome()
+            return false
+        }
+    }
+
+    /// A piece of a change, into the view and its rows' exchanges.
+    private func splice(_ piece: RowFeed.Piece) {
+        Self.withIDStrings(piece.inserting) {
+            gtk_string_list_splice(items, UInt32(piece.position), UInt32(piece.removing), $0)
+        }
+        shown.replaceSubrange(piece.position..<piece.position + piece.removing, with: piece.inserting)
+    }
+
+    /// Brings the newest row into view, now or once it's time.
+    private func respond(to reveal: Following.Reveal) {
+        switch reveal {
+        case .none:
+            break
+        case .now:
+            if let revealTimer {
+                g_source_remove(revealTimer)
+                self.revealTimer = nil
+            }
+            showNewest()
+        case .after(let milliseconds):
+            guard revealTimer == nil else { return }
+            revealTimer = timeout(UInt32(milliseconds)) { [weak self] in
+                guard let self else { return false }
+                revealTimer = nil
+                let now = monotonicMicroseconds()
+                respond(to: following.reveal(isDone: feed.isEmpty, isResetting: feed.isResetting, now: now))
+                return false
+            }
+        }
+    }
+
+    private func showNewest() {
+        guard count > 0 else { return }
+        reveals += 1
+        gtk_column_view_scroll_to(cast(view), UInt32(count - 1), nil, GTK_LIST_SCROLL_NONE, nil)
+        // GTK places rows it hasn't laid out yet by how tall it guesses they are, and may leave
+        // the last one below the edge, so once a frame has laid them out, the list goes to its
+        // very end, frame after frame, until it's there, unless you scroll meanwhile. Until then
+        // it's at its end, for whether it follows.
+        guard !isEnding else { return }
+        isEnding = true
+        var frames = 0
+        var setTo: Double?
+        tick(view) { [weak self] in
+            frames += 1
+            guard let self, frames >= 2 else { return true }
+            let adjustment = gtk_scrolled_window_get_vadjustment(cast(scroller))
+            let value = adjustment.map { gtk_adjustment_get_value($0) } ?? 0
+            let page = adjustment.map { gtk_adjustment_get_page_size($0) } ?? 0
+            let end = (adjustment.map { gtk_adjustment_get_upper($0) } ?? 0) - page
+            let isScrolled = setTo.map { value < $0 - 0.5 } ?? (value < end - page)
+            guard let adjustment, following.isFollowing, !isScrolled, value < end - 0.5, frames < 10 else {
+                isEnding = false
+                return false
+            }
+            gtk_adjustment_set_value(adjustment, end)
+            setTo = end
+            return true
         }
     }
 
@@ -222,38 +477,51 @@ final class RequestList {
         Task {
             let rows = await session.rowIDs()
             isReadingRows = false
-            apply(mirror.reset(version: rows.version, ids: rows.ids))
-            onRows?()
+            take(mirror.reset(version: rows.version, ids: rows.ids))
             if mirror.isWaitingForRows {
                 readEveryRow()
             }
         }
     }
 
-    /// Asks for the contents of rows, a batch at a time, then fills in their cells.
-    private func want(_ ids: [ExchangeID]) {
-        wanted.formUnion(ids)
-        guard !isFetching, !wanted.isEmpty else { return }
+    /// Asks for the contents of the rows bound without them, once the frame that bound them is
+    /// over, all of them together, then fills in their cells.
+    private func fetchSoon() {
+        guard !isFetching else { return }
         isFetching = true
-        Task {
-            // Changes that come together are asked for together.
-            await Task.yield()
-            while !wanted.isEmpty, let session = model.session {
-                let batch = Array(wanted.prefix(500))
-                wanted.subtract(batch)
-                for summary in await session.rows(batch) where mirror.members.contains(summary.id) {
-                    summaries[summary.id] = summary
-                    refill(summary.id)
-                }
-            }
-            isFetching = false
+        idle { [weak self] in
+            self?.fetch()
+            return false
         }
     }
 
-    /// The status page while there's no traffic, saying how to start, and the list after.
+    private func fetch() {
+        let wanted = cache.takeWanted()
+        guard !wanted.isEmpty, let session = model.session else {
+            isFetching = false
+            return
+        }
+        Task {
+            let summaries = await session.rows(wanted)
+            for entry in cache.received(summaries, isBound: { itemsByID[$0] != nil }) {
+                refill(entry)
+            }
+            isFetching = false
+            if cache.hasWanted {
+                fetchSoon()
+            }
+        }
+    }
+
+    /// The status page while there's no traffic, saying how to start, the other while none of
+    /// the session's requests show, and the list after.
     private func showState() {
         guard count == 0 else {
             gtk_stack_set_visible_child(cast(widget), scroller)
+            return
+        }
+        guard total == 0 else {
+            gtk_stack_set_visible_child(cast(widget), noMatches)
             return
         }
         gtk_stack_set_visible_child(cast(widget), empty)
@@ -283,7 +551,7 @@ final class RequestList {
 
     /// Whether the list shows its last row, or nearly: then it follows new traffic. GTK 4.18 and
     /// later leave the last row just below the edge when scrolling to it.
-    private func showsEnd() -> Bool {
+    func showsEnd() -> Bool {
         guard let adjustment = gtk_scrolled_window_get_vadjustment(cast(scroller)) else { return true }
         let value = gtk_adjustment_get_value(adjustment)
         let page = gtk_adjustment_get_page_size(adjustment)
@@ -291,12 +559,34 @@ final class RequestList {
         return upper <= page || value + page >= upper - 48
     }
 
-    // MARK: - Cells
+    /// IDs as the C strings a GtkStringList takes, written into one buffer.
+    private static func withIDStrings<R>(
+        _ ids: ArraySlice<ExchangeID>, _ body: (UnsafePointer<UnsafePointer<CChar>?>) -> R
+    ) -> R {
+        var text: [CChar] = []
+        text.reserveCapacity(ids.count * 8)
+        var starts: [Int] = []
+        starts.reserveCapacity(ids.count)
+        for id in ids {
+            starts.append(text.count)
+            text.append(contentsOf: String(id.rawValue).utf8CString)
+        }
+        return text.withUnsafeBufferPointer { buffer in
+            var pointers: [UnsafePointer<CChar>?] = starts.map { buffer.baseAddress! + $0 }
+            pointers.append(nil)
+            return pointers.withUnsafeBufferPointer { body($0.baseAddress!) }
+        }
+    }
+
+    // MARK: - Columns and cells
 
     private func add(_ column: Column) {
         let factory = gtk_signal_list_item_factory_new()
-        connect(factory, "setup") { [weak self] (arguments: Arguments) in
-            self?.setUp(arguments.object(1)!, column)
+        connect(factory, "setup") { (arguments: Arguments) in
+            let item = arguments.object(1)!
+            // The row takes the focus, not its cells.
+            gtk_column_view_cell_set_focusable(cast(item), 0)
+            gtk_list_item_set_child(cast(item), RequestCells.make(column))
         }
         connect(factory, "bind") { [weak self] (arguments: Arguments) in
             self?.bind(arguments.object(1)!, column)
@@ -304,54 +594,57 @@ final class RequestList {
         connect(factory, "unbind") { [weak self] (arguments: Arguments) in
             self?.unbind(arguments.object(1)!)
         }
-        let viewColumn = gtk_column_view_column_new(column.title, factory)
-        if column == .method {
-            gtk_column_view_column_set_fixed_width(viewColumn, methodWidth())
-        } else if let width = column.width {
-            gtk_column_view_column_set_fixed_width(viewColumn, width)
-        } else {
+        let viewColumn = gtk_column_view_column_new(column.title, factory)!
+        gtk_column_view_column_set_id(viewColumn, column.rawValue)
+        if column == .request {
             gtk_column_view_column_set_expand(viewColumn, 1)
+        } else {
+            gtk_column_view_column_set_resizable(viewColumn, 1)
+            connect(viewColumn, "notify::fixed-width") { [weak self] in self?.resized(column) }
         }
-        gtk_column_view_column_set_resizable(viewColumn, 1)
         gtk_column_view_append_column(cast(view), viewColumn)
+        columns[column] = viewColumn
         g_object_unref(raw(viewColumn))
     }
 
-    /// The Method column's width: room for the longest method, CONNECT, and the column's title,
-    /// in the window's font, with the cell's padding, and at least the width it starts with
-    /// elsewhere. GNOME 48's font, Adwaita Sans, is wider than the fonts before it.
-    func methodWidth() -> Int32 {
+    /// Sets each column's width: its width in sp, at the text's size now, and at least room for
+    /// its widest words, in the window's font.
+    private func size() {
+        let sp = adw_length_unit_to_px(ADW_LENGTH_UNIT_SP, 1, gtk_widget_get_settings(view))
+        isSizing = true
+        defer { isSizing = false }
+        for column in Column.allCases {
+            let width = max(Int32(((widths[column] ?? column.width) * sp).rounded()), fitting(column))
+            gtk_column_view_column_set_fixed_width(columns[column], width)
+        }
+    }
+
+    /// You made a column wider or narrower: it keeps its width in sp, for when the text's size
+    /// changes.
+    private func resized(_ column: Column) {
+        guard !isSizing, let viewColumn = columns[column] else { return }
+        let sp = adw_length_unit_to_px(ADW_LENGTH_UNIT_SP, 1, gtk_widget_get_settings(view))
+        widths[column] = Double(gtk_column_view_column_get_fixed_width(viewColumn)) / sp
+    }
+
+    /// The room a column's widest words take in the window's font, its title's too, with the
+    /// cell's padding.
+    private func fitting(_ column: Column) -> Int32 {
+        let (words, beside) = column.widest
         var widest: Int32 = 0
-        for text in ["CONNECT", "OPTIONS", Column.method.title] {
+        for text in words + [column.title] {
             guard let layout = gtk_widget_create_pango_layout(view, text) else { continue }
             var width: Int32 = 0
             pango_layout_get_pixel_size(layout, &width, nil)
             g_object_unref(raw(layout))
-            widest = max(widest, width)
+            widest = max(widest, width + (text == column.title ? 0 : beside))
         }
-        return max(Column.method.width ?? 0, widest + 28)
+        return widest + 16
     }
 
-    /// A cell's widgets: a label, and before it an icon for the app, or a lock for the status.
-    private func setUp(_ item: UnsafeMutableRawPointer, _ column: Column) {
-        let label = gtk_label_new(nil)!
-        gtk_label_set_xalign(cast(label), column == .size ? 1 : 0)
-        gtk_label_set_ellipsize(cast(label), PANGO_ELLIPSIZE_END)
-        gtk_label_set_single_line_mode(cast(label), 1)
-        gtk_widget_set_hexpand(label, 1)
-        if column == .status || column == .size {
-            gtk_widget_add_css_class(label, "numeric")
-        }
-        guard column == .app || column == .status else {
-            gtk_list_item_set_child(cast(item), label)
-            return
-        }
-        let cell = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
-        let icon = gtk_image_new()!
-        gtk_widget_set_visible(icon, 0)
-        gtk_box_append(cast(cell), icon)
-        gtk_box_append(cast(cell), label)
-        gtk_list_item_set_child(cast(item), cell)
+    /// A column's width, in pixels.
+    func width(of column: Column) -> Int32 {
+        gtk_column_view_column_get_fixed_width(columns[column])
     }
 
     private func bind(_ item: UnsafeMutableRawPointer, _ column: Column) {
@@ -359,7 +652,11 @@ final class RequestList {
         let id = Self.id(of: object)
         bound[item] = (id, column)
         itemsByID[id, default: []].append(item)
-        fill(item, column, id)
+        let entry = cache.bound(id)
+        fill(item, column, entry)
+        if entry == nil {
+            fetchSoon()
+        }
     }
 
     private func unbind(_ item: UnsafeMutableRawPointer) {
@@ -370,65 +667,88 @@ final class RequestList {
         }
     }
 
-    /// Fills in the cells showing an exchange again, with its new contents.
-    private func refill(_ id: ExchangeID) {
+    /// Fills in the cells and the row showing an exchange again, with its new contents.
+    private func refill(_ entry: SummaryCache.Entry) {
+        let id = entry.summary.id
         for item in itemsByID[id] ?? [] {
             if let column = bound[item]?.column {
-                fill(item, column, id)
+                fill(item, column, entry)
             }
+        }
+        if let row = rows[id] {
+            gtk_column_view_row_set_accessible_label(cast(row), entry.text.label)
         }
     }
 
     /// Shows the icon of an app found since its rows were filled in.
     private func iconFound(_ key: String) {
         for (item, cell) in bound where cell.column == .app {
-            if let source = summaries[cell.id]?.source, AppIcons.key(of: source) == key {
-                fill(item, .app, cell.id)
+            if let entry = cache[cell.id], let source = entry.summary.source, AppIcons.key(of: source) == key {
+                fill(item, .app, entry)
             }
         }
     }
 
-    private func fill(_ item: UnsafeMutableRawPointer, _ column: Column, _ id: ExchangeID) {
+    private func fill(_ item: UnsafeMutableRawPointer, _ column: Column, _ entry: SummaryCache.Entry?) {
         guard let cell = gtk_list_item_get_child(cast(item)) else { return }
-        let summary = summaries[id]
-        let text = summary.map { RowText($0) }
-        let label: Widget
-        switch column {
-        case .app, .status:
-            let icon = gtk_widget_get_first_child(cell)!
-            label = gtk_widget_get_next_sibling(icon)!
-            if column == .app {
-                let found = summary?.source.flatMap { icons.icon(for: $0) }
-                if let found {
-                    gtk_image_set_from_gicon(cast(icon), found)
-                }
-                gtk_widget_set_visible(icon, cBool(found != nil))
-            } else {
-                let showsLock = text?.look == .encrypted
-                if showsLock {
-                    gtk_image_set_from_icon_name(cast(icon), "channel-secure-symbolic")
-                    setAccessibleLabel(icon, text?.statusDescription ?? "")
-                    gtk_widget_set_tooltip_text(icon, text?.statusDescription)
-                }
-                gtk_widget_set_visible(icon, cBool(showsLock))
-            }
-        default:
-            label = cell
+        let icon = column == .app ? entry?.summary.source.flatMap { icons.icon(for: $0) } : nil
+        RequestCells.fill(cell, column, entry?.text, icon: icon)
+    }
+
+    // MARK: - Rows for screen readers
+
+    /// Each row's label, its cells' words, and its description, where it is in the list, set as
+    /// GTK binds the row.
+    private func setUpRows() {
+        let factory = gtk_signal_list_item_factory_new()
+        connect(factory, "bind") { [weak self] (arguments: Arguments) in
+            self?.bindRow(arguments.object(1)!)
         }
-        let words: String =
-            switch column {
-            case .app: text?.app ?? ""
-            case .method: text?.method ?? ""
-            case .host: text?.host ?? ""
-            case .path: text?.path ?? ""
-            case .status: text?.status ?? ""
-            case .size: text?.size ?? ""
+        connect(factory, "unbind") { [weak self] (arguments: Arguments) in
+            self?.unbindRow(arguments.object(1)!)
+        }
+        gtk_column_view_set_row_factory(cast(view), factory)
+        g_object_unref(raw(factory))
+    }
+
+    private func bindRow(_ row: UnsafeMutableRawPointer) {
+        guard let object = gtk_column_view_row_get_item(cast(row)) else { return }
+        let id = Self.id(of: object)
+        rows[id] = row
+        gtk_column_view_row_set_accessible_label(cast(row), cache[id]?.text.label ?? "")
+        descriptions[row] = nil
+        describe(row)
+    }
+
+    private func unbindRow(_ row: UnsafeMutableRawPointer) {
+        descriptions[row] = nil
+        if let id = rows.first(where: { $0.value == row })?.key {
+            rows[id] = nil
+        }
+    }
+
+    /// A row's description, "Request 3 of 10,000", when it's changed.
+    private func describe(_ row: UnsafeMutableRawPointer) {
+        let position = Int(gtk_column_view_row_get_position(cast(row)))
+        guard position < count else { return }
+        let description = RowText.position(position, of: count)
+        if descriptions[row] != description {
+            descriptions[row] = description
+            gtk_column_view_row_set_accessible_description(cast(row), description)
+        }
+    }
+
+    /// The bound rows' descriptions, once rows have moved: at most three times a second while
+    /// traffic comes, as each new row changes every row's.
+    private func describeSoon() {
+        guard describeTimer == nil else { return }
+        describeTimer = timeout(300) { [weak self] in
+            guard let self else { return false }
+            describeTimer = nil
+            for row in rows.values {
+                describe(row)
             }
-        gtk_label_set_text(cast(label), words)
-        if column == .path, summary?.kind == .tunnel {
-            gtk_widget_add_css_class(label, "dim-label")
-        } else if column == .path {
-            gtk_widget_remove_css_class(label, "dim-label")
+            return false
         }
     }
 }
