@@ -282,6 +282,11 @@ public sealed partial class MainWindow : Window
             }
             openOptions["extraTrustedRoots"] = roots;
         }
+        if (options.SessionLimit is int limit)
+        {
+            // A test run's smaller session, which reaches the limit with a few hundred requests.
+            openOptions["sessionLimit"] = limit;
+        }
         // The sidebar and the list take their first events as soon as the session opens.
         try
         {
