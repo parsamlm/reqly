@@ -104,18 +104,22 @@ let package = Package(
                 "AppSetup", "CGio", "CGtk", "CGtkSource", "GtkBinding", "LinuxDesktop", "LinuxTrust", "LinuxApps",
                 "LinuxSystem",
                 .product(name: "CoreInterface", package: "core-interface"),
+                .product(name: "BodyKit", package: "core"),
                 .product(name: "CertificateAuthority", package: "core"),
                 .product(name: "Presentation", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
             ]
         ),
         // The app's own logic that needs no window: what the status line says, the list's rows as
-        // the session's events change them, and where each app's icon comes from.
+        // the session's events change them, where each app's icon comes from, and what a body's
+        // views say and show.
         .testTarget(
             name: "ReqlyAppTests",
             dependencies: [
                 "ReqlyApp", "AppSetup", "LinuxDesktop", "LinuxApps", "LinuxTrust",
                 .product(name: "CoreInterface", package: "core-interface"),
+                .product(name: "BodyKit", package: "core"),
+                .product(name: "Presentation", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
             ]
         ),
