@@ -497,6 +497,23 @@ final class HTTPSModel {
         await change { session throws(Problem) in try await session.setDecryptsEveryHost(isOn) }
     }
 
+    /// Decrypts a request's host from now on, as the details do: switches its entry on, or adds
+    /// one.
+    func decrypt(_ host: String) async {
+        await change { session throws(Problem) in try await session.decryptHost(host) }
+    }
+
+    /// Stops decrypting a request's host: its entry stays on the list, switched off.
+    func stopDecrypting(_ host: String) async {
+        await change { session throws(Problem) in try await session.stopDecryptingHost(host) }
+    }
+
+    /// Whether Reqly decrypts `host` now, as the list says, or `nil` when the session decrypts
+    /// nothing, as a saved one doesn't.
+    func decrypts(_ host: String) -> Bool? {
+        state?.hosts.decrypts(host)
+    }
+
     private func change(_ body: (SessionHost) async throws(Problem) -> HTTPSState) async {
         guard let session = app.session else { return }
         do {

@@ -1,6 +1,7 @@
 import CGtk
 import CoreInterface
 import GtkBinding
+import Presentation
 import ReqlyModel
 
 /// The details pane: the selected request on five pages, Overview, Request, Response, Raw and
@@ -10,11 +11,15 @@ import ReqlyModel
 /// window is narrow.
 ///
 /// Each page is one scroller, holding a clamp and a box, ``pages``, which the page's own file
-/// fills, and where a body goes as a ``BodyView``. ``heading`` sits under the header bar, above the
-/// pages, for the request's method and path, its marks, its host and its status. The details' menu
-/// is ``menu``. The chosen page stays for the next request.
+/// fills, through ``contents``, and where a body goes as a ``BodyView``. ``heading`` sits under the
+/// header bar, above the pages, with the request's method and path, its Pin, Color and Comment
+/// buttons, its host and its status. The details' menu, ``menu``, has the same, and Decrypt. The
+/// chosen page stays for the next request.
 ///
-/// So far ``show(_:)`` shows the pages, empty, or "No Request Selected".
+/// The pane reads the request's details as you choose it, and again whenever its row changes, as
+/// a live request's does, but not when only its pin, color or comment does: those come from the
+/// session's list, whose copy is the latest. A page is built as it shows, and again only when
+/// what it shows changes, keeping where it was scrolled to, and the focus.
 @MainActor
 final class DetailsPane {
     /// The pages, in their tabs' order, which Ctrl+1 to Ctrl+5 follow.
@@ -30,6 +35,17 @@ final class DetailsPane {
             case .timing: "Timing"
             }
         }
+
+        /// Its tab's icon, beside its title: what went up, what came down, the text, the clock.
+        var icon: String {
+            switch self {
+            case .overview: "dialog-information-symbolic"
+            case .request: "go-up-symbolic"
+            case .response: "go-down-symbolic"
+            case .raw: "text-x-generic-symbolic"
+            case .timing: "preferences-system-time-symbolic"
+            }
+        }
     }
 
     /// The pane, in a breakpoint bin, which moves the tabs under the pages when it's narrow.
@@ -40,30 +56,85 @@ final class DetailsPane {
     /// The tabs under the pages, while the pane is narrow.
     let switcherBar: Widget
     let menuButton: Widget
-    /// The details' menu, a GMenu, which the details fill.
+    /// The details' menu, a GMenu: Pin, Color and Comment, and Decrypt or Stop Decrypting the
+    /// request's host.
     let menu: OpaquePointer
     /// Under the header bar, above the pages: the request's method and path, its marks, its host
-    /// and its status. Hidden while there's nothing in it.
+    /// and its status. Hidden while there's no request.
     let heading: Widget
+    let headingView: DetailsHeadingView
     /// The pages' AdwViewStack.
     let stack: OpaquePointer
     /// Each page's box, in its clamp, in its scroller.
     let pages: [Page: Widget]
+    /// What each page's box holds, under Overview's comment, built again as what it shows
+    /// changes.
+    let contents: [Page: Widget]
     /// Each page's scroller, named by its title for screen readers.
     let scrollers: [Page: Widget]
     /// The request the pages show, or `nil` for none.
     private(set) var shown: ExchangeID?
+    /// Its row, as the session's list last gave it, with the latest pin, color and comment.
+    private(set) var summary: ExchangeSummary?
+    /// Its details, once read.
+    private(set) var details: ExchangeDetails?
     /// The pane's breakpoint: up to 550 sp wide, the tabs go under the pages.
     let narrow: OpaquePointer
-    private let model: AppModel
+    /// Overview's comment: its section, and the field you write in, which stay as the page is
+    /// built again, so what you're writing does too.
+    let commentSection: Widget
+    let commentField: Widget
+    /// The Request and Response pages' bodies, kept while the request shows.
+    private(set) var bodies: [MessagePart: BodyView] = [:]
+    /// How many times the pane has read a request's details, which the self-check counts.
+    private(set) var reads = 0
+    let model: AppModel
+    /// The request's secrets you chose to show, which stay shown while it shows: each header, by
+    /// its part and place; the cookies' values, by part; and the Raw page's.
+    var shownHeaders: Set<String> = []
+    var showsCookieValues: Set<MessagePart> = []
+    var rawShowsSecrets = false
     /// "No Request Selected", or the pages.
     private let content: Widget
     private let none: Widget
+    /// The details' actions, `details.<name>`, for the heading's buttons and the menu.
+    private let actions: OpaquePointer
+    private let colorAction: OpaquePointer
+    /// The Color button's menu, and the details' menu's Color submenu: None and the seven colors.
+    private let colors: OpaquePointer
+    /// The details' menu's sections: Pin, Color and Comment; and Decrypt, while the session
+    /// decrypts. Their entries change in place, as GTK adds a submenu twice when it's put in
+    /// again.
+    private let marksMenu: OpaquePointer
+    private let httpsMenu: OpaquePointer
+    /// The page you chose, which shows for each request that has it.
+    private var chosen = Page.overview
+    private var isChoosing = false
+    /// What each page showed when it was built, so a page that would show the same stays.
+    private var built: [Page: AnyHashable] = [:]
+    /// The size of each body as the session last presented it, so a body that grows is presented
+    /// again; and the mode you chose for each part's body, for the next one that has it.
+    private var presentedSizes: [MessagePart: Int] = [:]
+    private var modes: [MessagePart: BodyMode] = [:]
+    /// The request Add Comment asked to write a comment on, while you write it.
+    private var writing: ExchangeID?
+    /// The request the comment field's words are about, and whether it has the focus.
+    private var commentOf: ExchangeID?
+    private var isInComment = false
+    /// The menu's entries as they read now, so each changes only when its words do.
+    private var menuEntries = ["Pin Request", "Add Comment…", ""]
+    /// Each request shown counts up, so a read for one that's gone is dropped. One read at a time,
+    /// and another after it when the row changed meanwhile.
+    private var generation = 0
+    private var isReading = false
+    private var readsAgain = false
 
     init(model: AppModel) {
         self.model = model
+        DetailsStyles.install()
         stack = cast(adw_view_stack_new())
         var pages: [Page: Widget] = [:]
+        var contents: [Page: Widget] = [:]
         var scrollers: [Page: Widget] = [:]
         for page in Page.allCases {
             let box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18)!
@@ -71,19 +142,21 @@ final class DetailsPane {
             gtk_widget_set_margin_bottom(box, 18)
             gtk_widget_set_margin_start(box, 12)
             gtk_widget_set_margin_end(box, 12)
+            let filled = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18)!
+            gtk_box_append(cast(box), filled)
             let clamp = adw_clamp_new()!
             adw_clamp_set_maximum_size(cast(clamp), 900)
             adw_clamp_set_child(cast(clamp), box)
-            let scroller = gtk_scrolled_window_new()!
-            gtk_scrolled_window_set_policy(cast(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC)
+            let scroller = DetailsBlocks.scroller(named: page.title)
             gtk_scrolled_window_set_child(cast(scroller), clamp)
             gtk_widget_set_vexpand(scroller, 1)
-            setAccessibleLabel(scroller, page.title)
-            adw_view_stack_add_titled(stack, scroller, page.rawValue, page.title)
+            adw_view_stack_add_titled_with_icon(stack, scroller, page.rawValue, page.title, page.icon)
             pages[page] = box
+            contents[page] = filled
             scrollers[page] = scroller
         }
         self.pages = pages
+        self.contents = contents
         self.scrollers = scrollers
 
         // libadwaita 1.7's inline switcher is a row of tabs, made for a header bar; the view
@@ -104,7 +177,10 @@ final class DetailsPane {
         // the pane is narrow.
         g_object_ref_sink(raw(switcher))
 
+        colors = g_menu_new()
         menu = g_menu_new()
+        marksMenu = g_menu_new()
+        httpsMenu = g_menu_new()
         menuButton = gtk_menu_button_new()
         gtk_menu_button_set_icon_name(cast(menuButton), "view-more-symbolic")
         gtk_widget_set_tooltip_text(menuButton, "More")
@@ -114,8 +190,9 @@ final class DetailsPane {
         adw_header_bar_set_title_widget(cast(headerBar), switcher)
         adw_header_bar_pack_end(cast(headerBar), menuButton)
 
-        heading = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6)
+        heading = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4)
         gtk_widget_set_visible(heading, 0)
+        headingView = DetailsHeadingView(heading, colors: colors)
 
         none = adw_status_page_new()
         adw_status_page_set_title(cast(none), "No Request Selected")
@@ -139,32 +216,492 @@ final class DetailsPane {
         adw_breakpoint_bin_set_child(cast(widget), toolbar)
 
         // Five tabs, the details' menu and the window's buttons fit from about 515 pixels.
-        narrow = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 550sp"))
-        Value.bool(true).with { adw_breakpoint_add_setter(narrow, cast(switcherBar), "reveal", $0) }
+        let narrow = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 550sp"))!
+        let bar = switcherBar
+        Value.bool(true).with { adw_breakpoint_add_setter(narrow, cast(bar), "reveal", $0) }
         var noTitle = GValue()
         g_value_init(&noTitle, gtk_widget_get_type())
         adw_breakpoint_add_setter(narrow, cast(headerBar), "title-widget", &noTitle)
         g_value_unset(&noTitle)
         adw_breakpoint_bin_add_breakpoint(cast(widget), narrow)
+        self.narrow = narrow
+
+        // Overview's comment, over what the page holds, shown once there's a comment or while you
+        // write one.
+        commentField = gtk_entry_new()
+        gtk_entry_set_placeholder_text(cast(commentField), "Add a comment")
+        setAccessibleLabel(commentField, "Comment")
+        commentSection = DetailsBlocks.section("Comment", content: [commentField])
+        g_object_ref_sink(raw(commentSection))
+        gtk_widget_set_visible(commentSection, 0)
+        gtk_box_prepend(cast(pages[.overview]), commentSection)
+
+        actions = cast(g_simple_action_group_new())
+        let stringType = g_variant_type_new("s")
+        colorAction = g_simple_action_new_stateful("color", stringType, g_variant_new_string("none"))
+        g_variant_type_free(stringType)
+        gtk_widget_insert_action_group(widget, "details", cast(actions))
+        addActions()
+        makeMenus()
+
+        connect(stack, "notify::visible-child-name") { [weak self] in self?.pageChanged() }
+        connect(commentField, "activate") { [weak self] in self?.commentEntered() }
+        let focus = gtk_event_controller_focus_new()!
+        connect(focus, "enter") { [weak self] in self?.isInComment = true }
+        connect(focus, "leave") { [weak self] in self?.commentLeft() }
+        gtk_widget_add_controller(commentField, focus)
+        for tabs in [switcher, switcherBar] {
+            focusTabOnClick(tabs)
+        }
+        model.listen { [weak self] event in
+            guard let self, let shown, case .rows(_, _, _, let steps) = event else { return }
+            // A live request changes as it goes, and one a filter hides sends no change.
+            if steps.contains(where: { Self.step($0, mentions: shown) }) || summary?.state.isFinished == false {
+                read()
+            }
+        }
+        model.https.observe { [weak self] in self?.httpsChanged() }
         show(nil)
     }
 
-    /// The page that shows, or shows once there's a request.
-    var page: Page {
-        Page(rawValue: string(adw_view_stack_get_visible_child_name(stack)) ?? "") ?? .overview
-    }
+    /// The page that shows, or shows once there's a request: the one you chose.
+    var page: Page { chosen }
 
     func show(page: Page) {
-        adw_view_stack_set_visible_child_name(stack, page.rawValue)
+        chosen = page
+        isChoosing = true
+        adw_view_stack_set_visible_child_name(stack, chosen.rawValue)
+        isChoosing = false
     }
 
-    /// Shows `id`'s request, or "No Request Selected" for `nil`, without its tabs.
+    /// Whether `page` shows what it holds for the request shown, once its details are read.
+    func isBuilt(_ page: Page) -> Bool {
+        built[page] != nil && shown != nil && details?.exchange.id == shown
+    }
+
+    /// Shows `id`'s request, or "No Request Selected" for `nil`. A comment you were writing is
+    /// saved first, on the request it was about.
     func show(_ id: ExchangeID?) {
+        if id == shown, id != nil {
+            return
+        }
+        saveComment()
         shown = id
+        generation += 1
+        summary = nil
+        details = nil
+        built = [:]
+        presentedSizes = [:]
+        shownHeaders = []
+        showsCookieValues = []
+        rawShowsSecrets = false
+        writing = nil
+        commentOf = nil
+        // The bodies' views go while their widgets are still there, which go with the pages'.
+        let leaving = bodies.values.map(\.widget)
+        for widget in leaving {
+            g_object_ref(raw(widget))
+        }
+        bodies = [:]
+        for box in contents.values {
+            DetailsBlocks.empty(box)
+        }
+        for widget in leaving {
+            g_object_unref(raw(widget))
+        }
+        gtk_widget_set_visible(commentSection, 0)
         let pagesView: Widget = cast(stack)
         gtk_stack_set_visible_child(cast(content), id == nil ? none : pagesView)
         adw_header_bar_set_show_title(cast(headerBar), cBool(id != nil))
         gtk_widget_set_visible(switcherBar, cBool(id != nil))
+        gtk_widget_set_visible(heading, 0)
         gtk_widget_set_sensitive(menuButton, cBool(id != nil))
+        updateActions()
+        if id != nil {
+            read()
+        }
     }
+
+    // MARK: - Reading the request
+
+    /// Reads the request's row, and its details when anything but its pin, color or comment has
+    /// changed since, then shows them.
+    private func read() {
+        guard let id = shown, let session = model.session else { return }
+        guard !isReading else {
+            readsAgain = true
+            return
+        }
+        isReading = true
+        readsAgain = false
+        let generation = generation
+        let before = details == nil ? nil : summary
+        Task { [weak self] in
+            let summary = await session.rows([id]).first
+            var read: ExchangeDetails?
+            if let summary, summary.differsInDetails(from: before) {
+                self?.reads += 1
+                read = try? await session.details(id)
+            }
+            guard let self else { return }
+            isReading = false
+            if generation == self.generation, let summary {
+                apply(summary, read)
+            }
+            if readsAgain || generation != self.generation {
+                self.read()
+            }
+        }
+    }
+
+    /// Shows the request's latest row, and its details, when they were read again.
+    private func apply(_ summary: ExchangeSummary, _ read: ExchangeDetails?) {
+        self.summary = summary
+        if let read {
+            details = read
+        }
+        guard let details else { return }
+        headingView.show(
+            DetailsHeading(summary, reason: details.exchange.response?.reason, grpc: details.grpc),
+            annotation: summary.annotation)
+        gtk_widget_set_visible(heading, 1)
+        showComment()
+        updateActions()
+        refresh(visiblePage)
+    }
+
+    /// Whether a rows event's step is about `id`'s row.
+    private static func step(_ step: RowStep, mentions id: ExchangeID) -> Bool {
+        switch step {
+        case .changed(let ids), .reset(let ids): ids.contains(id)
+        case .inserted(let rows): rows.contains { $0.id == id }
+        case .removed: false
+        }
+    }
+
+    // MARK: - The pages
+
+    /// The page that shows.
+    private var visiblePage: Page {
+        Page(rawValue: string(adw_view_stack_get_visible_child_name(stack)) ?? "") ?? .overview
+    }
+
+    /// You chose a tab, or a shortcut did.
+    private func pageChanged() {
+        if !isChoosing {
+            chosen = visiblePage
+        }
+        refresh(visiblePage)
+    }
+
+    /// Builds `page` again if what it would show has changed since it was built.
+    func refresh(_ page: Page) {
+        guard let details, summary != nil, details.exchange.id == shown else { return }
+        switch page {
+        case .overview: rebuild(page, showing: overviewContent(details), buildOverview)
+        case .request: rebuild(page, showing: messageContent(details, .request), buildMessage)
+        case .response: rebuild(page, showing: messageContent(details, .response), buildMessage)
+        case .raw: rebuild(page, showing: rawContent(details), buildRaw)
+        case .timing: rebuild(page, showing: timingContent(details), buildTiming)
+        }
+    }
+
+    /// Builds `page` with `build` from `what`, unless it showed `what` already. Built again for the
+    /// same request, the page stays where it was scrolled to, and the widget in the place of the
+    /// one that had the focus has it. A body's view stays as it was, as `build` puts it back.
+    private func rebuild<What: Hashable>(_ page: Page, showing what: What, _ build: (What, Widget) -> Void) {
+        let key = AnyHashable(what)
+        guard built[page] != key, let box = contents[page], let scroller = scrollers[page] else { return }
+        let isSameRequest = built[page] != nil
+        built[page] = key
+        let adjustment = gtk_scrolled_window_get_vadjustment(cast(scroller))
+        let scrolled = isSameRequest ? gtk_adjustment_get_value(adjustment) : 0
+        let focus = gtk_widget_get_root(widget).flatMap { gtk_root_get_focus($0) }
+        let place = focus.flatMap { Self.focusables(in: box).firstIndex(of: $0) }
+        // Held while the page is emptied, for `build` to put back.
+        let kept = bodies.filter { gtk_widget_is_ancestor($0.value.widget, box) != 0 }
+        for view in kept.values {
+            g_object_ref(raw(view.widget))
+            gtk_box_remove(cast(gtk_widget_get_parent(view.widget)), view.widget)
+        }
+        DetailsBlocks.empty(box)
+        build(what, box)
+        for (part, view) in kept {
+            if gtk_widget_get_parent(view.widget) == nil {
+                bodies[part] = nil
+            }
+            g_object_unref(raw(view.widget))
+        }
+        // Once the page is laid out again.
+        idle {
+            gtk_adjustment_set_value(adjustment, scrolled)
+            if let place {
+                let focusables = Self.focusables(in: box)
+                if !focusables.isEmpty {
+                    gtk_widget_grab_focus(focusables[min(place, focusables.count - 1)])
+                }
+            }
+            return false
+        }
+    }
+
+    /// The widgets in `root` that take the keyboard's focus, in the order Tab reaches them.
+    static func focusables(in root: Widget) -> [Widget] {
+        var found: [Widget] = []
+        var child = gtk_widget_get_first_child(root)
+        while let widget = child {
+            if gtk_widget_get_visible(widget) != 0 {
+                if gtk_widget_get_focusable(widget) != 0 {
+                    found.append(widget)
+                }
+                found += focusables(in: widget)
+            }
+            child = gtk_widget_get_next_sibling(widget)
+        }
+        return found
+    }
+
+    /// The view of `part`'s body, made the first time, which the session presents the body to
+    /// again whenever the body has grown since. It shows in the mode you chose last for the part's
+    /// bodies, while the body has it.
+    func bodyView(_ part: MessagePart, size: Int) -> BodyView? {
+        guard let id = shown, let session = model.session else { return nil }
+        let view = bodies[part] ?? BodyView(model: model, id: id, part: part)
+        if bodies[part] == nil {
+            bodies[part] = view
+            view.onMode = { [weak self] mode in self?.modes[part] = mode }
+        }
+        if presentedSizes[part] != size {
+            presentedSizes[part] = size
+            let generation = generation
+            Task { [weak self, weak view] in
+                let presented = try? await session.presentBody(id, part: part == .request ? .request : .response)
+                guard let self, let view, let presented, generation == self.generation else { return }
+                view.show(presented)
+                if let mode = modes[part], presented.body.modes.contains(mode) {
+                    view.show(mode: mode)
+                }
+            }
+        }
+        return view
+    }
+
+    // MARK: - The comment
+
+    /// Add Comment, from the heading, the details' menu or the list's: Overview, with the comment
+    /// field shown, which has the focus once it shows.
+    func editComment() {
+        guard let id = shown else { return }
+        writing = id
+        show(page: .overview)
+        showComment()
+        let field = commentField
+        if gtk_widget_get_mapped(field) != 0 {
+            gtk_widget_grab_focus(field)
+            return
+        }
+        let handler = HandlerID()
+        handler.id = connect(field, "map") { [weak self] in
+            g_signal_handler_disconnect(raw(field), handler.id)
+            guard self?.writing == id else { return }
+            idle {
+                gtk_widget_grab_focus(field)
+                return false
+            }
+        }
+    }
+
+    /// The comment section shows once the request has a comment, or while you write one, with the
+    /// request's comment in it, unless you're in it.
+    private func showComment() {
+        let comment = summary?.annotation.comment
+        gtk_widget_set_visible(commentSection, cBool(comment != nil || (writing != nil && writing == shown)))
+        guard !isInComment else { return }
+        gtk_editable_set_text(cast(commentField), comment ?? "")
+        commentOf = shown
+    }
+
+    /// Enter saves the comment. With nothing in it, the comment goes, and so does its section, and
+    /// the Comment button has the focus.
+    private func commentEntered() {
+        saveComment()
+        writing = nil
+        if summary?.annotation.comment == nil {
+            isInComment = false
+            gtk_widget_grab_focus(headingView.commentButton)
+        }
+        showComment()
+    }
+
+    /// Leaving the field saves the comment.
+    private func commentLeft() {
+        isInComment = false
+        saveComment()
+        if writing == shown {
+            writing = nil
+        }
+        showComment()
+    }
+
+    /// Saves what the field says as the comment of the request it's about, when that differs: an
+    /// empty one removes it. The heading and the list show it at once.
+    private func saveComment() {
+        guard let id = commentOf, id == shown, let session = model.session else { return }
+        let text = string(gtk_editable_get_text(cast(commentField))) ?? ""
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let comment = trimmed.isEmpty ? nil : trimmed
+        guard comment != summary?.annotation.comment else { return }
+        summary?.annotation.comment = comment
+        annotated()
+        Task { try? await session.annotate(id, comment: .set(text)) }
+    }
+
+    // MARK: - Actions and the menu
+
+    private func addActions() {
+        add("pin") { [weak self] in self?.togglePin() }
+        add("comment") { [weak self] in self?.editComment() }
+        add("decrypt") { [weak self] in self?.toggleDecrypting() }
+        connect(colorAction, "activate") { [weak self] (arguments: Arguments) in
+            guard let name = arguments.variant(1).flatMap({ string(g_variant_get_string($0, nil)) }) else { return }
+            self?.mark(MarkColor(rawValue: name))
+        }
+        g_action_map_add_action(cast(actions), cast(colorAction))
+    }
+
+    /// Adds the action `details.<name>`, which runs `body`.
+    private func add(_ name: String, _ body: @escaping @MainActor () -> Void) {
+        let action = g_simple_action_new(name, nil)!
+        connect(action, "activate") { body() }
+        g_action_map_add_action(cast(actions), cast(action))
+        g_object_unref(raw(action))
+    }
+
+    private func action(_ name: String) -> OpaquePointer? {
+        g_action_map_lookup_action(cast(actions), name)
+    }
+
+    /// The colors: None, then the seven. And the details' menu: Pin or Unpin Request, Color and
+    /// Add or Edit Comment…, then Decrypt or Stop Decrypting the host.
+    private func makeMenus() {
+        g_menu_append(colors, "None", "details.color::none")
+        let marks = g_menu_new()!
+        for color in MarkColor.allCases {
+            g_menu_append(marks, DetailsMarks.title(color), "details.color::\(color.rawValue)")
+        }
+        g_menu_append_section(colors, nil, cast(marks))
+        g_object_unref(raw(marks))
+        g_menu_append(marksMenu, "Pin Request", "details.pin")
+        g_menu_append_submenu(marksMenu, "Color", cast(colors))
+        g_menu_append(marksMenu, "Add Comment…", "details.comment")
+        g_menu_append_section(menu, nil, cast(marksMenu))
+        g_menu_append_section(menu, nil, cast(httpsMenu))
+    }
+
+    /// The actions on while there's a request, and Decrypt while this session decrypts; and the
+    /// menu's entries as they fit the request: Pin or Unpin Request, Color, Add or Edit Comment…,
+    /// then Decrypt or Stop Decrypting its host.
+    private func updateActions() {
+        let annotation = summary?.annotation ?? Annotation()
+        let host = details?.exchange.request.host ?? ""
+        let decrypts = host.isEmpty ? nil : model.https.decrypts(host)
+        let hasRequest = shown != nil && summary != nil
+        for name in ["pin", "comment"] {
+            g_simple_action_set_enabled(action(name), cBool(hasRequest))
+        }
+        g_simple_action_set_enabled(colorAction, cBool(hasRequest))
+        g_simple_action_set_enabled(action("decrypt"), cBool(hasRequest && decrypts != nil))
+        g_simple_action_set_state(colorAction, g_variant_new_string(annotation.color?.rawValue ?? "none"))
+        let entries = [
+            annotation.isPinned ? "Unpin Request" : "Pin Request",
+            annotation.comment == nil ? "Add Comment…" : "Edit Comment…",
+            decrypts.map { $0 ? "Stop Decrypting \(host)" : "Decrypt \(host)" } ?? "",
+        ]
+        // Pin's is the first of its section, and Comment's the third, after Color.
+        for (index, place) in [(0, 0), (1, 2)] where entries[index] != menuEntries[index] {
+            g_menu_remove(marksMenu, Int32(place))
+            g_menu_insert(marksMenu, Int32(place), entries[index], index == 0 ? "details.pin" : "details.comment")
+        }
+        if entries[2] != menuEntries[2] {
+            g_menu_remove_all(httpsMenu)
+            if !entries[2].isEmpty {
+                g_menu_append(httpsMenu, entries[2], "details.decrypt")
+            }
+        }
+        menuEntries = entries
+    }
+
+    private func togglePin() {
+        guard let id = shown, let isPinned = summary.map({ !$0.annotation.isPinned }), let session = model.session
+        else { return }
+        summary?.annotation.isPinned = isPinned
+        annotated()
+        Task { try? await session.annotate(id, isPinned: isPinned) }
+    }
+
+    private func mark(_ color: MarkColor?) {
+        guard let id = shown, summary != nil, let session = model.session else { return }
+        summary?.annotation.color = color
+        annotated()
+        let change: ValueChange<MarkColor> = color.map { .set($0) } ?? .remove
+        Task { try? await session.annotate(id, color: change) }
+    }
+
+    /// Shows a pin, color or comment you just chose, before the list's row says so too.
+    private func annotated() {
+        if let summary {
+            headingView.show(summary.annotation)
+        }
+        updateActions()
+    }
+
+    private func toggleDecrypting() {
+        guard let host = details?.exchange.request.host, let decrypts = model.https.decrypts(host) else { return }
+        decrypt(!decrypts, host)
+    }
+
+    /// Decrypts `host` from now on, or stops, as the menu and Overview's note do.
+    func decrypt(_ isOn: Bool, _ host: String) {
+        let https = model.https
+        Task {
+            if isOn {
+                await https.decrypt(host)
+            } else {
+                await https.stopDecrypting(host)
+            }
+        }
+    }
+
+    /// The hosts to decrypt changed: the menu and Overview's note say what happens now.
+    private func httpsChanged() {
+        updateActions()
+        refresh(visiblePage)
+    }
+
+    // MARK: - The tabs
+
+    /// A click on a tab gives it the keyboard's focus, as a click on a button does, which
+    /// libadwaita's tabs don't: the widget clicked that takes the focus has it, before the tab
+    /// sees the click.
+    private func focusTabOnClick(_ tabs: Widget) {
+        let click = gtk_gesture_click_new()!
+        gtk_event_controller_set_propagation_phase(cast(click), GTK_PHASE_CAPTURE)
+        connect(click, "pressed") { (arguments: Arguments) in
+            var picked = gtk_widget_pick(tabs, arguments.double(2), arguments.double(3), GTK_PICK_DEFAULT)
+            while let found = picked, found != tabs {
+                if gtk_widget_get_focusable(found) != 0 {
+                    gtk_widget_grab_focus(found)
+                    return
+                }
+                picked = gtk_widget_get_parent(found)
+            }
+        }
+        gtk_widget_add_controller(tabs, cast(click))
+    }
+}
+
+/// A signal handler's ID, for a handler that disconnects itself.
+@MainActor
+private final class HandlerID {
+    var id: UInt = 0
 }
