@@ -485,6 +485,14 @@ final class HTTPSModel {
         await change { session throws(Problem) in try await session.setHostDecrypted(pattern, isOn: isOn) }
     }
 
+    /// Decrypts a host from now on, or stops, as a request's menu asks: its own entry switched on
+    /// or off, or added so.
+    func setDecrypts(_ isOn: Bool, host: String) async {
+        await change { session throws(Problem) in
+            isOn ? try await session.decryptHost(host) : try await session.stopDecryptingHost(host)
+        }
+    }
+
     func setDecryptsEveryHost(_ isOn: Bool) async {
         await change { session throws(Problem) in try await session.setDecryptsEveryHost(isOn) }
     }

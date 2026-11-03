@@ -5,7 +5,8 @@ import ReqlyModel
 /// as the Windows app applies them, turned into splices for the list's GtkStringList. An event
 /// must follow the one before: when one is missing, or a step names a row the list doesn't have,
 /// the mirror waits for every row from ``SessionHost/rowIDs()``, keeping the events that come
-/// meanwhile, and goes on from there.
+/// meanwhile, and goes on from there. It keeps only the rows' exchanges, in order, so an event
+/// past the store's limit, with 100,000 rows, costs little more than its own steps.
 struct RowMirror {
     /// A change to the rows, as `gtk_string_list_splice` takes it: at `position`, `removing` rows
     /// go and `inserting` take their place.
@@ -20,6 +21,8 @@ struct RowMirror {
         var splices: [Splice] = []
         /// Exchanges whose rows stay but show something new.
         var changed: [ExchangeID] = []
+        /// Whether every row came again, so any row may show something new.
+        var isReset = false
         /// The exchanges of the new rows, which the list asks the session for.
         var inserted: [ExchangeID] {
             splices.flatMap(\.inserting)
@@ -29,8 +32,6 @@ struct RowMirror {
     /// The version of the rows the latest event had.
     private(set) var version = 0
     private(set) var ids: [ExchangeID] = []
-    /// The exchanges the rows show, for finding one at once.
-    private(set) var members: Set<ExchangeID> = []
     /// Whether the mirror waits for every row, since an event was missing.
     private(set) var isWaitingForRows = false
     /// The events that came while it waits.
@@ -55,14 +56,12 @@ struct RowMirror {
     }
 
     /// Takes in every row, as of `version`, and the events held since: one change that makes the
-    /// list's rows these. The rows that stay count as changed, since what changed in them came in
-    /// the events every row stands in for.
+    /// list's rows these. It's a reset, since what changed in the rows that stay came in the
+    /// events every row stands in for.
     mutating func reset(version: Int, ids all: [ExchangeID]) -> Change {
-        var change = Change(
-            splices: [Splice(position: 0, removing: ids.count, inserting: all)], changed: all.filter(members.contains))
+        var change = Change(splices: [Splice(position: 0, removing: ids.count, inserting: all)], isReset: true)
         self.version = version
         ids = all
-        members = Set(all)
         isWaitingForRows = false
         let waiting = held
         held = []
@@ -79,7 +78,6 @@ struct RowMirror {
     /// the rows, which then stay as they were.
     private mutating func apply(_ steps: [RowStep]) -> Change? {
         var rows = ids
-        var shown = members
         var change = Change()
         for step in steps {
             switch step {
@@ -94,7 +92,6 @@ struct RowMirror {
                         first = next
                         places = places.dropFirst()
                     }
-                    shown.subtract(rows[first...last])
                     rows.removeSubrange(first...last)
                     change.splices.append(Splice(position: first, removing: last - first + 1, inserting: []))
                 }
@@ -109,7 +106,6 @@ struct RowMirror {
                     }
                     let run = new[start..<end].map(\.id)
                     rows.insert(contentsOf: run, at: new[start].row)
-                    shown.formUnion(run)
                     change.splices.append(Splice(position: new[start].row, removing: 0, inserting: run))
                     start = end
                 }
@@ -117,14 +113,12 @@ struct RowMirror {
                 change.changed += changed
             case .reset(let all):
                 // Every row comes in place of steps, which may have changed rows that stay.
-                change.changed += all.filter(shown.contains)
+                change.isReset = true
                 change.splices.append(Splice(position: 0, removing: rows.count, inserting: all))
                 rows = all
-                shown = Set(all)
             }
         }
         ids = rows
-        members = shown
         return change
     }
 }

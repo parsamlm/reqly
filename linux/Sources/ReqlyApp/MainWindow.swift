@@ -2,6 +2,7 @@ import CGtk
 import CoreInterface
 import Foundation
 import GtkBinding
+import ReqlyModel
 
 /// The window: three panes, each under a header bar of its own, after libadwaita's triple-pane
 /// layout, in a toast overlay. An overlay split view has the sidebar, beside a navigation split
@@ -232,6 +233,7 @@ final class MainWindow {
         list.onSelection = { [weak self] id in self?.details.show(id) }
         list.onActivate = { [weak self] _ in self?.openDetails() }
         list.onRows = { [weak self] in self?.showTitle() }
+        list.onComment = { [weak self] id in self?.editComment(id) }
         sidebar.onScope = { [weak self] _ in self?.scopeChosen() }
         sidebar.onCount = { [weak self] in self?.showTitle() }
         connect(captureSwitch, "notify::active") { [weak self] in
@@ -331,6 +333,14 @@ final class MainWindow {
         if adw_navigation_split_view_get_collapsed(inner) != 0 {
             adw_navigation_split_view_set_show_content(inner, 1)
         }
+    }
+
+    /// Add or Edit Comment…, from a row's menu: its request, selected, on the details' Overview,
+    /// where its comment is, and over the list when the details don't fit beside it.
+    private func editComment(_ id: ExchangeID) {
+        list.select(id: id)
+        details.show(page: .overview)
+        openDetails()
     }
 
     /// The details went over the list, or back. Back, libadwaita gives the keyboard's focus back to
@@ -496,7 +506,8 @@ final class MainWindow {
                 return false
             }
             let focus = gtk_root_get_focus(cast(window))
-            if focus.map({ gtk_widget_get_mapped($0) == 0 }) ?? true, gtk_widget_grab_focus(list.view) == 0 {
+            // The list takes it only while it shows: GTK gives an empty list's hidden rows the focus.
+            if focus.map({ gtk_widget_get_mapped($0) == 0 }) ?? true, !list.focusSelection() {
                 gtk_widget_grab_focus(captureSwitch)
             }
             return false
