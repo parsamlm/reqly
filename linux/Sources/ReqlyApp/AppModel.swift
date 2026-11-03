@@ -17,7 +17,7 @@ final class AppModel {
     let options: Options
     let folders: AppFolders
     private(set) var settings: AppSettings
-    /// The live session, once it's open.
+    /// The session, once it's open: a live one, or the saved one a test run opens.
     private(set) var session: SessionHost?
     /// HTTPS decryption: Reqly's certificate, and the hosts to decrypt.
     private(set) lazy var https = HTTPSModel(app: self)

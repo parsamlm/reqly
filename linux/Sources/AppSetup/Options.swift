@@ -9,8 +9,9 @@ import LinuxSystem
 ///     reqly --proxy-settings-stand-in <file> --proxy-restore-file <file> --root-stand-in <file>
 ///         --secrets-stand-in <file> --settings-file <file> --sessions-folder <dir> --port 9191
 ///
-/// A run given a stand-in, its own settings file or `--smoke` is a test run: it runs beside a
-/// Reqly that's open, and leaves your desktop's proxy alone unless it has a stand-in for it.
+/// A run given a stand-in, its own settings file, a session limit or a `--smoke` option is a test
+/// run: it runs beside a Reqly that's open, and leaves your desktop's proxy alone unless it has a
+/// stand-in for it.
 public struct Options: Sendable, Equatable {
     /// What the run does.
     public enum Command: Sendable, Equatable {
@@ -84,6 +85,12 @@ public struct Options: Sendable, Equatable {
     public var smokeReport: String?
     /// The self-check's parts to run, or all of them.
     public var smokeParts: [String]?
+    /// `--smoke-session <file>`: a saved session the run opens in place of a new, live one, such
+    /// as one the Mac saved, for the self-check to show what's in it.
+    public var smokeSession: String?
+    /// The most requests the session keeps, in place of 100,000, as the Mac's `-sessionLimit`
+    /// does, so the self-check reaches the limit with a few hundred.
+    public var sessionLimit: Int?
     /// An application ID of the run's own, in place of Reqly's, under which a test run is the
     /// only one, as a real run is under Reqly's: the self-check starts two with the same ID.
     public var appID: String?
@@ -158,6 +165,13 @@ public struct Options: Sendable, Equatable {
                 let parts = try value().split(separator: ",").map(String.init)
                 guard !parts.isEmpty else { throw UsageError("--smoke-parts needs the names of parts.") }
                 smokeParts = parts
+            case "--smoke-session": smokeSession = try value()
+            case "--session-limit":
+                let text = try value()
+                guard let number = Int(text), number > 0 else {
+                    throw UsageError("--session-limit takes a number of requests, 1 or more, not \(text).")
+                }
+                sessionLimit = number
             case "--app-id": appID = try value()
             case "--close-delay":
                 let text = try value()
@@ -174,10 +188,10 @@ public struct Options: Sendable, Equatable {
     }
 
     /// Whether this is a test run: one given a stand-in, its own settings file, its own
-    /// application ID or `--smoke`.
+    /// application ID, a session limit, `--smoke` or `--smoke-session`.
     public var isTestRun: Bool {
         proxySettingsStandIn != nil || rootStandIn != nil || secretsStandIn != nil || settingsFile != nil
-            || smokeReport != nil || appID != nil
+            || smokeReport != nil || appID != nil || sessionLimit != nil || smokeSession != nil
     }
 
     /// Whether capturing points your desktop's proxy at Reqly, or the stand-in's: as
@@ -217,6 +231,7 @@ public struct Options: Sendable, Equatable {
           --root-file <file>                --root-stand-in <file>
           --trust-helper <full path>        --theme light|dark
           --smoke <report>                  --smoke-parts <part>,<part>...
+          --smoke-session <file>            --session-limit <requests>
           --app-id <id>                     --close-delay <milliseconds>
 
         Taken for the same command lines as Windows', and used once Reqly for Linux opens files
@@ -228,12 +243,14 @@ public struct Options: Sendable, Equatable {
           --allows-network-devices yes|no   --checks-for-updates yes|no
           --has-seen-welcome yes|no
 
-        A run with a stand-in, its own settings file, --app-id or --smoke is a test run: it runs
-        beside the Reqly that's open, as the only run under its --app-id if it has one, and
-        changes your desktop's own proxy only when given --sets-system-proxy yes and no
-        --proxy-settings-stand-in. It never uses your certificate or keyring: it decrypts only
-        with --root-stand-in. A stand-in for the proxy keeps its restore file beside it, unless
-        --proxy-restore-file names one.
+        A run with a stand-in, its own settings file, --app-id, --session-limit or a --smoke
+        option is a test run: it runs beside the Reqly that's open, as the only run under its
+        --app-id if it has one, and changes your desktop's own proxy only when given
+        --sets-system-proxy yes and no --proxy-settings-stand-in. It never uses your certificate
+        or keyring: it decrypts only with --root-stand-in. A stand-in for the proxy keeps its
+        restore file beside it, unless --proxy-restore-file names one. --smoke-session opens a
+        saved session in place of a new one, and --session-limit keeps that many requests at
+        most, in place of 100,000.
 
         """
 }
