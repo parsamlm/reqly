@@ -5,9 +5,9 @@ import GtkBinding
 /// The few symbolic icons Reqly shows that not every icon theme has: the lock in the list's
 /// Status column and on Settings › HTTPS, the arrows of the list's empty page, and Settings ›
 /// General's gear. Debian's Cinnamon uses the `gnome` theme, which has none of them, so GTK would
-/// draw its broken-image picture. Reqly writes its own, simple ones to a folder of its own, which
-/// GTK looks in after every theme, so your theme's own still come first. And the app's own icon,
-/// for a run from the build folder.
+/// draw its broken-image picture. Reqly writes its own, simple ones to a folder of its own, as
+/// hicolor's, which GTK looks in after every theme, so your theme's own still come first. And the
+/// app's own icon, for a run from the build folder.
 enum Icons {
     /// Each icon's name and its SVG, drawn on a 16-pixel grid in one color, which GTK paints in
     /// the text's color, as with any symbolic icon.
@@ -36,10 +36,13 @@ enum Icons {
         guard let display = gdk_display_get_default(), let theme = gtk_icon_theme_get_for_display(display),
             let folder = folder(environment: environment)
         else { return }
+        // As hicolor's, which every theme falls back to last. GTK paints an icon in no theme's
+        // folder as it's drawn, rather than in the text's color.
+        let icons = folder.appending(path: "hicolor/scalable/actions", directoryHint: .isDirectory)
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: icons, withIntermediateDirectories: true)
             for icon in symbolic {
-                let file = folder.appending(path: "\(icon.name).svg")
+                let file = icons.appending(path: "\(icon.name).svg")
                 let data = Data(icon.svg.utf8)
                 // Another Reqly, such as a test run, may be reading them.
                 if (try? Data(contentsOf: file)) != data {
@@ -50,7 +53,6 @@ enum Icons {
             AppLog.write("couldn't write Reqly's icons to \(folder.path): \(error.localizedDescription)")
             return
         }
-        // Icons right in a folder on the search path, in no theme, come after every theme.
         gtk_icon_theme_add_search_path(theme, folder.path)
     }
 

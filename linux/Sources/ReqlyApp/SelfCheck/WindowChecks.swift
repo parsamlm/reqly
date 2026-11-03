@@ -135,7 +135,8 @@ extension SelfCheck {
     }
 
     /// Reqly's own symbolic icons stand in where the icon theme has none, as Debian Cinnamon's
-    /// `gnome` theme hasn't: with only hicolor, every one is found, not drawn as a broken image.
+    /// `gnome` theme hasn't: with only hicolor, every one is found, not drawn as a broken image,
+    /// and drawn in the text's color, as symbolic icons are.
     func checkSymbolicIcons() async throws {
         let theme = try present(gtk_icon_theme_get_for_display(gdk_display_get_default()), "there's no icon theme")
         let settings = try present(gtk_settings_get_default(), "there are no GTK settings")
@@ -146,6 +147,14 @@ extension SelfCheck {
         note("icon theme: hicolor, instead of \(before.isEmpty ? "the default" : before)")
         note("found: \(Icons.symbolic.map(\.name).filter { !missing.contains($0) }.joined(separator: ", "))")
         try require(missing.isEmpty, "with only hicolor, there's no \(missing.joined(separator: ", "))")
+        let plain = Icons.symbolic.map(\.name).filter { name in
+            let icon = gtk_icon_theme_lookup_icon(
+                theme, name, nil, 16, 1, GTK_TEXT_DIR_LTR, GtkIconLookupFlags(rawValue: 0))
+            defer { g_object_unref(raw(icon)) }
+            return gtk_icon_paintable_is_symbolic(icon) == 0
+        }
+        try require(plain.isEmpty, "with only hicolor, \(plain.joined(separator: ", ")) aren't in the text's color")
+        note("each in the text's color, as a symbolic icon")
     }
 
     /// A dialog opened from the main menu's entry, from the keyboard, leaves the window's focus
