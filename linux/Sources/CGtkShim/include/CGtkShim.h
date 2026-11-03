@@ -22,11 +22,26 @@ guint reqly_attach_main_queue(gint priority);
 GType reqly_type_boolean(void);
 GType reqly_type_int(void);
 GType reqly_type_uint(void);
+GType reqly_type_int64(void);
 GType reqly_type_double(void);
 GType reqly_type_string(void);
+GType reqly_type_object(void);
+GType reqly_type_variant(void);
+
+/// G_OBJECT_TYPE: an object's own type.
+GType reqly_object_type(gpointer object);
 
 /// gtk_accessible_update_property for a widget's label, which C passes as variadic arguments.
 void reqly_accessible_set_label(GtkWidget *widget, const char *label);
+
+/// gtk_accessible_update_relation for a relation to `count` widgets, such as labelled-by, in the
+/// form the running GTK takes: GTK 4.14's GList, or a newer one's GtkAccessibleList.
+void reqly_accessible_set_relation_list(GtkWidget *widget, GtkAccessibleRelation relation, GtkWidget *const *widgets,
+                                        guint count);
+
+/// g_signal_emit_by_name for a signal with no parameters that returns nothing, such as a button's
+/// "clicked", which C passes as variadic arguments.
+void reqly_emit(gpointer instance, const char *signal);
 
 /// Whether this is the process's main thread: its thread ID is the process's.
 gboolean reqly_is_main_thread(void);
