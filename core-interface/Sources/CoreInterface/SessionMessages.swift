@@ -58,7 +58,7 @@ extension SessionHost {
             setSearch(text)
             return Reply.result(Empty())
         case .details(let id):
-            return Reply.result(WireDetails(try await exchange(ExchangeID(rawValue: id))))
+            return Reply.result(WireDetails(try await details(ExchangeID(rawValue: id))))
         case .presentBody(let id, let part):
             let presented = try await presentBody(ExchangeID(rawValue: id), part: part)
             var wire = WireBody(presented.body)

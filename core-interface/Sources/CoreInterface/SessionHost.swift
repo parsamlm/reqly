@@ -320,6 +320,12 @@ public actor SessionHost {
         return exchange
     }
 
+    /// An exchange with what its details show worked out, such as its cookies and its timing's
+    /// steps. Its annotation can lag behind the list's, so the list's row has the one to show.
+    public func details(_ id: ExchangeID) async throws(Problem) -> ExchangeDetails {
+        ExchangeDetails(try await exchange(id))
+    }
+
     /// A body made ready to show, with the message type chosen for bodies like it.
     public func presentBody(_ id: ExchangeID, part: BodyPart) async throws(Problem) -> PresentedBody {
         let exchange = try await exchange(id)
