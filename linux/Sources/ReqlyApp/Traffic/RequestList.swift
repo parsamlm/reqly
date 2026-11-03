@@ -391,7 +391,7 @@ final class RequestList {
     private func fill(_ item: UnsafeMutableRawPointer, _ column: Column, _ id: ExchangeID) {
         guard let cell = gtk_list_item_get_child(cast(item)) else { return }
         let summary = summaries[id]
-        let text = summary.map(RowText.init)
+        let text = summary.map { RowText($0) }
         let label: Widget
         switch column {
         case .app, .status:
@@ -404,7 +404,7 @@ final class RequestList {
                 }
                 gtk_widget_set_visible(icon, cBool(found != nil))
             } else {
-                let showsLock = text?.showsLock ?? false
+                let showsLock = text?.look == .encrypted
                 if showsLock {
                     gtk_image_set_from_icon_name(cast(icon), "channel-secure-symbolic")
                     setAccessibleLabel(icon, text?.statusDescription ?? "")
