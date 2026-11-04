@@ -86,6 +86,8 @@ extension SelfCheck {
             ], in: overview, "Overview")
         try require(!overview.contains("None"), "Overview says None: \(overview)")
         try require(!overview.contains { $0.contains("decrypt") }, "Overview has a decryption note for plain HTTP")
+        try require(
+            !menuLabels().contains { $0.contains("Decrypt") }, "the details' menu for plain HTTP has \(menuLabels())")
         try require(gtk_widget_get_visible(details.commentSection) == 0, "the comment shows with no comment")
 
         // The request: its query, its headers, a secret as dots until Show, and its cookies.
@@ -345,6 +347,35 @@ extension SelfCheck {
             self.words(in: details.heading).contains { $0.hasPrefix("Closed · ") }
         }
         note("encrypted: its response isn't readable, and closed, its heading says “Closed”")
+        try await checkAHostWithAnUnderscore(proxyPort: proxyPort, session: session)
+    }
+
+    /// A connection to a host with an underscore in its name, which the details' menu offers to
+    /// decrypt with the name whole, though GTK reads an underscore as the next letter's shortcut.
+    private func checkAHostWithAnUnderscore(proxyPort: Int, session: SessionHost) async throws {
+        let host = "my_service.internal"
+        // With no network, the host can't be found, and the connection fails.
+        let answer = await onOwnThread { () -> String in
+            guard let socket = try? Loopback.connect(to: proxyPort) else { return "" }
+            defer { close(socket) }
+            Loopback.write("CONNECT \(host):443 HTTP/1.1\r\nHost: \(host):443\r\n\r\n", to: socket)
+            return Loopback.read(from: socket) { $0.contains("\r\n\r\n") }
+        }
+        let id = try await newest(session) { $0.kind == .tunnel && $0.host == host && $0.state.isFinished }
+        try await open(id)
+        let button = window.details.menuButton
+        gtk_menu_button_popup(cast(button))
+        defer { gtk_menu_button_popdown(cast(button)) }
+        await settle()
+        let popover = try present(gtk_menu_button_get_popover(cast(button)), "the details' menu has no popover")
+        let entries = descendants(of: cast(popover)).filter { typeName(raw($0)) == "GtkModelButton" }.map { entry in
+            descendants(of: entry).filter { typeName(raw($0)) == "GtkLabel" }
+                .compactMap { string(gtk_label_get_text(cast($0))) }.joined()
+        }
+        try require(
+            entries.contains("Decrypt \(host)"),
+            "the details' menu for \(host), answered “\(answer.prefix(40))”, shows \(entries)")
+        note("a host with an underscore: the details' menu shows “Decrypt \(host)”")
     }
 
     /// A CONNECT through Reqly's proxy to the traffic maker, which Reqly passes through, kept open:
