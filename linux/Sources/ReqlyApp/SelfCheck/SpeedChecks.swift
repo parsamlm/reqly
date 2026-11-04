@@ -82,6 +82,8 @@ private final class SpeedMeter {
     /// requests have gone.
     private var newest = ExchangeID(rawValue: 0)
     private var sent = 0
+    /// The bursts after which the list didn't show its newest row, as it had stopped following.
+    private var unfollowed: [String] = []
 
     init(_ check: SelfCheck, _ session: SessionHost, client: ProxyClient, mix: SpeedMix) {
         self.check = check
@@ -143,6 +145,10 @@ private final class SpeedMeter {
         table.add(SpeedLine(step: "Memory, after 3 bursts at the limit", memory: .now()))
         table.add(try await selectDuringABurst())
 
+        table.add(SpeedLine(step: "Bursts after which the list had stopped following", count: unfollowed.count))
+        if !unfollowed.isEmpty {
+            check.note("the list had stopped following after: \(unfollowed.joined(separator: "; "))")
+        }
         table.add(contentsOf: try await filter())
         table.add(contentsOf: try await chooseAHost())
         table.add(contentsOf: try await scroll())
@@ -272,37 +278,59 @@ private final class SpeedMeter {
         let burst = await sending.value
         let answered = monotonicMicroseconds()
         try check.require(burst.answered == count, "of \(count), \(burst.answered) were answered: \(burst.problems)")
-        try await waitForNewest(step, showing: showing)
-        let shown = monotonicMicroseconds()
+        let shownAt = try await waitForNewest(step, showing: showing)
+        let shown = shownAt ?? monotonicMicroseconds()
         var line = SpeedLine(step: step)
         line.took = (answered - started) / 1000
-        line.newest = (shown - answered) / 1000
+        line.newest = shownAt.map { ($0 - answered) / 1000 }
         line.core = events.awaitedAt.map { ($0 - answered) / 1000 }
         line.waits = watch.waits(from: started, to: shown)
+        let newestWords =
+            line.newest.map { "the newest row \($0) ms" }
+            ?? "the newest row not shown, as the list had stopped following,"
         line.said =
-            "sent in \(line.took ?? 0) ms; the core's rows event \(line.core.map { "\($0) ms" } ?? "never") and the "
-            + "newest row \(line.newest ?? 0) ms after the last answer; \(events.count) rows events, the largest "
-            + "putting in \(Format.count(events.largest)), \(Format.count(events.removed)) rows out; "
+            "sent in \(line.took ?? 0) ms; the core's rows event \(line.core.map { "\($0) ms" } ?? "never") and "
+            + "\(newestWords) after the last answer; \(events.count) rows events, the largest putting in "
+            + "\(Format.count(events.largest)), \(Format.count(events.removed)) rows out; "
             + "\(line.waits.map { "\($0)" } ?? "")" + (said.map { "; \($0)" } ?? "")
         return line
     }
 
-    /// Waits until the list's last row is the newest request's, with every change in, and the row
-    /// shows whole, unless `showing` is false.
-    private func waitForNewest(_ step: String, showing: Bool = true, seconds: Int = 60) async throws {
+    /// Waits until the list's last row is the newest request's, with every change in, and unless
+    /// `showing` is false, the row shows whole; then gives when. A list that has stopped following
+    /// doesn't show it: then it's noted and brought back to its end, to follow the next, and this
+    /// gives `nil`.
+    private func waitForNewest(_ step: String, showing: Bool = true, seconds: Int = 60) async throws -> Int? {
         let list = list
         let newest = newest
         let check = check
         do {
-            try await check.until("the newest row to show, after \(step)", seconds: seconds) {
-                list.isSettled && list.exchange(at: list.count - 1) == newest && (!showing || check.rowShows(newest))
+            try await check.until("the rows of \(step)", seconds: seconds) {
+                list.isSettled && list.exchange(at: list.count - 1) == newest
             }
         } catch {
             let last = list.exchange(at: list.count - 1).map { "#\($0.rawValue)" } ?? "none"
             throw SelfCheck.Failure(
-                "after \(step), the newest row, #\(newest.rawValue), doesn't show: the last row is \(last), "
-                    + "\(list.count) rows, \(list.isSettled ? "settled" : "still changing"), "
-                    + "\(list.showsEnd() ? "at" : "not at") its end")
+                "after \(step), the newest row, #\(newest.rawValue), isn't the last: the last row is \(last), "
+                    + "\(list.count) rows, \(list.isSettled ? "settled" : "still changing")")
+        }
+        guard showing else { return monotonicMicroseconds() }
+        // The list shows its newest row within 100 ms of the last change while it follows.
+        do {
+            try await check.until("the newest row to show, after \(step)", seconds: 5) {
+                list.isSettled && check.rowShows(newest)
+            }
+            return monotonicMicroseconds()
+        } catch {
+            unfollowed.append("\(step), at \(list.showsEnd() ? "" : "not ")its end")
+            let adjustment = try check.present(
+                gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
+            gtk_adjustment_set_value(
+                adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+            try await check.until("the newest row to show once the list is at its end", seconds: 10) {
+                list.isSettled && check.rowShows(newest)
+            }
+            return nil
         }
     }
 
@@ -889,6 +917,8 @@ private struct SpeedLine: CustomStringConvertible {
     var core: Int?
     var waits: ThreadWatch.Waits?
     var memory: Memory?
+    /// How many times something happened, for a step that counts.
+    var count: Int?
     var said = ""
 
     func named(_ step: String) -> SpeedLine {
@@ -935,7 +965,8 @@ private struct SpeedLine: CustomStringConvertible {
 
     var description: String {
         let cells: [String] = [
-            step, took.map { Format.count($0) } ?? over.map { "over \(Format.count($0))" } ?? "",
+            step,
+            took.map { Format.count($0) } ?? over.map { "over \(Format.count($0))" } ?? count.map { "\($0)" } ?? "",
             newest.map { Format.count($0) } ?? "",
             core.map { Format.count($0) } ?? "", waits.map { String(format: "%.0f", $0.longest) } ?? "",
             waits.map { "\($0.over100)" } ?? "", memory.map { "\($0)" } ?? "", standing,
