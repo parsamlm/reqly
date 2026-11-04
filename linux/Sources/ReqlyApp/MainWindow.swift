@@ -337,9 +337,9 @@ final class MainWindow {
     /// line's end; whether there's anything to clear; and the no-matches page in the list's place
     /// while there's traffic, but none of it shows.
     private func showTitle() {
-        // The list hears the session's count with its rows, which traffic the filters leave out
-        // doesn't send, and the sidebar hears it a moment after them, so the window goes by the
-        // larger, and likewise for the scope's.
+        // The list goes by the session's count once a burst's rows are in, and the sidebar hears
+        // it a moment after the rows, so the window goes by the larger, and likewise for the
+        // scope's.
         let total = max(list.total, sidebar.total)
         let title = ListTitle(
             scope: sidebar.scope.title, shown: list.count, inScope: max(sidebar.count ?? total, list.count),

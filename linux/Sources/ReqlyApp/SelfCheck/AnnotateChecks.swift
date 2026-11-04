@@ -170,6 +170,58 @@ extension SelfCheck {
         note(
             "Unpin All: no pins; Ctrl+K: the 2 pinned requests stay, and the selection with them, until it was one that went"
         )
+        try await checkClearingWhatDoesntShow(session, traffic)
+    }
+
+    /// Clear while a search finds nothing, which takes requests no row shows, so no row changes:
+    /// the session's count, Clear and the selection, of a request the search hid, follow all the
+    /// same. Then, with nothing pinned or left in Pinned, the list says there's no traffic, not
+    /// that none matches.
+    private func checkClearingWhatDoesntShow(_ session: SessionHost, _ traffic: Traffic) async throws {
+        let window = window
+        let list = window.list
+        let sidebar = window.sidebar
+        let search = window.search
+        _ = try await traffic.client.send(traffic.server.url(.ok, "for=hail"))
+        try await until("the new row", seconds: 5) { list.count == 3 && list.isSettled }
+        let hail = try present(list.exchange(at: 2), "the new request has no row")
+        list.select(id: hail)
+        try await until("the new row to be selected", seconds: 3) {
+            list.selected == hail && window.details.shown == hail
+        }
+        search.open()
+        gtk_editable_set_text(cast(search.entry), "zzqx")
+        try await until("the search to find nothing", seconds: 5) {
+            search.query == "zzqx" && list.count == 0 && list.isSettled
+        }
+        try require(list.selected == hail, "the search hid the selected request, and its selection with it")
+        await session.clear()
+        try await until("the sidebar to count the 2 pinned requests left", seconds: 5) { sidebar.total == 2 }
+        await settle()
+        let count = string(gtk_label_get_text(cast(window.statusCount))) ?? ""
+        try require(count == "0 of 2 requests", "with the 2 pinned requests left, the status line says “\(count)”")
+        try require(g_action_get_enabled(cast(window.clearAction)) == 0, "Clear is on with only pinned requests left")
+        try await until("the selection to go with its request", seconds: 3) {
+            list.selected == nil && window.details.shown == nil
+        }
+        search.close()
+        sidebar.choose("pinned")
+        try await until("Pinned to be chosen", seconds: 5) {
+            sidebar.scope.key == "pinned" && list.count == 2 && list.isSettled
+        }
+        await session.unpinAll()
+        try await until("Pinned to show no rows", seconds: 5) { list.count == 0 && list.isSettled }
+        await session.clear()
+        try await until("the sidebar to count no requests", seconds: 5) { sidebar.total == 0 }
+        await settle()
+        let subtitle = string(adw_window_title_get_subtitle(cast(window.listTitle))) ?? ""
+        try require(
+            gtk_widget_get_mapped(window.noMatches.widget) == 0 && subtitle == "Waiting for traffic",
+            "with no requests, the list's subtitle is “\(subtitle)”, and its pane says \(window.noMatches.words.title)")
+        sidebar.choose("all")
+        note(
+            "Clear while a search finds nothing: “0 of 2 requests”, Clear off, the hidden request's selection gone; "
+                + "with nothing left in Pinned, “Waiting for traffic”")
     }
 
     /// Edit Comment… from the menu of a row that isn't the one the details show, with a click with

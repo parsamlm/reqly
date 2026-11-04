@@ -193,16 +193,22 @@ final class RequestList {
         gtk_widget_add_controller(view, cast(click))
         setUpMenu()
         model.listen { [weak self] event in
-            guard let self, case .rows(let version, let total, _, let steps) = event else { return }
-            latestTotal = total
-            if let change = mirror.receive(version: version, steps: steps) {
-                take(change)
-            } else if !isFeeding {
-                self.total = total
-                onRows?()
-            }
-            if mirror.isWaitingForRows {
-                readEveryRow()
+            guard let self else { return }
+            switch event {
+            case .rows(let version, let total, _, let steps):
+                latestTotal = total
+                if let change = mirror.receive(version: version, steps: steps) {
+                    take(change)
+                } else if !isFeeding {
+                    self.total = total
+                    onRows?()
+                }
+                if mirror.isWaitingForRows {
+                    readEveryRow()
+                }
+            case .counts(let total, _, _): counted(total)
+            case .sidebar(let sidebar): counted(sidebar.total)
+            default: break
             }
         }
         model.observe { [weak self] in self?.showState() }
@@ -330,6 +336,22 @@ final class RequestList {
                 onSelection?(nil)
             }
         }
+    }
+
+    /// The session's count, which the sidebar's events give after every change, as rows events
+    /// don't for one that changes no row: Clear, or the store's limit, taking requests none of the
+    /// rows show. Once the rows are in, the list goes by it, and lets go of a selected request no
+    /// row shows, if it went.
+    private func counted(_ total: Int) {
+        latestTotal = total
+        guard feed.isEmpty, !mirror.isWaitingForRows else { return }
+        if let selected, !shown.contains(selected) {
+            forgetSelectionIfGone()
+        }
+        guard total != self.total else { return }
+        self.total = total
+        showState()
+        onRows?()
     }
 
     private func activated(at row: Int) {
