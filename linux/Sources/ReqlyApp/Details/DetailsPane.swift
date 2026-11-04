@@ -116,6 +116,9 @@ final class DetailsPane {
     /// The size of each body as the session last presented it, so a body that grows is presented
     /// again.
     private var presentedSizes: [MessagePart: Int] = [:]
+    /// How many times each part's body was asked to be presented, so a presentation that lands
+    /// after a later one, of a body that has grown since, is dropped.
+    private var presentations: [MessagePart: Int] = [:]
     /// The request Add Comment asked to write a comment on, while you write it.
     private var writing: ExchangeID?
     /// Whether the comment field takes the focus once the request's row is read, as Add Comment
@@ -511,10 +514,15 @@ final class DetailsPane {
         bodies[part] = view
         if presentedSizes[part] != size {
             presentedSizes[part] = size
+            presentations[part, default: 0] += 1
             let generation = generation
+            let asked = presentations[part]
             Task { [weak self, weak view] in
                 let presented = try? await session.presentBody(id, part: part == .request ? .request : .response)
-                guard let self, let view, let presented, generation == self.generation else { return }
+                // The latest asked for, as an older one can land after it.
+                guard let self, let view, let presented, generation == self.generation,
+                    asked == self.presentations[part]
+                else { return }
                 view.show(presented)
             }
         }
