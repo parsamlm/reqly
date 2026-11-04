@@ -594,6 +594,11 @@ extension SelfCheck {
         try require(apps.first == "Any app" && apps.count == 3, "the App menu offers \(apps)")
         try require(hosts == ["Any host", "127.0.0.1", "127.0.0.2"], "the Host menu offers \(hosts)")
         try require(methods == ["Any method", "GET", "POST"], "the Method menu offers \(methods)")
+        for (name, choice) in [
+            ("App", filters.appChoice), ("Host", filters.hostChoice), ("Method", filters.methodChoice),
+        ] {
+            try require(Self.hasSearch(choice), "the \(name) menu has no search to type in")
+        }
         let me = try present(Processes.read(getpid()), "this process can't be read").name
         let steps: [(Widget, String, Int)] = [
             (filters.hostChoice, "127.0.0.2", 1), (filters.hostChoice, "Any host", 10),
@@ -610,6 +615,21 @@ extension SelfCheck {
         note(
             "Filters: \(seen.joined(separator: "; ")); the menus offer \(apps.dropFirst().joined(separator: ", ")), "
                 + "\(hosts.dropFirst().joined(separator: ", ")) and \(methods.dropFirst().joined(separator: ", "))")
+    }
+
+    /// Whether a menu of choices has a search field, which shows as the menu opens.
+    private static func hasSearch(_ choice: Widget) -> Bool {
+        guard let field = widgets(under: choice).first(where: { typeName(raw($0)) == "GtkSearchEntry" }) else {
+            return false
+        }
+        var widget: Widget? = field
+        while let current = widget, typeName(raw(current)) != "GtkPopover" {
+            if gtk_widget_get_visible(current) == 0 {
+                return false
+            }
+            widget = gtk_widget_get_parent(current)
+        }
+        return widget != nil
     }
 
     /// A token for each filter, whose button removes it and no other, and whose name says which;

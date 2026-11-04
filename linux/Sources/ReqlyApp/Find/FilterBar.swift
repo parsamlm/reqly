@@ -412,9 +412,15 @@ final class FilterBar {
         return label
     }
 
-    /// A menu of choices, which starts with "Any", named for screen readers.
+    /// A menu of choices, which starts with "Any", named for screen readers. Typing in it finds a
+    /// choice by how it starts, as on the Mac, so the 200th host is a few keys away.
     private static func choice(_ name: String) -> Widget {
         let choice = withCStrings([]) { gtk_drop_down_new_from_strings($0) }!
+        // The menu takes its own reference to the expression its search goes by.
+        let words = gtk_property_expression_new(gtk_string_object_get_type(), nil, "string")
+        gtk_drop_down_set_expression(cast(choice), words)
+        gtk_expression_unref(words)
+        gtk_drop_down_set_enable_search(cast(choice), 1)
         gtk_widget_set_hexpand(choice, 1)
         setAccessibleLabel(choice, name)
         return choice
