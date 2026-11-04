@@ -17,12 +17,12 @@ enum DetailsBlocks {
         gtk_widget_add_css_class(heading, "heading")
         gtk_box_append(cast(top), heading)
         if let count {
-            let number = label(DetailsFormat.count(count))
+            let number = label(Format.count(count))
             gtk_widget_add_css_class(number, "dim-label")
             gtk_widget_add_css_class(number, "numeric")
             gtk_box_append(cast(top), number)
             // Said with the title, as "Headers, 12".
-            setAccessibleLabel(heading, "\(title), \(DetailsFormat.count(count))")
+            setAccessibleLabel(heading, "\(title), \(Format.count(count))")
             setAccessibleHidden(number, true)
         }
         let room = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0)!

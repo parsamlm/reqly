@@ -66,7 +66,7 @@ import Testing
 
     @Test func writesDurationsSizesAndTimesAsTheMacDoes() {
         func duration(_ seconds: TimeInterval?, tenths: Bool = false) -> String {
-            DetailsFormat.duration(seconds, showingTenths: tenths, locale: Self.english)
+            Format.duration(seconds, showingTenths: tenths, locale: Self.english)
         }
         #expect(duration(nil) == "")
         #expect(duration(0.34) == "340 ms")
@@ -78,7 +78,8 @@ import Testing
         #expect(duration(0.0004, tenths: true) == "0.4 ms")
         #expect(duration(0.0099, tenths: true) == "9.9 ms")
         #expect(duration(0.02, tenths: true) == "20 ms")
-        #expect(DetailsFormat.time(Self.start + 1, timeZone: Self.utc) == "04:00:01")
+        // The time of day as the list has it, as on the Mac. ICU puts a narrow space before AM.
+        #expect(Format.time(Self.start + 1, locale: Self.english, timeZone: Self.utc) == "4:00:01\u{202F}AM")
         #expect(
             DetailsFormat.moment(Self.start + 1.25, locale: Self.english, timeZone: Self.utc) == "Oct 3 at 04:00:01.250"
         )
@@ -102,30 +103,32 @@ import Testing
         #expect(heading.mark == .dot(.success))
         #expect(heading.code == "200")
         #expect(heading.status == "OK")
-        #expect(heading.line == "200 OK · 750 ms · 17 B · 04:00:00")
-        #expect(heading.afterCode == "OK · 750 ms · 17 B · 04:00:00")
+        #expect(heading.line == "200 OK · 750 ms · 17 B · 4:00:00\u{202F}AM")
+        #expect(heading.afterCode == "OK · 750 ms · 17 B · 4:00:00\u{202F}AM")
 
         // A reason the server left out leaves the code on its own.
         let bare = DetailsHeading(exchange.summary, reason: "", grpc: nil, locale: Self.english, timeZone: Self.utc)
-        #expect(bare.line == "200 · 750 ms · 17 B · 04:00:00")
-        #expect(bare.afterCode == "· 750 ms · 17 B · 04:00:00")
+        #expect(bare.line == "200 · 750 ms · 17 B · 4:00:00\u{202F}AM")
+        #expect(bare.afterCode == "· 750 ms · 17 B · 4:00:00\u{202F}AM")
 
         // gRPC's status and a WebSocket's messages come before the rest.
         exchange.messageCount = 3
         let call = DetailsHeading(
             exchange.summary, reason: "OK", grpc: GRPCStatus(code: 5), locale: Self.english, timeZone: Self.utc)
-        #expect(call.facts == ["gRPC NOT_FOUND", "3 messages", "750 ms", "17 B", "04:00:00"])
+        #expect(call.facts == ["gRPC NOT_FOUND", "3 messages", "750 ms", "17 B", "4:00:00\u{202F}AM"])
     }
 
     @Test func headsTunnelsFailuresAndRequestsInProgress() {
-        let open = DetailsHeading(Self.tunnel(state: .open).summary, reason: nil, grpc: nil, timeZone: Self.utc)
+        let open = DetailsHeading(
+            Self.tunnel(state: .open).summary, reason: nil, grpc: nil, locale: Self.english, timeZone: Self.utc)
         #expect(open.method == "CONNECT")
         #expect(open.title == "maps.weatherly.dev")
         #expect(open.subtitle == "Encrypted connection · Weatherly")
         #expect(open.mark == .lock)
-        #expect(open.line == "Open · 48.1 KB · 04:00:00")
-        let closed = DetailsHeading(Self.tunnel().summary, reason: nil, grpc: nil, timeZone: Self.utc)
-        #expect(closed.line == "Closed · 3.50 s · 48.1 KB · 04:00:00")
+        #expect(open.line == "Open · 48.1 KB · 4:00:00\u{202F}AM")
+        let closed = DetailsHeading(
+            Self.tunnel().summary, reason: nil, grpc: nil, locale: Self.english, timeZone: Self.utc)
+        #expect(closed.line == "Closed · 3.50 s · 48.1 KB · 4:00:00\u{202F}AM")
 
         var failed = Self.forecast()
         failed.response = nil
@@ -139,9 +142,10 @@ import Testing
         waiting.state = .waiting
         waiting.timing.ended = nil
         waiting.bytesReceived = 0
-        let progress = DetailsHeading(waiting.summary, reason: nil, grpc: nil, timeZone: Self.utc)
+        let progress = DetailsHeading(
+            waiting.summary, reason: nil, grpc: nil, locale: Self.english, timeZone: Self.utc)
         #expect(progress.mark == .none)
-        #expect(progress.line == "In progress · 0 B · 04:00:00")
+        #expect(progress.line == "In progress · 0 B · 4:00:00\u{202F}AM")
     }
 
     @Test func readsTheDetailsAgainOnlyWhenMoreThanTheMarksChange() {
@@ -369,7 +373,7 @@ import Testing
 
     @Test func namesTheMarksColors() {
         #expect(
-            MarkColor.allCases.map(DetailsMarks.title) == [
+            MarkColor.allCases.map(\.title) == [
                 "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Gray",
             ])
     }

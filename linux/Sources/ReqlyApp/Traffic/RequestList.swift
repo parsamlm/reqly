@@ -8,7 +8,8 @@ import ReqlyModel
 /// session's rows by its `rows` events, through ``RowMirror``, as the Windows app's list is. Its
 /// columns are the Mac's: Status, Method, Request, App, Time, Duration and Size, with their widths
 /// in sp, so they grow with the text, and Request taking what's left. Until there's traffic, a
-/// status page says how to start, and while none of the session's requests show, another says so.
+/// status page says how to start. While none of the session's requests show, the window shows its
+/// no-matches page in the list's place.
 ///
 /// It keeps up with bursts: each event's changes go into the view a few milliseconds' worth at a
 /// time, with the window drawing between, through ``RowFeed``; and a row's contents are asked
@@ -83,10 +84,6 @@ final class RequestList {
     let view: Widget
     /// The view's scroller.
     let scroller: Widget
-    /// The page in the list's place while the session has requests, but none of them show, as a
-    /// search, the filters or the sidebar's choice leave none: "No Matching Requests", unless
-    /// what narrowed the list words it otherwise.
-    let noMatches: Widget
     /// The menu on a row.
     let menu: RowMenu
     let icons = AppIcons()
@@ -169,12 +166,8 @@ final class RequestList {
         gtk_scrolled_window_set_child(cast(scroller), view)
         empty = adw_status_page_new()
         adw_status_page_set_icon_name(cast(empty), "network-transmit-receive-symbolic")
-        noMatches = adw_status_page_new()
-        adw_status_page_set_icon_name(cast(noMatches), "edit-find-symbolic")
-        adw_status_page_set_title(cast(noMatches), "No Matching Requests")
         widget = gtk_stack_new()
         gtk_stack_add_named(cast(widget), empty, "empty")
-        gtk_stack_add_named(cast(widget), noMatches, "none")
         gtk_stack_add_named(cast(widget), scroller, "list")
         for column in Column.allCases {
             widths[column] = column.width
@@ -526,15 +519,11 @@ final class RequestList {
         }
     }
 
-    /// The status page while there's no traffic, saying how to start, the other while none of
-    /// the session's requests show, and the list after.
+    /// The status page while there's no traffic, saying how to start, and the list after, which
+    /// the window's no-matches page covers while none of the session's requests show.
     private func showState() {
-        guard count == 0 else {
+        guard count == 0, total == 0 else {
             gtk_stack_set_visible_child(cast(widget), scroller)
-            return
-        }
-        guard total == 0 else {
-            gtk_stack_set_visible_child(cast(widget), noMatches)
             return
         }
         gtk_stack_set_visible_child(cast(widget), empty)
@@ -787,8 +776,8 @@ final class RequestList {
         }
         menu.onComment = { [weak self] summary in self?.onComment?(summary.id) }
         menu.decrypts = { [weak self] host in
-            guard let self, model.options.smokeSession == nil, let state = model.https.state else { return nil }
-            return state.hosts.decrypts(host)
+            guard let self, model.options.smokeSession == nil else { return nil }
+            return model.https.decrypts(host)
         }
         menu.onDecrypt = { [weak self] host, isOn in
             guard let https = self?.model.https else { return }

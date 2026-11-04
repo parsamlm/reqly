@@ -3,8 +3,9 @@ import Foundation
 import GtkBinding
 
 /// The few symbolic icons Reqly shows that not every icon theme has: the lock in the list's
-/// Status column and on Settings › HTTPS, the arrows of the list's empty page, Settings ›
-/// General's gear, and the list's warning, pause, pin and speech bubble, which KDE's Breeze and
+/// Status column and on Settings › HTTPS, and the open lock of the details' decryption note, the
+/// arrows of the list's empty page, Settings › General's gear, and the warning, pause, pin and
+/// speech bubble of the list, the sidebar, the filters and the details, which KDE's Breeze and
 /// Adwaita lack some of. Debian's Cinnamon uses the `gnome` theme, which has none of them, so GTK
 /// would draw its broken-image picture. Reqly writes its own, simple ones to a folder of its own,
 /// as hicolor's, which GTK looks in after every theme, so your theme's own still come first. And
@@ -14,11 +15,12 @@ enum Icons {
     /// the text's color, as with any symbolic icon.
     static let symbolic: [(name: String, svg: String)] = [
         (
-            "channel-secure-symbolic",
+            lock,
             svg(
                 #"<path d="M8 1a4 4 0 0 0-4 4v2H3v8h10V7h-1V5a4 4 0 0 0-4-4zm0 2a2 2 0 0 1 2 2v2H6V5a2 2 0 0 1 2-2z"/>"#
             )
         ),
+        (openLock, svg(#"<path d="M8 1a4 4 0 0 0-4 4v2H3v8h10V7H6V5a2 2 0 0 1 4 0h2a4 4 0 0 0-4-4z"/>"#)),
         ("network-transmit-receive-symbolic", svg(#"<path d="M4 1 .5 5H3v10h2V5h2.5zm8 14 3.5-4H13V1h-2v10H8.5z"/>"#)),
         (
             "preferences-system-symbolic",
@@ -39,8 +41,10 @@ enum Icons {
         ),
     ]
 
-    /// The list's symbols: for a request that failed or paused, and one that's pinned or has a
-    /// comment.
+    /// An encrypted connection, and a host Reqly decrypts.
+    static let lock = "channel-secure-symbolic"
+    static let openLock = "channel-insecure-symbolic"
+    /// For a request that failed or paused, and one that's pinned or has a comment.
     static let warning = "dialog-warning-symbolic"
     static let pause = "media-playback-pause-symbolic"
     static let pin = "view-pin-symbolic"

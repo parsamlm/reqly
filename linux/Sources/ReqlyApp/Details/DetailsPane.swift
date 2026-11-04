@@ -587,7 +587,7 @@ final class DetailsPane {
         g_menu_append(colors, "None", "details.color::none")
         let marks = g_menu_new()!
         for color in MarkColor.allCases {
-            g_menu_append(marks, DetailsMarks.title(color), "details.color::\(color.rawValue)")
+            g_menu_append(marks, color.title, "details.color::\(color.rawValue)")
         }
         g_menu_append_section(colors, nil, cast(marks))
         g_object_unref(raw(marks))
@@ -663,13 +663,7 @@ final class DetailsPane {
     /// Decrypts `host` from now on, or stops, as the menu and Overview's note do.
     func decrypt(_ isOn: Bool, _ host: String) {
         let https = model.https
-        Task {
-            if isOn {
-                await https.decrypt(host)
-            } else {
-                await https.stopDecrypting(host)
-            }
-        }
+        Task { await https.setDecrypts(isOn, host: host) }
     }
 
     /// The hosts to decrypt changed: the menu and Overview's note say what happens now.

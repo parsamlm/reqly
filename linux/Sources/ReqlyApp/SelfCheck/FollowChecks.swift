@@ -90,8 +90,9 @@ extension SelfCheck {
         defer { resets.isListening = false }
         await session.setSearch("no request has this")
         try await until("the search to leave no rows", seconds: 20) { list.count == 0 && list.isSettled }
-        let page = gtk_stack_get_visible_child(cast(list.widget))
-        try require(page == list.noMatches, "with no rows matching, the list shows \(typeName(raw(page)))")
+        try await until("the no-matches page to show in the list's place", seconds: 3) {
+            gtk_widget_get_mapped(self.window.noMatches.widget) != 0
+        }
         let revealsBefore = list.reveals
         let searched = monotonicMicroseconds()
         await session.setSearch("")

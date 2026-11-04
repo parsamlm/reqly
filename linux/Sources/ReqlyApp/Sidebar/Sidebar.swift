@@ -520,7 +520,7 @@ final class Sidebar {
         let name: String? =
             switch row.kind {
             case .all: "network-transmit-receive-symbolic"
-            case .pinned: "view-pin-symbolic"
+            case .pinned: Icons.pin
             case .host: "network-server-symbolic"
             case .device(nil): "computer-symbolic"
             case .device: "phone-symbolic"

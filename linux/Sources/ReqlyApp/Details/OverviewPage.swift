@@ -71,7 +71,7 @@ extension DetailsPane {
     /// A failure's words, in red, beside a warning.
     static func failure(_ text: String) -> Widget {
         let line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)!
-        let icon = DetailsBlocks.icon("dialog-warning-symbolic")
+        let icon = DetailsBlocks.icon(Icons.warning)
         gtk_widget_add_css_class(icon, "error")
         let words = DetailsBlocks.label(text)
         gtk_label_set_selectable(cast(words), 1)
@@ -90,9 +90,9 @@ extension DetailsPane {
         gtk_widget_add_css_class(card, "details-note")
         let name =
             switch note.look {
-            case .locked: "channel-secure-symbolic"
-            case .unlocked: "channel-insecure-symbolic"
-            case .warning: "dialog-warning-symbolic"
+            case .locked: Icons.lock
+            case .unlocked: Icons.openLock
+            case .warning: Icons.warning
             }
         let icon = DetailsBlocks.icon(name)
         if note.look == .warning {

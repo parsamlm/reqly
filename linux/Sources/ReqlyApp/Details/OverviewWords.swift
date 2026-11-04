@@ -70,11 +70,11 @@ struct OverviewWords: Hashable {
                 name: "Started",
                 value: DetailsFormat.moment(exchange.timing.started, locale: locale, timeZone: timeZone)
             ))
-        request.append(DetailsRow(name: "Sent", value: DetailsFormat.size(exchange.bytesSent)))
+        request.append(DetailsRow(name: "Sent", value: Format.size(exchange.bytesSent)))
         sections = [DetailsSection("Request", rows: request)]
 
-        let duration = DetailsFormat.duration(exchange.timing.duration, locale: locale)
-        let received = DetailsFormat.size(exchange.bytesReceived)
+        let duration = Format.duration(exchange.timing.duration, locale: locale)
+        let received = Format.size(exchange.bytesReceived)
         if exchange.kind == .tunnel {
             sections.append(
                 DetailsSection(

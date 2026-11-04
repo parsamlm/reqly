@@ -44,7 +44,7 @@ final class DetailsHeadingView {
         // Said as one, such as "GET /v2/forecast".
         setAccessibleRelation(path, GTK_ACCESSIBLE_RELATION_LABELLED_BY, [method, path])
 
-        pinButton = DetailsBlocks.iconButton("view-pin-symbolic", "Pin Request")
+        pinButton = DetailsBlocks.iconButton(Icons.pin, "Pin Request")
         gtk_actionable_set_action_name(cast(pinButton), "details.pin")
         mark = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0)
         gtk_widget_add_css_class(mark, "details-mark")
@@ -56,7 +56,7 @@ final class DetailsHeadingView {
         gtk_widget_add_css_class(colorButton, "flat")
         gtk_widget_set_tooltip_text(colorButton, "Mark with a Color")
         setAccessibleLabel(colorButton, "Color")
-        commentButton = DetailsBlocks.iconButton("document-edit-symbolic", "Add Comment")
+        commentButton = DetailsBlocks.iconButton(Icons.comment, "Add Comment")
         gtk_actionable_set_action_name(cast(commentButton), "details.comment")
         for widget in [method, path, pinButton, colorButton, commentButton] {
             gtk_box_append(cast(top), widget)
@@ -71,8 +71,11 @@ final class DetailsHeadingView {
         gtk_widget_add_css_class(subtitle, "dim-label")
 
         let status = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
+        // In the list's color for the status class.
+        ListStyles.install()
         dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0)
         gtk_widget_add_css_class(dot, "details-dot")
+        gtk_widget_add_css_class(dot, "request-dot")
         gtk_widget_set_valign(dot, GTK_ALIGN_CENTER)
         icon = gtk_image_new()
         // The words beside them say what they mean, and the line says the code too.
@@ -114,16 +117,16 @@ final class DetailsHeadingView {
         switch heading.mark {
         case .dot(let statusClass):
             if let statusClass {
-                gtk_widget_add_css_class(dot, Self.cssClass(statusClass))
+                gtk_widget_add_css_class(dot, statusClass.styleClass)
             }
         case .failed:
-            gtk_image_set_from_icon_name(cast(icon), "dialog-warning-symbolic")
+            gtk_image_set_from_icon_name(cast(icon), Icons.warning)
             gtk_widget_add_css_class(icon, "error")
         case .paused:
-            gtk_image_set_from_icon_name(cast(icon), "media-playback-pause-symbolic")
+            gtk_image_set_from_icon_name(cast(icon), Icons.pause)
             gtk_widget_add_css_class(icon, "accent")
         case .lock:
-            gtk_image_set_from_icon_name(cast(icon), "channel-secure-symbolic")
+            gtk_image_set_from_icon_name(cast(icon), Icons.lock)
         case .none:
             break
         }
@@ -157,21 +160,11 @@ final class DetailsHeadingView {
         if let color = annotation.color {
             gtk_widget_add_css_class(mark, color.rawValue)
         }
-        setAccessibleDescription(colorButton, annotation.color.map(DetailsMarks.title) ?? "None")
+        setAccessibleDescription(colorButton, annotation.color?.title ?? "None")
         let comment = annotation.comment == nil ? "Add Comment" : "Edit Comment"
         setAccessibleLabel(commentButton, comment)
         gtk_widget_set_tooltip_text(commentButton, comment)
     }
 
-    private static let statusClasses = StatusClass.allCases.map(cssClass)
-
-    nonisolated static func cssClass(_ statusClass: StatusClass) -> String {
-        switch statusClass {
-        case .informational: "informational"
-        case .success: "success"
-        case .redirection: "redirection"
-        case .clientError: "client-error"
-        case .serverError: "server-error"
-        }
-    }
+    private static let statusClasses = StatusClass.allCases.map(\.styleClass)
 }

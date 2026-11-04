@@ -43,14 +43,14 @@ struct Waterfall: Hashable {
         steps = phases.enumerated().map { index, phase in
             Step(
                 title: Self.title(phase.step),
-                value: DetailsFormat.duration(phase.duration, showingTenths: true, locale: locale),
+                value: Format.duration(phase.duration, showingTenths: true, locale: locale),
                 offset: phase.start.timeIntervalSince(start) / span, length: phase.duration / span,
                 look: isFailed && index == phases.count - 1 ? .failed : Self.look(phase.step))
         }
         if exchange.state == .open {
             total = "Still open"
         } else if exchange.state.isFinished, let duration = exchange.timing.duration {
-            total = DetailsFormat.duration(duration, showingTenths: true, locale: locale)
+            total = Format.duration(duration, showingTenths: true, locale: locale)
         } else {
             total = "In progress"
         }

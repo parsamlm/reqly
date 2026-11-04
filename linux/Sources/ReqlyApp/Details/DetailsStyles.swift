@@ -1,11 +1,11 @@
 import CGtk
 import GtkBinding
 
-/// The details' styles on top of libadwaita's: the rows in their cards, the status dot in the
-/// design guidelines' status colors, the color marks, the timing bars in the accent color, and the
-/// Raw page's text on the Mac's code background. The status and code colors have light, dark and
-/// high-contrast versions, a provider each, swapped in as the style manager changes, since
-/// libadwaita 1.5 has no CSS media queries.
+/// The details' styles on top of libadwaita's: the rows in their cards, the status dot, which has
+/// the list's colors (``ListStyles``), the color marks, the timing bars in the accent color, and
+/// the Raw page's text on the Mac's code background. A failed step's red and the code background
+/// have light, dark and high-contrast versions, a provider each, swapped in as the style manager
+/// changes, since libadwaita 1.5 has no CSS media queries.
 @MainActor
 enum DetailsStyles {
     private static let shared = """
@@ -17,6 +17,7 @@ enum DetailsStyles {
         .details-rows > .details-row:not(:first-child) { border-top: 1px solid @card_shade_color; }
         .details-name { min-width: 0; }
         .details-dot { min-width: 8px; min-height: 8px; border-radius: 4px; background-color: alpha(currentColor, 0.3); }
+        .details-dot.request-dot { margin: 0; }
         .details-mark { min-width: 12px; min-height: 12px; border-radius: 6px;
             box-shadow: inset 0 0 0 1.5px alpha(currentColor, 0.55); }
         .details-mark.red { background-color: @red_3; box-shadow: none; }
@@ -37,25 +38,14 @@ enum DetailsStyles {
         textview.details-raw > text { background-color: transparent; }
         """
 
-    /// The status classes' dots, a failed step's red, and the code background, per style.
-    private static let light = colors(
-        gray: "#77767b", teal: "#0B9A83", blue: "#1c71d8", orange: "#e66100", red: "#e01b24", code: "#F6F7F7")
-    private static let dark = colors(
-        gray: "#9a9996", teal: "#3FDDC0", blue: "#62a0ea", orange: "#ffa348", red: "#f66151", code: "#242528")
-    private static let highContrast = colors(
-        gray: "#5e5c64", teal: "#056B5A", blue: "#1a5fb4", orange: "#c64600", red: "#a51d2d", code: "#FFFFFF")
-    private static let darkHighContrast = colors(
-        gray: "#c0bfbc", teal: "#71F2D8", blue: "#99c1f1", orange: "#ffbe6f", red: "#ff7b63", code: "#161618")
+    /// A failed step's red, and the code background, per style.
+    private static let light = colors(red: "#e01b24", code: "#F6F7F7")
+    private static let dark = colors(red: "#f66151", code: "#242528")
+    private static let highContrast = colors(red: "#a51d2d", code: "#FFFFFF")
+    private static let darkHighContrast = colors(red: "#ff7b63", code: "#161618")
 
-    private static func colors(
-        gray: String, teal: String, blue: String, orange: String, red: String, code: String
-    ) -> String {
+    private static func colors(red: String, code: String) -> String {
         """
-        .details-dot.informational { background-color: \(gray); }
-        .details-dot.success { background-color: \(teal); }
-        .details-dot.redirection { background-color: \(blue); }
-        .details-dot.client-error { background-color: \(orange); }
-        .details-dot.server-error { background-color: \(red); }
         .details-bar.failed { color: \(red); }
         textview.details-raw { background-color: \(code); }
         """

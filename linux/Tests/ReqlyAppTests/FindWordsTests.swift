@@ -82,14 +82,14 @@ import Testing
         #expect(scoped.title == "No Requests" && !scoped.clearsFilters)
     }
 
-    @Test func colorsTheDotsForEachStyle() {
+    /// The status buttons' dots are the list's, Reqly teal for 2xx in each style.
+    @MainActor @Test func colorsTheDotsForEachStyle() {
         #expect(
-            FilterBar.css(isDark: false, hasMoreContrast: false).contains(
-                ".status-dot.success { background-color: #0B9A83; }"))
-        #expect(FilterBar.css(isDark: true, hasMoreContrast: false).contains("#3FDDC0"))
-        #expect(FilterBar.css(isDark: false, hasMoreContrast: true).contains("#056B5A"))
-        #expect(FilterBar.css(isDark: true, hasMoreContrast: true).contains("@red_1"))
-        #expect(FilterBar.css(isDark: false, hasMoreContrast: true).contains("@blue_5"))
-        #expect(FilterBar.css(isDark: false, hasMoreContrast: false).contains("@orange_3"))
+            ListStyles.css(ListStyles.light).contains(
+                ".request-dot.status-2xx { background-color: #0B9A83; color: #0B9A83; }"))
+        #expect(ListStyles.css(ListStyles.dark).contains("#3FDDC0"))
+        #expect(ListStyles.css(ListStyles.lightContrast).contains("#056B5A"))
+        #expect(ListStyles.css(ListStyles.darkContrast).contains("#71F2D8"))
+        #expect(ListStyles.css(ListStyles.light).contains(".request-dot.status-5xx { background-color: #c01c28;"))
     }
 }

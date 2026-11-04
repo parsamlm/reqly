@@ -384,22 +384,22 @@ final class FilterBar {
         return button
     }
 
-    /// The status's dot, in its color, as in the list, or a warning for Failed.
+    /// The status's dot, in the list's color for it, or a warning for Failed.
     private static func mark(for status: StatusFilter) -> Widget {
-        let style: String
+        let statusClass: StatusClass
         switch status {
-        case .success: style = "success"
-        case .redirection: style = "redirection"
-        case .clientError: style = "client-error"
-        case .serverError: style = "server-error"
+        case .success: statusClass = .success
+        case .redirection: statusClass = .redirection
+        case .clientError: statusClass = .clientError
+        case .serverError: statusClass = .serverError
         case .failed:
-            let warning = gtk_image_new_from_icon_name("dialog-warning-symbolic")!
+            let warning = gtk_image_new_from_icon_name(Icons.warning)!
             gtk_widget_add_css_class(warning, "error")
             return warning
         }
         let dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0)!
-        gtk_widget_add_css_class(dot, "status-dot")
-        gtk_widget_add_css_class(dot, style)
+        gtk_widget_add_css_class(dot, "request-dot")
+        gtk_widget_add_css_class(dot, statusClass.styleClass)
         gtk_widget_set_valign(dot, GTK_ALIGN_CENTER)
         return dot
     }
@@ -457,43 +457,20 @@ final class FilterBar {
 
     private static var hasStyles = false
 
-    /// The status buttons' dots, in the design guidelines' colors, for light and dark, and with
-    /// more contrast, which follow the style manager; and the tokens, tinted with your accent.
+    /// The tokens, tinted with your accent; and the status buttons' dots, in the list's colors
+    /// for each status class, which follow the style manager.
     private static func addStyles() {
+        ListStyles.install()
         guard !hasStyles, let display = gdk_display_get_default() else { return }
         hasStyles = true
         let provider = gtk_css_provider_new()!
+        gtk_css_provider_load_from_string(provider, css)
         gtk_style_context_add_provider_for_display(
             display, cast(provider), UInt32(GTK_STYLE_PROVIDER_PRIORITY_APPLICATION))
-        let manager = adw_style_manager_get_default()
-        let follow: @MainActor () -> Void = {
-            let isDark = adw_style_manager_get_dark(manager) != 0
-            let hasMoreContrast = adw_style_manager_get_high_contrast(manager) != 0
-            gtk_css_provider_load_from_string(provider, css(isDark: isDark, hasMoreContrast: hasMoreContrast))
-        }
-        follow()
-        connect(manager, "notify::dark", follow)
-        connect(manager, "notify::high-contrast", follow)
     }
 
-    /// The bar's styles. 2xx is Reqly teal, and the others libadwaita's own blue, orange and red,
-    /// darker or lighter with more contrast.
-    nonisolated static func css(isDark: Bool, hasMoreContrast: Bool) -> String {
-        let success =
-            switch (isDark, hasMoreContrast) {
-            case (false, false): "#0B9A83"
-            case (true, false): "#3FDDC0"
-            case (false, true): "#056B5A"
-            case (true, true): "#71F2D8"
-            }
-        let shade = hasMoreContrast ? (isDark ? 1 : 5) : 3
-        return """
-            .status-dot.success { background-color: \(success); }
-            .status-dot.redirection { background-color: @blue_\(shade); }
-            .status-dot.client-error { background-color: @orange_\(shade); }
-            .status-dot.server-error { background-color: @red_\(shade); }
-            .filter-token { border-radius: 9999px; padding-left: 10px; background-color: alpha(@accent_bg_color, 0.15); }
-            .filter-token button { min-width: 24px; min-height: 24px; padding: 0; }
-            """
-    }
+    private static let css = """
+        .filter-token { border-radius: 9999px; padding-left: 10px; background-color: alpha(@accent_bg_color, 0.15); }
+        .filter-token button { min-width: 24px; min-height: 24px; padding: 0; }
+        """
 }

@@ -157,7 +157,7 @@ enum RequestCells {
             switch look {
             case .failed: Icons.warning
             case .paused: Icons.pause
-            case .encrypted: "channel-secure-symbolic"
+            case .encrypted: Icons.lock
             case .status, .waiting, nil: nil
             }
         if let name {

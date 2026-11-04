@@ -289,7 +289,7 @@ extension SelfCheck {
         let https = model.https
         let host = "127.0.0.1"
         if https.decrypts(host) == true {
-            await https.stopDecrypting(host)
+            await https.setDecrypts(false, host: host)
         }
         let tunnel = try await openTunnel(proxyPort: proxyPort, to: server)
         var isOpen = true
@@ -519,7 +519,7 @@ extension SelfCheck {
         do {
             let port = try present(model.listeningPort, "capturing has no port")
             if model.https.decrypts("127.0.0.1") == true {
-                await model.https.stopDecrypting("127.0.0.1")
+                await model.https.setDecrypts(false, host: "127.0.0.1")
             }
             let tunnel = try await openTunnel(proxyPort: port, to: server)
             defer { close(tunnel) }
