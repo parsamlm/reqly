@@ -94,11 +94,16 @@ extension DetailsPane {
         gtk_text_buffer_set_text(buffer, shown, -1)
         let table = gtk_text_buffer_get_tag_table(buffer)
         // Header names stand out in the text's own color, which is the Mac's color for them;
-        // the notes about bodies are dim, as the Mac's comments are, in light and dark alike.
+        // the notes about bodies are dim, as the code views' comments are, in each style, high
+        // contrast too, and follow it as it changes.
         let names = gtk_text_tag_new("name")!
         set(raw(names), "weight", .int(600))
         let notes = gtk_text_tag_new("note")!
-        set(raw(notes), "foreground", .string("#8E8E93"))
+        let dim: @MainActor () -> Void = { set(raw(notes), "foreground", .string(BodyStyles.css(.comment, .now))) }
+        dim()
+        let manager = adw_style_manager_get_default()
+        connect(raw(manager), "notify::dark", whileAlive: raw(buffer), dim)
+        connect(raw(manager), "notify::high-contrast", whileAlive: raw(buffer), dim)
         for tag in [names, notes] {
             gtk_text_tag_table_add(table, tag)
             g_object_unref(raw(tag))

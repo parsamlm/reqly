@@ -23,7 +23,7 @@ enum BodyStyles {
 
     /// A color of code, as CSS writes it: the Mac's asset's, in light, dark, light with high
     /// contrast and dark with high contrast. Comments are the text's own color, faded, as the
-    /// Mac's are its tertiary label.
+    /// Mac's are its tertiary label, but no fainter than 4.5:1 on code's background.
     static func css(_ color: CodeText.Color?, _ look: Look) -> String {
         let colors: (light: String, dark: String, lightHigh: String, darkHigh: String) =
             switch color {
@@ -31,7 +31,7 @@ enum BodyStyles {
             case .string: ("#AE4F18", "#FFA36E", "#843300", "#FFC6A1")
             case .number: ("#1F5FD1", "#72AAFF", "#0A44AE", "#A9CBFF")
             case .literal: ("#8E3BB5", "#D59CFF", "#6A1A93", "#E3BFFF")
-            case .comment: ("rgba(0,0,0,0.5)", "rgba(255,255,255,0.5)", "rgba(0,0,0,0.7)", "rgba(255,255,255,0.7)")
+            case .comment: ("rgba(0,0,0,0.55)", "rgba(255,255,255,0.5)", "rgba(0,0,0,0.7)", "rgba(255,255,255,0.7)")
             // Punctuation, which is code that has no token.
             case nil: ("#6C6C71", "#9A9AA1", "#4B4B50", "#BDBDC3")
             }

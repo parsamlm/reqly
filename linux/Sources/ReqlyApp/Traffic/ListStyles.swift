@@ -10,12 +10,19 @@ import ReqlyModel
 @MainActor
 enum ListStyles {
     /// One set of colors: the dots' by status class, a failure's, the marks' and how strong a
-    /// mark's tint is.
+    /// mark's tint is, and a mark's stripe where it's darker than its tint, so it stands out from
+    /// the list at 3:1 or more, as a mark shows only by its color.
     struct Palette {
         var statuses: [StatusClass: String]
         var failed: String
         var marks: [MarkColor: String]
         var tint: Double
+        var stripes: [MarkColor: String] = [:]
+
+        /// The stripe of a row marked with `color`.
+        func stripe(_ color: MarkColor) -> String {
+            stripes[color] ?? marks[color] ?? "#77767b"
+        }
     }
 
     static let light = Palette(
@@ -26,7 +33,7 @@ enum ListStyles {
         marks: [
             .red: "#e01b24", .orange: "#ff7800", .yellow: "#f5c211", .green: "#2ec27e", .blue: "#3584e4",
             .purple: "#9141ac", .gray: "#77767b",
-        ], tint: 0.10)
+        ], tint: 0.10, stripes: [.orange: "#c64600", .yellow: "#b07d00", .green: "#1c8f56"])
     static let dark = Palette(
         statuses: [
             .informational: "#9a9996", .success: "#3FDDC0", .redirection: "#62a0ea", .clientError: "#ffa348",
@@ -44,7 +51,7 @@ enum ListStyles {
         marks: [
             .red: "#a51d2d", .orange: "#c64600", .yellow: "#e5a50a", .green: "#26a269", .blue: "#1a5fb4",
             .purple: "#613583", .gray: "#5e5c64",
-        ], tint: 0.16)
+        ], tint: 0.16, stripes: [.yellow: "#9c6e03", .green: "#1c8f56"])
     static let darkContrast = Palette(
         statuses: [
             .informational: "#deddda", .success: "#71F2D8", .redirection: "#99c1f1", .clientError: "#ffbe6f",
@@ -77,11 +84,12 @@ enum ListStyles {
         css += ".request-symbol.failed { color: \(palette.failed); }\n"
         for color in MarkColor.allCases {
             let value = palette.marks[color] ?? "#77767b"
+            let stripe = palette.stripe(color)
             let row = "columnview.requests > listview > row.marked.\(markClass(color))"
             let tint = "alpha(\(value), \(palette.tint))"
             css += "\(row) { background-image: linear-gradient(\(tint), \(tint)); }\n"
-            css += "\(row):dir(ltr) { box-shadow: inset 4px 0 \(value); }\n"
-            css += "\(row):dir(rtl) { box-shadow: inset -4px 0 \(value); }\n"
+            css += "\(row):dir(ltr) { box-shadow: inset 4px 0 \(stripe); }\n"
+            css += "\(row):dir(rtl) { box-shadow: inset -4px 0 \(stripe); }\n"
         }
         return css
     }
