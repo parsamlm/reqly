@@ -157,6 +157,7 @@ extension SelfCheck {
             rawWords.contains { $0.contains("GET /cookies?city=Tehran&days=3 HTTP/1.1\nHost: 127.0.0.1") }
                 && rawWords.contains { $0.contains("Authorization: ••••••••\n") }, "the raw request is \(rawWords)")
         let rawPage = try present(details.contents[.raw], "the Raw page has no box")
+        try await checkTheSecretsLine(rawPage)
         emit(raw(try present(button("Show Them", in: rawPage), "Raw has no Show Them")), "clicked")
         try await until("Show Them to show the secrets", seconds: 3) {
             self.words(in: rawPage).contains { $0.contains("Authorization: Bearer self-check-token") }
@@ -692,6 +693,46 @@ extension SelfCheck {
             "screen readers: the scroller “Request”, \(host?.line.trimmingCharacters(in: .whitespaces) ?? ""), "
                 + "\(show?.line.trimmingCharacters(in: .whitespaces) ?? ""), the path “\(heading?.name ?? "")”")
         try require(heading != nil, "the heading's path isn't named with its method")
+    }
+
+    /// The Raw page's line about its secrets is on one line, with Show Them right after it, once
+    /// the page is wide enough for both, at 1000 pixels, with the details over the list.
+    private func checkTheSecretsLine(_ page: Widget) async throws {
+        let window = window
+        var width: Int32 = 0
+        var height: Int32 = 0
+        gtk_window_get_default_size(cast(window.window), &width, &height)
+        let showsContent = adw_navigation_split_view_get_show_content(window.inner)
+        gtk_window_set_default_size(cast(window.window), 1000, height)
+        try await until("the window to be 1000 pixels wide", seconds: 5) { gtk_widget_get_width(window.window) <= 1000 }
+        window.openDetails()
+        try await until("the details over the list", seconds: 5) { window.detailsAreOver }
+        await settle()
+        let shown = window.details.shown
+        defer {
+            // Back as it was, showing the same request.
+            adw_navigation_split_view_set_show_content(window.inner, showsContent)
+            gtk_window_set_default_size(cast(window.window), width, height)
+        }
+        let text = "Cookies and authorization headers are hidden."
+        let label = try present(
+            descendants(of: page).first {
+                typeName(raw($0)) == "GtkLabel" && string(gtk_label_get_text(cast($0))) == text
+            },
+            "Raw has no line about its secrets")
+        let lines = pango_layout_get_line_count(gtk_label_get_layout(cast(label)))
+        try require(
+            lines == 1,
+            "with the Raw page \(gtk_widget_get_width(page)) px wide, the line about its secrets takes \(lines) lines")
+        note("Raw at 1000 px: the line about its secrets on one line, Show Them after it")
+        adw_navigation_split_view_set_show_content(window.inner, showsContent)
+        gtk_window_set_default_size(cast(window.window), width, height)
+        // GTK keeps the window on the screen, inside the shadow's margin.
+        try await until("the window back to its size", seconds: 5) {
+            let now = gtk_widget_get_width(window.window)
+            return now <= width && now > width - 20 && window.details.shown == shown
+        }
+        await settle()
     }
 
     /// Each of a page's rows is one Tab stop: its value, or a secret's Show. A cookie's row has

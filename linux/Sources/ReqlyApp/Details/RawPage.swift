@@ -39,6 +39,8 @@ extension DetailsPane {
             let words = RawWords.secrets(showing: raw.showsSecrets)
             let line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)!
             let text = DetailsBlocks.note(words.text)
+            // On one line where it fits, Show Them right after it, as on the Mac.
+            gtk_label_set_natural_wrap_mode(cast(text), GTK_NATURAL_WRAP_NONE)
             gtk_widget_set_valign(text, GTK_ALIGN_CENTER)
             let toggle = DetailsBlocks.textButton(words.button)
             gtk_widget_set_valign(toggle, GTK_ALIGN_CENTER)
