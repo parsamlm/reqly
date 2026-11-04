@@ -93,7 +93,7 @@ extension SelfCheck {
                 for (scheme, name) in [(ADW_COLOR_SCHEME_FORCE_LIGHT, "light"), (ADW_COLOR_SCHEME_FORCE_DARK, "dark")] {
                     adw_style_manager_set_color_scheme(manager, scheme)
                     await settle()
-                    _ = try Pictures.own(window.window, to: try picture("list-marked-\(name).png"))
+                    _ = try await ownPicture(window.window, to: try picture("list-marked-\(name).png"))
                 }
                 adw_style_manager_set_color_scheme(manager, runsColorScheme)
             }

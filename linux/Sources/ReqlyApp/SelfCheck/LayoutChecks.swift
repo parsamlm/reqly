@@ -147,7 +147,7 @@ extension SelfCheck {
                 adw_style_manager_set_color_scheme(manager, scheme)
                 await settle()
                 let file = try picture("layout-\(layout.name)-\(style).png")
-                let size = try Pictures.own(window.window, to: file)
+                let size = try await ownPicture(window.window, to: file)
                 pictures.append("\(file.lastPathComponent) (\(size))")
             }
             note("    pictures: \(pictures.joined(separator: ", "))")

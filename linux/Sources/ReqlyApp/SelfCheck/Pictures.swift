@@ -76,6 +76,18 @@ enum Pictures {
 }
 
 extension SelfCheck {
+    /// ``Pictures/own(_:to:)``, tried again over the next frames while `widget` draws nothing, as
+    /// it can for a moment after the style changes, until GTK has laid it out again.
+    func ownPicture(_ widget: Widget, to file: URL) async throws -> Pictures.Size {
+        for _ in 0..<10 {
+            if let size = try? Pictures.own(widget, to: file) {
+                return size
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return try Pictures.own(widget, to: file)
+    }
+
     /// Where a part keeps a picture: `$REQLY_PICTURES`, when it names a folder, as app.sh's
     /// `--pictures` has it, or else the scratch folder, which goes. `name` is the file's, such as
     /// `window-dark.png`.

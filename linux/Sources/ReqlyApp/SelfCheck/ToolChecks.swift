@@ -121,7 +121,7 @@ extension SelfCheck {
     private func checkPictures() async throws {
         await settle()
         let file = try picture("tools-window.png")
-        let size = try Pictures.own(window.window, to: file)
+        let size = try await ownPicture(window.window, to: file)
         let surface = gtk_native_get_surface(cast(window.window))
         let scale = surface.map { gdk_surface_get_scale($0) } ?? 1
         let expected = Pictures.Size(

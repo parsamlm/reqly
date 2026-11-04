@@ -836,7 +836,7 @@ extension SelfCheck {
     private func takePicture(_ name: String, ofTheScreen: Bool = false) async throws {
         await settle()
         let file = try picture(name)
-        let size = ofTheScreen ? try await Pictures.screen(to: file) : try Pictures.own(window.window, to: file)
+        let size = ofTheScreen ? try await Pictures.screen(to: file) : try await ownPicture(window.window, to: file)
         note("    picture: \(name) (\(size))")
     }
 

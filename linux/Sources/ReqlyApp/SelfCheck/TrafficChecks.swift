@@ -135,7 +135,7 @@ extension SelfCheck {
         note("beside the details: columns \(columns.joined(separator: ", ")) px, in the list's \(Int(room)) px")
         try require(needed <= room + 1, "beside the details, the columns need \(Int(needed)) px of \(Int(room))")
         let file = try picture("list-beside-the-details.png")
-        _ = try Pictures.own(window.window, to: file)
+        _ = try await ownPicture(window.window, to: file)
         note("picture: \(file.lastPathComponent)")
     }
 
@@ -243,7 +243,7 @@ extension SelfCheck {
                 colors.append("\(kind.rawValue) \(hex)")
             }
             let file = try picture("list-\(name).png")
-            let size = try Pictures.own(window.window, to: file)
+            let size = try await ownPicture(window.window, to: file)
             pictures.append("\(file.lastPathComponent) (\(size))")
             note("dots in \(name): \(colors.joined(separator: ", "))")
         }

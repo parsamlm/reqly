@@ -661,7 +661,7 @@ extension SelfCheck {
                 _ = try await pageWords(page)
                 await settle()
                 let file = try picture("\(name)-\(page.rawValue)-\(style).png")
-                let size = try Pictures.own(window.window, to: file)
+                let size = try await ownPicture(window.window, to: file)
                 taken.append("\(file.lastPathComponent) (\(size))")
             }
         }
