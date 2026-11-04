@@ -22,8 +22,10 @@ extension SelfCheck {
     /// shows it. Back, then Enter on a request with no comment, the focus is on a widget that
     /// shows, not in the hidden field. GTK warns of nothing meanwhile.
     func checkInspecting() async throws {
-        // Tree, chosen here, isn't for the parts after.
-        defer { BodyView.chosen[.response] = nil }
+        // A body opens in its first mode, whatever the parts before chose, and Tree, chosen here,
+        // isn't for the parts after.
+        BodyView.chosen = [:]
+        defer { BodyView.chosen = [:] }
         let session = try await emptyTheList()
         let traffic = try await startTraffic()
         defer { traffic.server.stop() }
@@ -48,18 +50,10 @@ extension SelfCheck {
         try await resize(to: 1000)
 
         try await focusRow(ids[0])
+        try await giveTheWindowTheKeyboard()
         try FakeInput.press("Return", in: window.window)
-        do {
-            try await until("Enter to show the request over the list", seconds: 3) {
-                window.detailsAreOver && details.shown == ids[0]
-            }
-        } catch {
-            let shown = details.shown.map { "#\($0.rawValue)" } ?? "nothing"
-            throw Failure(
-                "Enter on #\(ids[0].rawValue)'s row: the details show \(shown), "
-                    + (adw_navigation_split_view_get_collapsed(window.inner) != 0 ? "folded" : "beside the list")
-                    + (window.detailsAreOver ? ", over the list" : "") + ", the focus in the \(pane(of: focusWidget)), "
-                    + "the window \(gtk_window_is_active(cast(window.window)) != 0 ? "active" : "inactive")")
+        try await until("Enter to show the request over the list", seconds: 3) {
+            window.detailsAreOver && details.shown == ids[0]
         }
         await settle()
         try FakeInput.press("Control_L", "3", in: window.window)
@@ -399,6 +393,40 @@ extension SelfCheck {
             try? await Task.sleep(for: .milliseconds(10))
         }
         throw Failure("the \(count) requests didn't finish")
+    }
+
+    /// Gives the window X's keyboard, and waits until it hears a key: the part before may have
+    /// closed a window of its own, which had it, and a key pressed as X gives it back can be lost.
+    private func giveTheWindowTheKeyboard() async throws {
+        let window = window.window
+        var heard = 0
+        let keys = gtk_event_controller_key_new()!
+        gtk_event_controller_set_propagation_phase(cast(keys), GTK_PHASE_CAPTURE)
+        connect(keys, "key-pressed") { heard += 1 }
+        gtk_widget_add_controller(window, cast(keys))
+        defer { gtk_widget_remove_controller(window, cast(keys)) }
+        for _ in 0..<16 where heard == 0 {
+            // Shift on its own does nothing in the window.
+            try FakeInput.press("Shift_L", in: window)
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        guard heard == 0 else { return }
+        var windows: [String] = []
+        let toplevels = gtk_window_get_toplevels()!
+        for index in 0..<g_list_model_get_n_items(toplevels) {
+            guard let item = g_list_model_get_item(toplevels, index) else { continue }
+            let widget: Widget = cast(item)
+            // A message dialog's title is its text.
+            let title = string(gtk_window_get_title(cast(widget))) ?? stringProperty(raw(widget), "text") ?? ""
+            let state = [
+                gtk_widget_get_mapped(widget) != 0 ? "shows" : "hidden",
+                gtk_window_get_modal(cast(widget)) != 0 ? "modal" : nil,
+                gtk_window_is_active(cast(widget)) != 0 ? "active" : nil,
+            ]
+            windows.append("\(typeName(raw(widget))) “\(title)”, \(state.compactMap { $0 }.joined(separator: ", "))")
+            g_object_unref(item)
+        }
+        throw Failure("the window hears no keys; the windows: \(windows.joined(separator: "; "))")
     }
 
     /// `id`'s row, selected, with the keyboard's focus, and the details beside the list or gone back.
