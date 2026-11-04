@@ -353,6 +353,9 @@ struct ProxyClient: Sendable {
 final class HTTPWire {
     let socket: Int32
     private var buffer: [UInt8] = []
+    /// What each read takes in, before the buffer has it: one for the connection, rather than a
+    /// new one for every read, which malloc would keep in this thread's arena once it's freed.
+    private var chunk = [UInt8](repeating: 0, count: 64 << 10)
     /// Whether the other end has closed.
     private(set) var isClosed = false
 
@@ -462,8 +465,7 @@ final class HTTPWire {
 
     /// Reads what's arrived into the buffer, and says whether anything did.
     private func fill() -> Bool {
-        var chunk = [UInt8](repeating: 0, count: 64 << 10)
-        let count = recv(socket, &chunk, chunk.count, 0)
+        let count = chunk.withUnsafeMutableBytes { recv(socket, $0.baseAddress, $0.count, 0) }
         guard count > 0 else {
             isClosed = true
             return false

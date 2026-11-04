@@ -64,10 +64,18 @@ extension MainWindow {
         search.open()
     }
 
-    /// Ctrl+K: Clear Traffic, which keeps pinned requests.
+    /// Ctrl+K: Clear Traffic, which keeps pinned requests. A second after, once the list has let
+    /// go of its rows too, what the requests took goes back to the system, away from the window's
+    /// thread, rather than staying with malloc.
     func clear() {
         guard visibleDialog(over: window) == nil, let session = model.session else { return }
-        Task { await session.clear() }
+        Task {
+            await session.clear()
+            timeout(1_000) {
+                Task.detached(priority: .background) { Malloc.trim() }
+                return false
+            }
+        }
     }
 
     /// Ctrl+R: starts or stops capturing, as the switch does, when it can.

@@ -532,7 +532,7 @@ private final class SpeedMeter {
         try await Task.sleep(for: .seconds(5))
         let later = SpeedLine(step: "Memory, 5 s after Clear", memory: .now())
         // What malloc keeps for later, apart from what's still in use.
-        guard Memory.trim() else { return [line, later] }
+        guard Malloc.trim() else { return [line, later] }
         return [line, later, SpeedLine(step: "Memory, then malloc_trim(0)", memory: .now())]
     }
 
@@ -1043,15 +1043,6 @@ private struct Memory: CustomStringConvertible {
             return Int(line.split(separator: " ", omittingEmptySubsequences: true).dropFirst().first ?? "") ?? 0
         }
         return Memory(resident: kilobytes("VmRSS"), peak: kilobytes("VmHWM"), anonymous: kilobytes("RssAnon"))
-    }
-
-    /// Gives malloc's free memory back to the system, as `malloc_trim(0)` does, so what stays
-    /// resident after is memory still in use, not memory malloc keeps for later.
-    static func trim() -> Bool {
-        typealias Trim = @convention(c) (Int) -> Int32
-        guard let trim = Newer.lookup("malloc_trim", as: Trim.self) else { return false }
-        _ = trim(0)
-        return true
     }
 
     var description: String {
