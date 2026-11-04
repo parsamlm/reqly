@@ -721,13 +721,20 @@ final class RequestList {
         widths[column] = Double(gtk_column_view_column_get_fixed_width(viewColumn)) / sp
     }
 
-    /// The room a column's widest words take in the window's font, its title's too, with the
-    /// cell's padding, libadwaita's 6 pixels at each side, and a pixel at each for rounding.
+    /// The room a column's widest words take in the window's font, or a monospace one for the
+    /// method's, its title's too, with the cell's padding, libadwaita's 6 pixels at each side,
+    /// and a pixel at each for rounding.
     private func fitting(_ column: Column) -> Int32 {
         let (words, beside) = column.widest
+        let font = pango_font_description_copy(pango_context_get_font_description(gtk_widget_get_pango_context(view)))
+        defer { pango_font_description_free(font) }
+        pango_font_description_set_family(font, "monospace")
         var widest: Int32 = 0
         for text in words + [column.title] {
             guard let layout = gtk_widget_create_pango_layout(view, text) else { continue }
+            if column == .method, text != column.title {
+                pango_layout_set_font_description(layout, font)
+            }
             var width: Int32 = 0
             pango_layout_get_pixel_size(layout, &width, nil)
             g_object_unref(raw(layout))

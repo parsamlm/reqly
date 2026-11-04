@@ -9,7 +9,8 @@ import ReqlyModel
 ///
 /// - Status: a symbol, for a request that failed, paused, or an encrypted connection, or a dot in
 ///   the status class's color, or a dotted circle while there's no response, then the code.
-/// - Method, Time, Duration and Size: their words, Duration and Size at the end.
+/// - Method, Time, Duration and Size: their words, dimmed, the method in a monospace font, and
+///   Duration and Size at the end.
 /// - Request: the host, then the path dimmed, and a pin and a speech bubble for a request that's
 ///   pinned or has a comment, the comment as the cell's tooltip.
 /// - App: the app's icon and its name, dimmed.
@@ -133,8 +134,12 @@ enum RequestCells {
         if [.status, .time, .duration, .size].contains(column) {
             gtk_widget_add_css_class(words, "numeric")
         }
-        if column == .method || column == .app {
+        // Only the status and the host are in the text's own color, and the method is code.
+        if [.method, .app, .time, .duration, .size].contains(column) {
             gtk_widget_add_css_class(words, "dim-label")
+        }
+        if column == .method {
+            gtk_widget_add_css_class(words, "monospace")
         }
         return words
     }

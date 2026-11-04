@@ -190,6 +190,30 @@ extension SelfCheck {
         note("picture: \(file.lastPathComponent)")
     }
 
+    /// A row's cells in the Mac's colors: the status in the text's own, the method, app, time,
+    /// duration and size dimmed, and the method in a monospace font, which its column fits.
+    private func checkCellsColors(of id: ExchangeID, _ list: RequestList, kind: String) throws {
+        for column in RequestList.Column.allCases where column != .request {
+            let cell = try present(list.cell(column, of: id), "the \(kind) row has no \(column.rawValue) cell")
+            let words = try present(
+                column == .status || column == .app ? gtk_widget_get_last_child(cell) : cell,
+                "the \(kind) row's \(column.title) has no words")
+            let isDim = gtk_widget_has_css_class(words, "dim-label") != 0
+            try require(
+                isDim == (column != .status), "the \(kind) row's \(column.title) is \(isDim ? "" : "not ")dimmed")
+        }
+        let method = try present(list.cell(.method, of: id), "the \(kind) row has no Method cell")
+        try require(gtk_widget_has_css_class(method, "monospace") != 0, "the \(kind) row's method isn't monospace")
+        let text = string(gtk_inscription_get_text(cast(method))) ?? ""
+        let layout = try present(gtk_widget_create_pango_layout(method, text), "the method can't be measured")
+        defer { g_object_unref(raw(layout)) }
+        var width: Int32 = 0
+        pango_layout_get_pixel_size(layout, &width, nil)
+        try require(
+            width <= gtk_widget_get_width(method),
+            "the \(kind) row's method, \(text), needs \(width) px of \(gtk_widget_get_width(method))")
+    }
+
     /// A row's cells, each saying what the row's words say, and its status's dot or symbol.
     private func checkCells(of id: ExchangeID, _ list: RequestList, kind: String) throws {
         let text = try present(list.text(of: id), "the \(kind) row has no words")
@@ -210,6 +234,7 @@ extension SelfCheck {
             try require(words == expected, "the \(kind) row's \(column.title) says “\(words)”, not “\(expected)”")
             said.append(words)
         }
+        try checkCellsColors(of: id, list, kind: kind)
         let status = try present(list.cell(.status, of: id), "no status cell")
         let symbol = try present(gtk_widget_get_first_child(status), "no symbol")
         let dot = try present(gtk_widget_get_next_sibling(symbol), "no dot")
