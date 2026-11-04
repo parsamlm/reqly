@@ -322,13 +322,16 @@ private final class SpeedMeter {
             }
             return monotonicMicroseconds()
         } catch {
-            unfollowed.append("\(step), at \(list.showsEnd() ? "" : "not ")its end")
+            unfollowed.append("\(step), the list \(list.showsEnd() ? "at" : "not at") its end")
             let adjustment = try check.present(
                 gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
-            gtk_adjustment_set_value(
-                adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+            // As the list goes to its end: GTK places the rows it hasn't laid out by a guess at
+            // their height, so the end moves as it lays them out.
+            gtk_column_view_scroll_to(cast(list.view), UInt32(list.count - 1), nil, GTK_LIST_SCROLL_NONE, nil)
             try await check.until("the newest row to show once the list is at its end", seconds: 10) {
-                list.isSettled && check.rowShows(newest)
+                gtk_adjustment_set_value(
+                    adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+                return list.isSettled && check.rowShows(newest)
             }
             return nil
         }
