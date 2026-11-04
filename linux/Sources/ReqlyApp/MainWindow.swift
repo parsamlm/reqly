@@ -249,6 +249,7 @@ final class MainWindow {
         connect(outer, "notify::collapsed") { [weak self] in self?.sidebarChanged() }
         connect(inner, "notify::show-content") { [weak self] in self?.detailsChanged() }
         connect(raw(search.widget), "notify::search-mode-enabled") { [weak self] in self?.searchChanged() }
+        connect(window, "notify::focus-widget") { [weak self] in self?.forgetOldFocus() }
         list.onSelection = { [weak self] id in self?.details.show(id) }
         list.onActivate = { [weak self] _ in self?.openDetails() }
         list.onRows = { [weak self] in self?.rowsChanged() }
@@ -450,6 +451,21 @@ final class MainWindow {
             }
         } else if isInSidebar || isLost {
             focusContent()
+        }
+    }
+
+    /// Forgets where the keyboard's focus was in each pane it has left. GTK keeps that while the
+    /// widget that had it stays, and when that widget goes, as a row does when the list is
+    /// cleared, Tab into the pane starts after where it was, so the list's header bar couldn't be
+    /// reached from the sidebar.
+    private func forgetOldFocus() {
+        let focus = gtk_root_get_focus(cast(window))
+        for pane in [sidebarPane, listPane, details.widget] where !(focus.map { isInside($0, pane) } ?? false) {
+            var widget: Widget? = pane
+            while let current = widget, let child = gtk_widget_get_focus_child(current) {
+                gtk_widget_set_focus_child(current, nil)
+                widget = child
+            }
         }
     }
 

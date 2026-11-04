@@ -161,7 +161,8 @@ extension SelfCheck {
     /// narrow. A click on the capture switch gives it the focus, as it starts and stops capturing.
     /// At 1000 pixels, Enter on a row shows the details over the list, and screen readers hear
     /// "Details". At 1280 pixels, a body fits the details in each of its modes, and every scroller,
-    /// and every button, has a name for screen readers. Then two copies of Reqly: with an empty
+    /// and every button, has a name for screen readers. Once Ctrl+K has cleared a focused row, Tab
+    /// from the sidebar still reaches the list's header bar. Then two copies of Reqly: with an empty
     /// session, the first focus is the capture switch; with the session the Mac saved, the list,
     /// once its requests show. In a copy, this part checks only that.
     func checkKeyboard() async throws {
@@ -181,6 +182,7 @@ extension SelfCheck {
                 try await self.checkTheCaptureSwitchsClick()
                 try await self.checkTheDetailsHeard(ids)
                 try await self.checkTheNames(ids)
+                try await self.checkTabAfterClear(ids)
             }
         } catch {
             await putTheWindowBack(size)
@@ -356,6 +358,26 @@ extension SelfCheck {
             nameless.isEmpty, "\(nameless.count) of \(buttons.count) buttons have no name: \(nameless.prefix(5))")
         note("buttons: all \(buttons.count) named")
         window.details.show(page: .overview)
+    }
+
+    /// With the keyboard's focus on a row, Ctrl+K clears the list, and the row goes; Tab from the
+    /// sidebar still reaches the list's header bar next.
+    private func checkTabAfterClear(_ ids: [ExchangeID]) async throws {
+        let window = window
+        try await focusRow(ids[0])
+        try FakeInput.press("Control_L", "k", in: window.window)
+        try await until("Ctrl+K to clear the list", seconds: 5) { window.list.count == 0 }
+        await settle()
+        try require(window.sidebar.focus(), "the sidebar doesn't take the focus")
+        await settle()
+        try FakeInput.press("Tab", in: window.window)
+        try await until("Tab to leave the sidebar", seconds: 3) {
+            self.focusWidget.map { !window.isInside($0, window.sidebarPane) } ?? false
+        }
+        try require(
+            pane(of: focusWidget) == "list's header bar",
+            "after the list was cleared, Tab from the sidebar went to the \(pane(of: focusWidget))")
+        note("Ctrl+K with a row focused, then Tab from the sidebar: the list's header bar")
     }
 
     // MARK: - What they share
