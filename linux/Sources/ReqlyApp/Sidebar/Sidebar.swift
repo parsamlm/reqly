@@ -103,7 +103,7 @@ final class Sidebar {
         // Tab leaves the list, rather than going through every row.
         gtk_list_view_set_tab_behavior(cast(view), GTK_LIST_TAB_ITEM)
         setAccessibleLabel(view, "Sidebar")
-        let scroller = gtk_scrolled_window_new()!
+        let scroller = namedScroller("Sidebar")
         gtk_scrolled_window_set_policy(cast(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC)
         gtk_scrolled_window_set_child(cast(scroller), view)
         gtk_widget_set_vexpand(scroller, 1)

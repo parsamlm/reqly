@@ -201,12 +201,6 @@ enum RequestCells {
     /// A widget of `type` that screen readers skip, as an icon whose meaning the row's words say:
     /// its role is none, which GTK takes only as it's made.
     private static func unreadWidget(_ type: GType) -> Widget {
-        var role = GValue()
-        g_value_init(&role, gtk_accessible_role_get_type())
-        g_value_set_enum(&role, Int32(GTK_ACCESSIBLE_ROLE_NONE.rawValue))
-        defer { g_value_unset(&role) }
-        var name: UnsafePointer<CChar>? = UnsafePointer(strdup("accessible-role"))
-        defer { free(UnsafeMutableRawPointer(mutating: name)) }
-        return cast(g_object_new_with_properties(type, 1, &name, &role))
+        makeWidget(type, role: GTK_ACCESSIBLE_ROLE_NONE)
     }
 }

@@ -144,20 +144,10 @@ enum DetailsBlocks {
         return button
     }
 
-    /// A scroller that scrolls up and down, which screen readers can call by a name, as GTK 4.14
-    /// lets them only with a role other than its own, which takes no name. It still reads as a
-    /// scroll pane.
+    /// A page's scroller, which scrolls up and down, and which screen readers call by its name.
     static func scroller(named name: String) -> Widget {
-        var role = GValue()
-        g_value_init(&role, gtk_accessible_role_get_type())
-        g_value_set_enum(&role, Int32(GTK_ACCESSIBLE_ROLE_GROUP.rawValue))
-        defer { g_value_unset(&role) }
-        let made = withCStrings(["accessible-role"]) {
-            g_object_new_with_properties(gtk_scrolled_window_get_type(), 1, UnsafeMutablePointer(mutating: $0), &role)
-        }
-        let scroller: Widget = cast(UnsafeMutableRawPointer(made))
+        let scroller = namedScroller(name)
         gtk_scrolled_window_set_policy(cast(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC)
-        setAccessibleLabel(scroller, name)
         return scroller
     }
 

@@ -57,12 +57,11 @@ final class CodeView {
         gtk_source_view_set_show_line_numbers(cast(view), 1)
         setAccessibleLabel(view, label)
 
-        widget = gtk_scrolled_window_new()
+        widget = namedScroller(label)
         g_object_ref_sink(raw(widget))
         gtk_scrolled_window_set_child(cast(widget), view)
         gtk_widget_add_css_class(widget, "card")
         gtk_widget_set_overflow(widget, GTK_OVERFLOW_HIDDEN)
-        setAccessibleLabel(widget, label)
         if fillsItsOwn {
             gtk_scrolled_window_set_policy(
                 cast(widget), text.wraps ? GTK_POLICY_NEVER : GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC)

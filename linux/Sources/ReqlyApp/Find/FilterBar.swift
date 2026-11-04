@@ -142,7 +142,7 @@ final class FilterBar {
         gtk_popover_set_child(cast(popover), content)
         gtk_menu_button_set_popover(cast(filtersButton), popover)
 
-        widget = gtk_scrolled_window_new()
+        widget = namedScroller("Filters")
         gtk_scrolled_window_set_policy(cast(widget), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER)
         gtk_scrolled_window_set_propagate_natural_width(cast(widget), 1)
         gtk_scrolled_window_set_propagate_natural_height(cast(widget), 1)

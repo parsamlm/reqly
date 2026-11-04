@@ -89,3 +89,28 @@ public func announce(
 ) {
     gtk_accessible_announce(cast(widget), message, priority)
 }
+
+/// A new widget of `type` with the accessible role `role`, which GTK sets only as a widget is
+/// made, such as GTK_ACCESSIBLE_ROLE_NONE for an icon screen readers skip, as the words beside it
+/// say what it means. Floating, as any new widget is.
+@MainActor
+public func makeWidget(_ type: GType, role: GtkAccessibleRole) -> Widget {
+    var value = GValue()
+    g_value_init(&value, gtk_accessible_role_get_type())
+    g_value_set_enum(&value, Int32(role.rawValue))
+    defer { g_value_unset(&value) }
+    let made = withCStrings(["accessible-role"]) {
+        g_object_new_with_properties(type, 1, UnsafeMutablePointer(mutating: $0), &value)
+    }
+    return cast(UnsafeMutableRawPointer(made))
+}
+
+/// A new scrolled window that screen readers call `name`, such as a page's title. GTK 4.14 gives
+/// a scrolled window a role that takes no name, so screen readers heard an unnamed "scroll pane";
+/// this one's role is a group's, which AT-SPI still calls a scroll pane, with its name.
+@MainActor
+public func namedScroller(_ name: String) -> Widget {
+    let scroller = makeWidget(gtk_scrolled_window_get_type(), role: GTK_ACCESSIBLE_ROLE_GROUP)
+    setAccessibleLabel(scroller, name)
+    return scroller
+}

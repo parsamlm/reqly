@@ -162,7 +162,7 @@ final class RequestList {
         gtk_column_view_set_tab_behavior(cast(view), GTK_LIST_TAB_ITEM)
         setAccessibleLabel(view, "Requests")
         menu = RowMenu(on: view)
-        scroller = gtk_scrolled_window_new()
+        scroller = namedScroller("Requests")
         gtk_scrolled_window_set_child(cast(scroller), view)
         empty = adw_status_page_new()
         adw_status_page_set_icon_name(cast(empty), "network-transmit-receive-symbolic")
