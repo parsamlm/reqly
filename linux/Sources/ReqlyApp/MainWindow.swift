@@ -290,9 +290,12 @@ final class MainWindow {
         gtk_window_present(cast(window))
     }
 
-    /// Shows a short message at the bottom of the window, which goes by itself.
+    /// Shows a short message at the bottom of the window, which goes by itself: plain text, not
+    /// Pango markup, since it may hold a path or a message.
     func toast(_ text: String) {
-        adw_toast_overlay_add_toast(cast(toasts), adw_toast_new(text))
+        let toast = adw_toast_new(text)
+        adw_toast_set_use_markup(toast, 0)
+        adw_toast_overlay_add_toast(cast(toasts), toast)
     }
 
     /// A button that opens the main menu, `menu`.

@@ -395,10 +395,14 @@ final class BodyView {
         return gdk_texture_new_from_bytes(bytes, nil).map { cast($0) }
     }
 
-    /// Says `words` at the bottom of the window, as a toast, such as "Copied".
+    /// Says `words` at the bottom of the window, as a toast, such as "Copied": plain text, not
+    /// Pango markup, since they may hold a path or a message.
     private func say(_ words: String) {
-        guard let overlay = gtk_widget_get_ancestor(widget, adw_toast_overlay_get_type()) else { return }
-        adw_toast_overlay_add_toast(cast(overlay), adw_toast_new(words))
+        guard let overlay = gtk_widget_get_ancestor(widget, adw_toast_overlay_get_type()),
+            let toast = adw_toast_new(words)
+        else { return }
+        adw_toast_set_use_markup(toast, 0)
+        adw_toast_overlay_add_toast(cast(overlay), toast)
     }
 }
 

@@ -35,6 +35,7 @@ extension SelfCheck {
         defer { page.close() }
         func id(_ name: String) throws -> ExchangeID { try present(sent[name], "the \(name) request has no exchange") }
 
+        try await checkAToastsWords(try id("image"), on: page)
         try await checkJSONBody(try id("json"), on: page)
         try await checkTextBodies(sent, on: page)
         try await checkForms(try id("form"), try id("multipart"), on: page)
@@ -514,6 +515,26 @@ extension SelfCheck {
             note("    GTK said “\(said)” as the file dialog closed; closed it")
             gtk_window_destroy(cast(left))
         }
+    }
+
+    /// A toast says a path you chose as it is, though its & and < would be Pango markup's. First,
+    /// as one toast shows at a time, and the others wait.
+    private func checkAToastsWords(_ id: ExchangeID, on page: BodyPage) async throws {
+        let view = try await show(id, .response, on: page)
+        let preview = try present(view.views[.preview] as? PreviewView, "Preview shows no picture")
+        let words = "Reqly couldn't save the image to /tmp/R&D <draft>/map.png."
+        let lines = try await standardError {
+            preview.onSay?(words)
+            await page.settle()
+        }.lines
+        let said = descendants(of: page.window).filter { typeName(raw($0)) == "AdwToastWidget" }
+            .flatMap { descendants(of: $0) }.filter { typeName(raw($0)) == "GtkLabel" }
+            .compactMap { string(gtk_label_get_text(cast($0))) }
+        let warnings = lines.filter { $0.contains("-WARNING") || $0.contains("-CRITICAL") }
+        try require(
+            said.contains(words) && warnings.isEmpty,
+            "the toast says \(said), and GTK warned \(warnings.prefix(2).joined(separator: " | "))")
+        note("a toast says “\(words)” as it is")
     }
 
     /// The windows that show now.
