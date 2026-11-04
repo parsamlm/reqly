@@ -17,8 +17,9 @@ import ReqlyModel
 /// chosen page stays for the next request.
 ///
 /// The pane reads the request's details as you choose it, and again whenever its row changes, as
-/// a live request's does, but not when only its pin, color or comment does: those come from the
-/// session's list, whose copy is the latest. A page is built as it shows, and again only when
+/// a live request's does, or each half second it's live and nothing else read it, as for one no
+/// row shows, but not when only its pin, color or comment does: those come from the session's
+/// list, whose copy is the latest. A page is built as it shows, and again only when
 /// what it shows changes, keeping where it was scrolled to, and the focus.
 @MainActor
 final class DetailsPane {
@@ -130,6 +131,10 @@ final class DetailsPane {
     private var generation = 0
     private var isReading = false
     private var readsAgain = false
+    /// When the pane last read the request, and the timer that reads a live request again while
+    /// nothing else has for a while.
+    private var lastRead = 0
+    private var liveTimer: UInt32?
 
     init(model: AppModel) {
         self.model = model
@@ -294,6 +299,10 @@ final class DetailsPane {
         saveComment()
         shown = id
         generation += 1
+        if let liveTimer {
+            g_source_remove(liveTimer)
+            self.liveTimer = nil
+        }
         summary = nil
         details = nil
         built = [:]
@@ -341,6 +350,7 @@ final class DetailsPane {
         }
         isReading = true
         readsAgain = false
+        lastRead = monotonicMicroseconds()
         let generation = generation
         let before = details == nil ? nil : summary
         Task { [weak self] in
@@ -367,6 +377,7 @@ final class DetailsPane {
         if let read {
             details = read
         }
+        followLive()
         guard let details else { return }
         headingView.show(
             DetailsHeading(summary, reason: details.exchange.response?.reason, grpc: details.grpc),
@@ -379,6 +390,25 @@ final class DetailsPane {
         }
         updateActions()
         refresh(visiblePage)
+    }
+
+    /// While the request is live, it's read again each half second nothing else has read it, as
+    /// rows events say nothing of one no row shows, such as one the sidebar's scope or a search
+    /// hides.
+    private func followLive() {
+        let isLive = summary?.state.isFinished == false
+        if !isLive, let liveTimer {
+            g_source_remove(liveTimer)
+            self.liveTimer = nil
+        }
+        guard isLive, liveTimer == nil else { return }
+        liveTimer = timeout(500) { [weak self] in
+            guard let self else { return false }
+            if monotonicMicroseconds() - lastRead >= 450_000 {
+                read()
+            }
+            return true
+        }
     }
 
     /// Whether a rows event's step is about `id`'s row.

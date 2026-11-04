@@ -426,6 +426,33 @@ extension SelfCheck {
         try require(!done.contains("In progress"), "the finished request's Timing still says In progress")
         try require(details.reads > reads, "the details weren't read again as the request finished")
         note("live: “\(waiting.last ?? "")”, then “\(words(in: details.heading).last ?? "")”, read again")
+        try await checkAHiddenLiveRequest(client, server: server, session: session)
+    }
+
+    /// A slow request, chosen while it waits, then hidden by a search that finds nothing, so no
+    /// row changes as it ends: the details follow it to its end all the same.
+    private func checkAHiddenLiveRequest(_ client: ProxyClient, server: TestServer, session: SessionHost) async throws {
+        let details = window.details
+        let list = window.list
+        let search = window.search
+        let slow = Task { try await client.send(server.url(.slow, "ms=1500&hidden")) }
+        let id = try await newest(session) { $0.path == "/slow" && $0.port == server.port && !$0.state.isFinished }
+        try await open(id)
+        try await until("the details to read the waiting request", seconds: 3) { details.summary != nil }
+        search.open()
+        defer { search.close() }
+        gtk_editable_set_text(cast(search.entry), "zzqx")
+        try await until("the search to find nothing", seconds: 5) {
+            search.query == "zzqx" && list.count == 0 && list.isSettled
+        }
+        try require(
+            details.shown == id && details.summary?.state.isFinished == false,
+            "the hidden request isn't shown in progress")
+        _ = try await slow.value
+        try await until("the details to follow the hidden request to its end", seconds: 5) {
+            details.summary?.state == .completed && self.words(in: details.heading).contains("200")
+        }
+        note("live and hidden by a search: the details follow it to “\(words(in: details.heading).last ?? "")”")
     }
 
     // MARK: - The Mac's session
