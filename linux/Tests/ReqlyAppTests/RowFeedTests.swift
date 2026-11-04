@@ -119,6 +119,28 @@ import Testing
         #expect(!following.hasUnrevealed)
     }
 
+    @Test func stopsAsYouScrollUp() {
+        var following = Following()
+        var result: Following.Reveal
+        var follows: Bool
+        following.begin(showsEnd: true)
+        result = following.end(inserted: 1, isDone: true, isResetting: false, now: 0)
+        #expect(result == .now)
+        following.begin(showsEnd: true)
+        result = following.end(inserted: 1, isDone: true, isResetting: false, now: 50_000)
+        #expect(result == .after(milliseconds: 50))
+        // Scrolled up before the newest row's turn: it stays where you scrolled to.
+        following.stop()
+        #expect(!following.isFollowing && !following.hasUnrevealed)
+        result = following.reveal(isDone: true, isResetting: false, now: 100_000)
+        #expect(result == .none)
+        follows = following.begin(showsEnd: false)
+        #expect(!follows)
+        // Back at its end, it follows again.
+        follows = following.begin(showsEnd: true)
+        #expect(follows)
+    }
+
     @Test func doesntFollowAListScrolledUp() {
         var following = Following()
         let follows = following.begin(showsEnd: false)

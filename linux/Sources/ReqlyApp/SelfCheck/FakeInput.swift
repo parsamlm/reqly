@@ -32,6 +32,30 @@ enum FakeInput {
     @discardableResult
     static func click(_ widget: Widget, button: UInt32 = 1) throws -> (x: Int32, y: Int32) {
         let x = try X.shared()
+        let (rootX, rootY) = try middle(of: widget, x)
+        // A moment apart, as a hand would, so GTK sees a click rather than a press and a release.
+        _ = x.fakeMotion(x.display, -1, rootX, rootY, 0)
+        _ = x.fakeButton(x.display, button, 1, 20)
+        _ = x.fakeButton(x.display, button, 0, 50)
+        _ = x.flush(x.display)
+        return (rootX, rootY)
+    }
+
+    /// Turns the wheel up `notches` over the middle of `widget`, which shows, at once: X's button
+    /// 4, pressed and let go each notch.
+    static func scrollUp(_ widget: Widget, notches: Int) throws {
+        let x = try X.shared()
+        let (rootX, rootY) = try middle(of: widget, x)
+        _ = x.fakeMotion(x.display, -1, rootX, rootY, 0)
+        for _ in 0..<notches {
+            _ = x.fakeButton(x.display, 4, 1, 0)
+            _ = x.fakeButton(x.display, 4, 0, 0)
+        }
+        _ = x.flush(x.display)
+    }
+
+    /// The middle of `widget`, which shows, on the screen.
+    private static func middle(of widget: Widget, _ x: X) throws -> (x: Int32, y: Int32) {
         guard let native = gtk_widget_get_native(widget), let surface = gtk_native_get_surface(native) else {
             throw SelfCheck.Failure("\(typeName(raw(widget))) doesn't show, so it can't be clicked")
         }
@@ -52,11 +76,6 @@ enum FakeInput {
         _ = x.translate(
             x.display, try x.window(of: cast(native)), x.root(x.display), Int32((Double(inWindow.x) + left) * scale),
             Int32((Double(inWindow.y) + top) * scale), &rootX, &rootY, &child)
-        // A moment apart, as a hand would, so GTK sees a click rather than a press and a release.
-        _ = x.fakeMotion(x.display, -1, rootX, rootY, 0)
-        _ = x.fakeButton(x.display, button, 1, 20)
-        _ = x.fakeButton(x.display, button, 0, 50)
-        _ = x.flush(x.display)
         return (rootX, rootY)
     }
 }

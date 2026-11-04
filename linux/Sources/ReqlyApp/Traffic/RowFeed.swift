@@ -96,6 +96,13 @@ struct Following {
         return reveal(isDone: isDone, isResetting: isResetting, now: now)
     }
 
+    /// Stops following at once, as you scroll up: a newest row still to show stays where it is.
+    /// Back at its end, the list follows the next change.
+    mutating func stop() {
+        isFollowing = false
+        hasUnrevealed = false
+    }
+
     /// Whether to show the newest row now, as after waiting for the time between reveals to pass.
     mutating func reveal(isDone: Bool, isResetting: Bool, now: Int) -> Reveal {
         guard hasUnrevealed, !isResetting else { return .none }

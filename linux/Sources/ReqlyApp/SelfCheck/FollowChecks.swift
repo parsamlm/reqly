@@ -66,6 +66,7 @@ extension SelfCheck {
         try await follower.send(1)
         note("back at its end: \(follower.said.joined(separator: "; "))")
         follower.said = []
+        try await checkScrollingUpBeforeAReveal(&follower)
 
         // 10,000 in one burst, as fast as Reqly answers. The window keeps answering meanwhile:
         // far from the speed part's numbers, but a row's cells that cost too much show here.
@@ -110,6 +111,56 @@ extension SelfCheck {
         try require(
             list.reveals - revealsBefore == 1, "the list showed its newest row \(list.reveals - revealsBefore) times")
         try await checkKeepingTheSelection(session, &follower)
+    }
+
+    /// The wheel, turned up while the newest row waits to show, as rows came within 100 ms of
+    /// the last it showed, here as a search for the newest request ends just after its row
+    /// showed: the list doesn't go to the newest row once it's time. Then at its end, it follows
+    /// again.
+    private func checkScrollingUpBeforeAReveal(_ follower: inout Follower) async throws {
+        let list = window.list
+        let session = try await session()
+        let adjustment = try present(gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
+        var tries = 0
+        var reveals: Int?
+        while reveals == nil, tries < 5 {
+            tries += 1
+            await session.setSearch("n=\(follower.newest.rawValue + 1)")
+            try await until("the search to leave no rows", seconds: 5) { list.count == 0 && list.isSettled }
+            let before = list.reveals
+            try await follower.sendOnly()
+            let shown = monotonicMicroseconds() + 2_000_000
+            while list.reveals == before, monotonicMicroseconds() < shown {
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            await session.setSearch("")
+            let deadline = monotonicMicroseconds() + 150_000
+            while reveals == nil, monotonicMicroseconds() < deadline {
+                // Long enough before the reveal for the wheel to reach the window first.
+                if let due = list.revealDue, due - monotonicMicroseconds() >= 20_000 {
+                    try FakeInput.scrollUp(list.view, notches: 5)
+                    reveals = list.reveals
+                }
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            try await until("every row to be back", seconds: 10) { list.isSettled }
+            if reveals == nil {
+                try await follower.waitForNewest("a search that ended")
+            }
+        }
+        let scrolled = try present(reveals, "in \(tries) tries, the newest row never waited its turn to show")
+        await settle()
+        // GTK may keep the rows it's laying out where they were, wheel or not, but the list
+        // doesn't go to its newest row.
+        try require(
+            list.reveals == scrolled && list.revealDue == nil,
+            "scrolled up before the newest row showed, the list showed it \(list.reveals - scrolled) times")
+        note("the wheel, turned up as the newest row waited to show (try \(tries)): the list doesn't go to it")
+        gtk_adjustment_set_value(
+            adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+        await settle()
+        try await follower.send(1)
+        follower.said = []
     }
 
     /// The selection stays with its request through a burst, through a search that hides its
@@ -270,6 +321,13 @@ private struct Follower {
         let sent = (answered - started) / 1000
         let shown = (monotonicMicroseconds() - answered) / 1000
         said.append("\(what) sent in \(sent) ms, \(follows ? "its newest row showing" : "all in") \(shown) ms after")
+    }
+
+    /// Sends one request, and waits only for its answer.
+    mutating func sendOnly() async throws {
+        let base = newest.rawValue
+        _ = try await traffic.client.send(traffic.server.url(.ok, "n=\(base + 1)"))
+        newest = ExchangeID(rawValue: base + 1)
     }
 
     /// Waits until the list's last row is the newest request's, with every change in, and the

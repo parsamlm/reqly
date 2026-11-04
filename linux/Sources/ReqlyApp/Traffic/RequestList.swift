@@ -108,6 +108,9 @@ final class RequestList {
     var onComment: ((ExchangeID) -> Void)?
     /// How many times the list has brought its newest row into view, following new traffic.
     private(set) var reveals = 0
+    /// When the newest row is to come into view, once the time between reveals has gone, in
+    /// monotonic microseconds, or `nil` while none waits.
+    private(set) var revealDue: Int?
     private let model: AppModel
     private let selection: OpaquePointer
     private let empty: Widget
@@ -192,6 +195,7 @@ final class RequestList {
         }
         gtk_widget_add_controller(view, cast(click))
         setUpMenu()
+        watchYourScrolling()
         model.listen { [weak self] event in
             guard let self else { return }
             switch event {
@@ -453,20 +457,67 @@ final class RequestList {
         case .none:
             break
         case .now:
-            if let revealTimer {
-                g_source_remove(revealTimer)
-                self.revealTimer = nil
-            }
+            cancelReveal()
             showNewest()
         case .after(let milliseconds):
             guard revealTimer == nil else { return }
+            revealDue = monotonicMicroseconds() + milliseconds * 1000
             revealTimer = timeout(UInt32(milliseconds)) { [weak self] in
                 guard let self else { return false }
                 revealTimer = nil
+                revealDue = nil
                 let now = monotonicMicroseconds()
                 respond(to: following.reveal(isDone: feed.isEmpty, isResetting: feed.isResetting, now: now))
                 return false
             }
+        }
+    }
+
+    /// Your own scrolling up, with the wheel or a touchpad, the keys that go up, or the
+    /// scrollbar, stops the list following at once, before a newest row still to show takes it
+    /// back to its end. Back at its end, it follows the next change.
+    private func watchYourScrolling() {
+        let wheel = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL)!
+        gtk_event_controller_set_propagation_phase(wheel, GTK_PHASE_CAPTURE)
+        connect(wheel, "scroll") { [weak self] (arguments: Arguments) in
+            if arguments.double(2) < 0 {
+                self?.scrolledUp()
+            }
+            arguments.returns(false)
+        }
+        gtk_widget_add_controller(scroller, wheel)
+        let up = [GDK_KEY_Up, GDK_KEY_KP_Up, GDK_KEY_Page_Up, GDK_KEY_KP_Page_Up, GDK_KEY_Home, GDK_KEY_KP_Home]
+            .map { UInt32($0) }
+        let keys = gtk_event_controller_key_new()!
+        gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE)
+        connect(keys, "key-pressed") { [weak self] (arguments: Arguments) in
+            if up.contains(arguments.uint(1)) {
+                self?.scrolledUp()
+            }
+            arguments.returns(false)
+        }
+        gtk_widget_add_controller(view, keys)
+        if let bar = gtk_scrolled_window_get_vscrollbar(cast(scroller)) {
+            let press = gtk_gesture_click_new()!
+            gtk_event_controller_set_propagation_phase(cast(press), GTK_PHASE_CAPTURE)
+            connect(press, "pressed") { [weak self] in self?.scrolledUp() }
+            gtk_widget_add_controller(bar, cast(press))
+        }
+    }
+
+    private func scrolledUp() {
+        following.stop()
+        cancelReveal()
+        // Nor does it go on to its very end, as the newest row it showed is laid out.
+        isEnding = false
+    }
+
+    /// Forgets the newest row that was to show once it's time.
+    private func cancelReveal() {
+        if let revealTimer {
+            g_source_remove(revealTimer)
+            self.revealTimer = nil
+            revealDue = nil
         }
     }
 
