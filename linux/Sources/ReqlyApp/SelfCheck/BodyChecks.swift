@@ -493,6 +493,9 @@ extension SelfCheck {
     }
 
     /// Save Image… asks where to save, as GTK's file dialog does, suggesting the picture's name.
+    /// Closed at once, as a quick Escape does, it leaves nothing behind: GTK 4.14 says it
+    /// couldn't read the folder, in a window of its own that keeps the keyboard and the mouse from
+    /// Reqly's, which Reqly closes.
     private func checkSaveDialog(_ view: BodyView) async throws {
         let save = try present(
             descendants(of: view.widget).first {
@@ -510,19 +513,28 @@ extension SelfCheck {
         let name = takeString(gtk_file_chooser_get_current_name(cast(found))) ?? ""
         note("    Save Image… opens “\(title)”, a \(typeName(raw(found))), with the name \(name)")
         try require(title == "Save Image" && name == "image.png", "Save Image… opened “\(title)” for \(name)")
-        // Once it has read the folder: GTK 4.14 says it couldn't, in a dialog of its own that
-        // stops the window hearing keys, when the dialog closes first.
-        try? await Task.sleep(for: .milliseconds(500))
         gtk_dialog_response(cast(found), GTK_RESPONSE_CANCEL.rawValue)
-        // Closed, it goes.
+        // Closed, it goes, and so does anything GTK said meanwhile.
         try await until("the file dialog to close", seconds: 5) { !toplevels().contains(found) }
-        try? await Task.sleep(for: .milliseconds(300))
-        for left in toplevels() where typeName(raw(left)) == "GtkMessageDialog" {
-            let words = [stringProperty(raw(left), "text"), stringProperty(raw(left), "secondary-text")]
-            let said = words.compactMap { $0 }.joined(separator: " ")
-            note("    GTK said “\(said)” as the file dialog closed; closed it")
-            gtk_window_destroy(cast(left))
+        var said: Set<String> = []
+        let watched = monotonicMicroseconds() + 2_000_000
+        while monotonicMicroseconds() < watched {
+            for shown in toplevels() where typeName(raw(shown)) == "GtkMessageDialog" {
+                let words = [stringProperty(raw(shown), "text"), stringProperty(raw(shown), "secondary-text")]
+                said.insert(words.compactMap { $0 }.joined(separator: " "))
+            }
+            try? await Task.sleep(for: .milliseconds(10))
         }
+        let left = toplevels().filter { typeName(raw($0)) == "GtkMessageDialog" && gtk_widget_get_mapped($0) != 0 }
+        for window in left {
+            gtk_window_destroy(cast(window))
+        }
+        let quoted = said.sorted().joined(separator: "”, “")
+        try require(left.isEmpty, "as the file dialog closed, GTK said “\(quoted)”, and it stayed")
+        note(
+            said.isEmpty
+                ? "    closed at once, the file dialog leaves nothing behind"
+                : "    closed at once, GTK said “\(quoted)”, which Reqly closed")
     }
 
     /// A toast says a path you chose as it is, though its & and < would be Pango markup's. First,
