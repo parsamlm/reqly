@@ -33,14 +33,18 @@ struct CodeText: Sendable, Equatable {
     }
 
     /// The page shows up to this many lines of a body, or this many bytes, and the rest in a view
-    /// of its own: a page's text view lays out every line it holds, since it shows them all. A
-    /// line of 512 KB kept the window waiting 170 ms in the self-check, so it's half that.
+    /// of its own: a page's text view lays out every line it holds, since it shows them all. As
+    /// the speed part measured them, 5,000 lines of code and a line of 256 KB keep the window's
+    /// longest wait within the Mac's 70 ms, and 6,800 lines or a line of 512 KB go past it.
     static let lineLimit = 5_000
     static let byteLimit = 256 << 10
     /// A line longer than this, in characters, stays uncolored. A GTK text buffer splits a line's
-    /// text at each change of color, and looks through the whole line again each time, so a long
-    /// line of many tokens, such as JSON sent on one line, would take seconds.
-    static let longLine = 10_000
+    /// text at each change of color, and looks through the whole line again each time, and lays
+    /// the line out again with every color, so a long line of many tokens, such as JSON sent on
+    /// one line, keeps the window waiting: one of 9,500 characters, half a second.
+    static let longLine = 2_000
+    /// Show Whole Body shows a line longer than this, in characters, in pieces this long.
+    static let longestLine = 10_000
 
     /// What the view shows: the text, or its start, with any NUL character as U+FFFD, which a
     /// text buffer can't hold.

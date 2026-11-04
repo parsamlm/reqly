@@ -43,6 +43,25 @@ import Testing
         #expect(code.runs.map { Self.words($0, in: code.text) } == [#""a""#, "1"])
     }
 
+    /// JSON sent on one line of 9,500 characters, 125 items, as an API answers: colored, it kept
+    /// the window waiting half a second, so it shows plain. One of 1,900 characters keeps its
+    /// colors.
+    @Test func leavesALineOfAFewThousandCharactersUncolored() {
+        func items(_ count: Int) -> String {
+            "["
+                + (0..<count).map {
+                    #"{"id":\#($0),"name":"item \#($0)","sky":"clear","high":\#($0 % 40),"rain":false,"wind":null}"#
+                }
+                .joined(separator: ",") + "]"
+        }
+        let long = items(125)
+        #expect(long.count > 9_000 && long.count > CodeText.longLine)
+        #expect(CodeText(text: long, tokens: JSONSyntax.tokens(in: long), isCode: true).runs.isEmpty)
+        let short = items(25)
+        #expect(short.count <= CodeText.longLine)
+        #expect(!CodeText(text: short, tokens: JSONSyntax.tokens(in: short), isCode: true).runs.isEmpty)
+    }
+
     @Test func showsTheStartOfALongText() {
         let lines = (1...20).map { "line \($0)" }
         let byLines = CodeText(text: lines.joined(separator: "\n"), tokens: [], isCode: true, lineLimit: 5)

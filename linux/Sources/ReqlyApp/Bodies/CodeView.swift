@@ -28,8 +28,12 @@ final class CodeView {
     /// time so the window keeps answering.
     private var rest: Substring?
 
-    /// So many runs color before the view shows; the rest color between frames.
+    /// So many runs color before the view shows, or fewer, as many as color within ``coloring``,
+    /// since a run on a line of thousands of characters takes longer; the rest color between
+    /// frames.
     private static let colorsAtOnce = 2_000
+    /// How long the view colors at a time, in microseconds: about half a frame.
+    private static let coloring = 8_000
     /// A long text goes into the buffer this many bytes at a time, at a line's end.
     private static let piece = 256 << 10
 
@@ -142,7 +146,7 @@ final class CodeView {
         if all.utf8.count <= Self.piece {
             gtk_text_buffer_set_text(buffer, text.text, Int32(all.utf8.count))
             placeCaret()
-            colorSome(Self.colorsAtOnce)
+            colorSome(Self.colorsAtOnce, within: Self.coloring)
             finishSoon()
             return
         }
@@ -178,21 +182,18 @@ final class CodeView {
 
     /// Colors code's punctuation, then what's left of its runs between frames.
     private func finishSoon() {
-        colorSome(0)
+        colorSome(0, within: 0)
         guard colored < text.runs.count else { return }
         idle(priority: G_PRIORITY_DEFAULT_IDLE) { [weak self] in
             guard let self else { return false }
-            // About half a frame at a time.
-            let deadline = monotonicMicroseconds() + 8_000
-            while colored < text.runs.count, monotonicMicroseconds() < deadline {
-                colorSome(64)
-            }
+            colorSome(text.runs.count, within: Self.coloring)
             return colored < text.runs.count
         }
     }
 
-    /// Colors up to `count` more runs, of the text in the buffer.
-    private func colorSome(_ count: Int) {
+    /// Colors code's punctuation, then up to `count` more runs of the text in the buffer, 64 at a
+    /// time, for up to `microseconds`.
+    private func colorSome(_ count: Int, within microseconds: Int) {
         var start = GtkTextIter()
         var end = GtkTextIter()
         if !isPunctuated, text.isCode, let punctuation = tags[nil] {
@@ -201,14 +202,18 @@ final class CodeView {
         }
         isPunctuated = true
         let last = min(text.runs.count, colored + count)
-        while colored < last {
-            let run = text.runs[colored]
-            gtk_text_buffer_get_iter_at_offset(buffer, &start, Int32(run.start))
-            gtk_text_buffer_get_iter_at_offset(buffer, &end, Int32(run.end))
-            if let tag = tags[run.color] {
-                gtk_text_buffer_apply_tag(buffer, tag, &start, &end)
+        let deadline = monotonicMicroseconds() + microseconds
+        while colored < last, monotonicMicroseconds() < deadline {
+            let batch = min(last, colored + 64)
+            while colored < batch {
+                let run = text.runs[colored]
+                gtk_text_buffer_get_iter_at_offset(buffer, &start, Int32(run.start))
+                gtk_text_buffer_get_iter_at_offset(buffer, &end, Int32(run.end))
+                if let tag = tags[run.color] {
+                    gtk_text_buffer_apply_tag(buffer, tag, &start, &end)
+                }
+                colored += 1
             }
-            colored += 1
         }
     }
 

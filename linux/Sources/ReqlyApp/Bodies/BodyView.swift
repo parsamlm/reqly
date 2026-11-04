@@ -338,7 +338,7 @@ final class BodyView {
         let shown = shown
         Task { [weak self] in
             let text = await Task.detached(priority: .userInitiated) {
-                CodeText(code, lineLimit: .max, byteLimit: .max, pieces: CodeText.longLine)
+                CodeText(code, lineLimit: .max, byteLimit: .max, pieces: CodeText.longestLine)
             }.value
             guard let self, self.shown == shown, whole == nil else { return }
             let whole = WholeBody(text, title: title, summary: summary) { [weak self] in self?.copyBody() }

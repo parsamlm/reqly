@@ -27,7 +27,8 @@ final class WholeBody {
         adw_toolbar_view_add_top_bar(cast(toolbar), header)
         if text.isSplit {
             let banner = adw_banner_new(
-                "Lines over \(CodeText.longLine.formatted()) characters show in pieces here, so they come up quickly.")!
+                "Lines over \(CodeText.longestLine.formatted()) characters show in pieces here, so they come up quickly."
+            )!
             adw_banner_set_revealed(cast(banner), 1)
             adw_toolbar_view_add_top_bar(cast(toolbar), banner)
         }
