@@ -3,7 +3,8 @@ import CGtk
 import GtkBinding
 
 /// A JSON or protobuf body as a tree, as the Mac's: each node's key, its value in code's colors,
-/// and its type, a row each, which a screen reader reads as one. The rows are GTK's tree list,
+/// and its type, a row each, which a screen reader reads as one, with how deep it is and whether
+/// it's open. The rows are GTK's tree list,
 /// whose nodes' children are made as they open; the root and its children start open, as
 /// ``TreeRows`` has it. "Filter keys and values" keeps the nodes it matches and those above them,
 /// open. Choosing a row shows its path, such as `days[0].high`, with Copy Path and Copy Value,
@@ -32,6 +33,9 @@ final class TreeView {
     private let noMatches: Widget
     /// Counts the filter's changes, so only the latest one's nodes show.
     private var filtering = 0
+    /// The rows GTK has bound, by list item: the tree's row each shows, and the handler that says,
+    /// as the row opens or closes, whether it's open.
+    private var bound: [OpaquePointer: (row: OpaquePointer, handler: UInt)] = [:]
     /// GTK_INVALID_LIST_POSITION: no row.
     private static let none = UInt32.max
 
@@ -127,6 +131,9 @@ final class TreeView {
         }
         connect(factory, "bind") { [weak self] (arguments: Arguments) in
             self?.bind(cast(arguments.object(1)))
+        }
+        connect(factory, "unbind") { [weak self] (arguments: Arguments) in
+            self?.unbind(cast(arguments.object(1)))
         }
         connect(raw(selection), "notify::selected") { [weak self] in self?.choose() }
         connect(filter, "search-changed") { [weak self] in self?.filterChanged() }
@@ -265,6 +272,35 @@ final class TreeView {
         gtk_widget_add_css_class(value, style)
         gtk_widget_set_tooltip_text(type, node.typeName)
         gtk_list_item_set_accessible_label(item, TreeRows.words(node))
+        // The row says how deep it is and whether it's open, which the expander in it says only
+        // of itself, so screen readers hear it with the row's words.
+        if let widget = gtk_widget_get_parent(expander) {
+            setAccessibleProperty(widget, GTK_ACCESSIBLE_PROPERTY_LEVEL, .int(Int32(node.depth + 1)))
+        }
+        unbind(item)
+        showOpen(item, row)
+        let handler = connect(raw(row), "notify::expanded", whileAlive: raw(item)) { [weak self] in
+            self?.showOpen(item, row)
+        }
+        bound[item] = (row, handler)
+    }
+
+    private func unbind(_ item: OpaquePointer) {
+        guard let (row, handler) = bound.removeValue(forKey: item) else { return }
+        g_signal_handler_disconnect(raw(row), handler)
+    }
+
+    /// Whether a row that holds something is open, on its list item's widget, as the sidebar's
+    /// sections say it; a row that holds nothing says neither.
+    private func showOpen(_ item: OpaquePointer, _ row: OpaquePointer) {
+        guard let widget = gtk_list_item_get_child(item).flatMap({ gtk_widget_get_parent($0) }) else { return }
+        if gtk_tree_list_row_is_expandable(row) != 0 {
+            // A state that may be undefined takes a number, rather than a yes or no.
+            let isOpen: Int32 = gtk_tree_list_row_get_expanded(row) != 0 ? 1 : 0
+            setAccessibleState(widget, GTK_ACCESSIBLE_STATE_EXPANDED, .int(isOpen))
+        } else {
+            gtk_accessible_reset_state(cast(widget), GTK_ACCESSIBLE_STATE_EXPANDED)
+        }
     }
 
     // MARK: - Filtering

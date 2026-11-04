@@ -362,6 +362,17 @@ extension SelfCheck {
         }
         try require(cityRow != nil, "AT-SPI doesn't read the city row as one")
         note("    AT-SPI reads a row as one: a \(cityRow?.role ?? "") “\(cityRow?.name ?? "")”")
+        // A row that holds something says whether it's open, and every row how deep it is.
+        let treeRows = treeRead.subtree { $0.role == "frame" && $0.name == BodyPage.title }
+        let daysRow = treeRows.first { $0.name == "days, 2 items, array" }
+        try require(
+            daysRow?.has("expandable") == true && daysRow?.has("expanded") == true,
+            "AT-SPI doesn't read days as open: \(daysRow?.line ?? "no row")")
+        try require(
+            cityRow?.has("expandable") == false && cityRow?.has("expanded") == false,
+            "AT-SPI reads city, which holds nothing, as \(cityRow?.line ?? "")")
+        let levels = [cityRow, daysRow].map { $0?.attributes["level"] ?? "none" }
+        note("    AT-SPI: days “expandable, expanded”, city neither; their levels \(levels.joined(separator: " and "))")
         tree.setFilter("rain")
         try await until("the filter to keep 4 rows") { tree.kept != nil && tree.rowCount == 4 }
         let kept = (0..<tree.rowCount).compactMap { tree.node(at: $0) }.map { presented.tree?.node($0).label ?? "" }
