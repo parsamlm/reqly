@@ -320,8 +320,13 @@ extension SelfCheck {
         try await resize(to: 1280)
         window.list.select(id: ids[0])
         window.details.show(page: .response)
-        try await until("the response's body to show", seconds: 10) {
-            window.details.shown == ids[0] && window.details.bodies[.response]?.codeView?.isFilled == true
+        try await until("the response's body", seconds: 10) {
+            window.details.shown == ids[0] && window.details.bodies[.response]?.body != nil
+        }
+        // Formatted, whatever a part before chose.
+        window.details.bodies[.response]?.show(mode: .formatted)
+        try await until("the response's body to show, formatted", seconds: 10) {
+            window.details.bodies[.response]?.codeView?.isFilled == true
         }
         await settle()
         // Each of the body's modes fits the details beside the list, so the page doesn't scroll
@@ -346,7 +351,8 @@ extension SelfCheck {
         let unnamed = scrollers.filter { $0.name.isEmpty }
         note("scrollers: \(scrollers.map { "“\($0.name)”" }.joined(separator: ", "))")
         try require(unnamed.isEmpty, "\(unnamed.count) of \(scrollers.count) scrollers have no name")
-        let buttons = tree.nodes.filter { ["push button", "toggle button"].contains($0.role) }
+        // AT-SPI names a button's role "push button" or "button", as its version has it.
+        let buttons = tree.nodes.filter { ["button", "push button", "toggle button"].contains($0.role) }
         let nameless = buttons.filter { $0.name.isEmpty }.map { $0.line.trimmingCharacters(in: .whitespaces) }
         try require(
             nameless.isEmpty, "\(nameless.count) of \(buttons.count) buttons have no name: \(nameless.prefix(5))")

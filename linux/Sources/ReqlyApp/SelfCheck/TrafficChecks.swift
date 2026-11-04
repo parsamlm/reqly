@@ -336,13 +336,16 @@ extension SelfCheck {
         }
     }
 
-    /// The session with nothing in it, pinned requests too, the list with no rows, the details
-    /// beside it or gone back, and the keyboard's focus on what shows, as the rows it may have
-    /// been on have gone.
+    /// The session with nothing in it, pinned requests too, no search, filter or scope narrowing
+    /// the list, the list with no rows, the details beside it or gone back, and the keyboard's
+    /// focus on what shows, as the rows it may have been on have gone.
     @discardableResult
     func emptyTheList() async throws -> SessionHost {
         let session = try await session()
         let list = window.list
+        window.search.close()
+        window.filters.clear()
+        window.sidebar.choose("all")
         await session.unpinAll()
         await session.clear()
         try await until("the list to be empty", seconds: 10) { list.total == 0 && list.count == 0 && list.isSettled }

@@ -633,7 +633,8 @@ extension SelfCheck {
                     "Remove Host Filter", "Remove Method Filter",
                 ], "the tokens are \(filters.tokens), \(filters.isFolded ? "folded" : "beside each other")")
         let heard = try await AccessibilityTree.read().nodes
-        let removals = heard.filter { $0.role == "push button" && $0.name.hasPrefix("Remove ") }
+        // AT-SPI names a button's role "push button" or "button", as its version has it.
+        let removals = heard.filter { ["button", "push button"].contains($0.role) && $0.name.hasPrefix("Remove ") }
         let said = removals.map { "\($0.name) (\($0.description))" }
         try require(
             said == ["Remove Host Filter (Host: 127.0.0.2)", "Remove Method Filter (Method: GET)"],

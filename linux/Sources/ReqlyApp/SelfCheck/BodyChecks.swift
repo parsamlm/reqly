@@ -951,7 +951,9 @@ extension SelfCheck {
 @MainActor
 final class BodyPage {
     static let title = "Self-check Bodies"
-    static let width: Int32 = 760
+    /// Wide enough for hex lines of 16 bytes in any monospace font: 760 pixels were too few for
+    /// some, as in the Debian 13 and Ubuntu 26.04 images.
+    static let width: Int32 = 1_000
 
     let window: Widget
     let box: Widget
