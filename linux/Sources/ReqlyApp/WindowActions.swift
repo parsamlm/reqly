@@ -95,8 +95,9 @@ extension MainWindow {
     /// Escape, before the window's own widgets: it closes the search bar while it shows, then the
     /// sidebar shown over the list, then goes back from the details over the list, one at a time,
     /// and the keyboard's focus goes back to the pane that shows. A search left open under the
-    /// details closes once they've gone. A dialog, a menu that's open, and a search field of the
-    /// details' own close themselves. Whether Escape did something.
+    /// details closes once they've gone. A dialog and a menu that's open close themselves, and a
+    /// search field of the details' own empties itself while it has words. Whether Escape did
+    /// something.
     func escape() -> Bool {
         let focus = gtk_root_get_focus(cast(window))
         if visibleDialog(over: window) != nil {
@@ -105,8 +106,9 @@ extension MainWindow {
         if let focus, gtk_widget_get_ancestor(focus, gtk_popover_get_type()) != nil {
             return false
         }
+        // A search field of the details' own empties itself first; empty, it lets Escape go on.
         if let field = focus.flatMap({ gtk_widget_get_ancestor($0, gtk_search_entry_get_type()) }),
-            field != search.entry
+            field != search.entry, !(string(gtk_editable_get_text(cast(field))) ?? "").isEmpty
         {
             return false
         }

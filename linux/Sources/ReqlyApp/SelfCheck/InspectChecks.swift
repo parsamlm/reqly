@@ -17,7 +17,8 @@ extension SelfCheck {
 
     /// At 1000 pixels, with the details over the list: Enter on a row shows its request in the
     /// details, Ctrl+3 its response, and the response's body in its view, formatted; Tree, chosen
-    /// with its button, stays for the next request's body. Add Comment…, from the row's menu, puts
+    /// with its button, stays for the next request's body, and Escape in its empty filter goes
+    /// back. Add Comment…, from the row's menu, puts
     /// the keyboard's focus in the comment's field, where Enter saves what you type, and the row
     /// shows it. Back, then Enter on a request with no comment, the focus is on a widget that
     /// shows, not in the hidden field. GTK warns of nothing meanwhile.
@@ -77,8 +78,17 @@ extension SelfCheck {
         let tree = try present(modeButton("Tree", of: view), "the body has no Tree button")
         emit(raw(tree), "clicked")
         try await until("Tree to show", seconds: 5) { view.mode == .tree }
+        // Escape in the tree's filter, while it's empty, goes back too.
+        let filter = try present((view.views[.tree] as? TreeView)?.filter, "the tree has no filter")
+        await settle()
+        gtk_widget_grab_focus(filter)
+        try await until("the tree's filter to have the focus", seconds: 3) {
+            self.focusWidget.map { window.isInside($0, filter) } == true
+        }
         try FakeInput.press("Escape", in: window.window)
-        try await until("Escape to go back to the row", seconds: 3) { !window.detailsAreOver }
+        try await until("Escape in the tree's empty filter to go back to the row", seconds: 3) {
+            !window.detailsAreOver
+        }
         await settle()
         try await focusRow(ids[0])
         try FakeInput.press("Down", in: window.window)
