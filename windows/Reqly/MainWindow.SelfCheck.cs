@@ -464,7 +464,8 @@ public sealed partial class MainWindow
 
     /// <summary>
     /// The follow part's control: scrolled up, halfway, the list stays where it is as rows come at
-    /// the end and go at the top, and the newest stays out of view.
+    /// the end and go at the top, and the newest stays out of view. Then it goes back to its end,
+    /// as the fill left it, and should follow again.
     /// </summary>
     private async Task CheckScrolledUpAsync(string path, HttpClient client, string url)
     {
@@ -504,6 +505,17 @@ public sealed partial class MainWindow
         Log($"follow: scrolled up: +{list.Inserted - before} rows · the top row {stayed} · newest {(shows ? "in view" : "out of view")} · " +
             $"{(IsAtEnd() ? "at the end" : "not at the end")}");
         await SaveScreenshotAsync(Root, path + ".follow-scrolled-up.png");
+
+        // Back at the end, so the parts after this one see a list that follows. One more request
+        // checks that it does, outside the 44 checks CheckFollowingAsync counts.
+        if (list.Rows.Count > 0)
+        {
+            List.ScrollIntoView(list.Rows[^1]);
+        }
+        await Task.Delay(800);
+        var last = list.Inserted;
+        var answered = await SendAtOnceAsync(client, $"{url}?back-at-the-end", 1);
+        await CheckNewestRowAsync("back at the end", last, 1, answered);
     }
 
     /// <summary>Where a row is laid out, from the top of what the list shows, or nothing while it isn't laid out.</summary>
