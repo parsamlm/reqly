@@ -638,9 +638,12 @@ extension SelfCheck {
                 && (try? Data(contentsOf: opened)) == Data(TestServer.png)
                 && opened.lastPathComponent == "image.png",
             "the picture saved, or written to open, isn't its bytes, or is called \(opened.lastPathComponent)")
-        note(
-            "    Copy Body copies the picture, 16 × 12; it saves, and is written as \(opened.lastPathComponent) to open"
-        )
+        // In Reqly's folder in the runtime folder, which only you can open.
+        let runtime = try present(
+            ProcessInfo.processInfo.environment["XDG_RUNTIME_DIR"], "the run has no runtime folder")
+        try require(
+            opened.path == runtime + "/net.reqly.Reqly/images/image.png", "the picture to open is at \(opened.path)")
+        note("    Copy Body copies the picture, 16 × 12; it saves, and is written as \(opened.path) to open")
         try await checkSaveDialog(view)
         note("    pictures: \(try await pictures(of: page, "picture"))")
         try await choose("Hex", of: view)

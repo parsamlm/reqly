@@ -108,14 +108,30 @@ enum BodyWords {
         return pixels
     }
 
-    /// The name to save a picture as: its URL's last part, when it has an extension, or else
-    /// "image" and its format's.
+    /// The name to save or open a picture as: its URL's last part, when it has the picture's
+    /// format's extension, or with that in place of another; or else "image" and its format's.
+    /// The server names it, so it can't lead out of its folder, hide as a dot file, or open as
+    /// anything but a picture.
     static func fileName(for format: ImageFormat, url: URL?) -> String {
-        let name = url?.lastPathComponent ?? ""
-        if !name.isEmpty, name.contains("."), name != "/" {
-            return name
+        let extensions = fileExtensions(of: format)
+        // The last part is decoded, so a %2F in it is a slash.
+        let last = url?.lastPathComponent.split(separator: "/").last ?? ""
+        let name = last.drop { $0 == "." }
+        guard let dot = name.lastIndex(of: ".") else { return "image." + extensions[0] }
+        if extensions.contains(name[name.index(after: dot)...].lowercased()) {
+            return String(name)
         }
-        return "image." + format.rawValue.lowercased()
+        return String(name[..<dot]) + "." + extensions[0]
+    }
+
+    /// A format's file extensions, the one a picture is named with first.
+    private static func fileExtensions(of format: ImageFormat) -> [String] {
+        switch format {
+        case .jpeg: ["jpeg", "jpg", "jpe"]
+        case .tiff: ["tiff", "tif"]
+        case .heic: ["heic", "heif"]
+        default: [format.rawValue.lowercased()]
+        }
     }
 
     /// What shows in place of a picture GTK can't read.

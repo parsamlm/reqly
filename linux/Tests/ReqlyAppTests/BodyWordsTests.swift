@@ -89,6 +89,41 @@ import Testing
         #expect(BodyWords.fileName(for: .webp, url: nil) == "image.webp")
     }
 
+    /// The server names the file a picture is saved or opened as, so the name can't lead out of
+    /// its folder, hide as a dot file, or open as anything but a picture.
+    @Test func namesAPicturesFileOnlyAsAPicture() {
+        func name(_ format: ImageFormat, _ url: String) -> String {
+            BodyWords.fileName(for: format, url: URL(string: url))
+        }
+        let away = "http://example.com/img/..%2F..%2F..%2Fhome%2Fu%2F.config%2Fautostart%2Fx.desktop"
+        #expect(name(.png, away) == "x.png")
+        #expect(name(.png, "http://example.com/x.jar") == "x.png")
+        #expect(name(.png, "http://example.com/.bashrc") == "image.png")
+        #expect(name(.png, "http://example.com/a/%2E%2E") == "image.png")
+        #expect(name(.png, "http://example.com/") == "image.png")
+        #expect(name(.jpeg, "http://example.com/photo.JPG") == "photo.JPG")
+        #expect(name(.jpeg, "http://example.com/photo.jpeg") == "photo.jpeg")
+        #expect(name(.jpeg, "http://example.com/photo") == "image.jpeg")
+        #expect(name(.icon, "http://example.com/favicon.ico") == "favicon.ico")
+        #expect(name(.tiff, "http://example.com/scan.tif") == "scan.tif")
+        #expect(name(.svg, "http://example.com/logo.svg.png") == "logo.svg.svg")
+    }
+
+    /// A picture to open goes in Reqly's folder in your runtime folder, which only you can open,
+    /// or in your cache folder, never in the temporary folder others share.
+    @MainActor @Test func opensAPictureFromAFolderOfYourOwn() {
+        #expect(
+            PreviewView.openingFolder(environment: ["XDG_RUNTIME_DIR": "/run/user/1000", "HOME": "/home/u"])?.path
+                == "/run/user/1000/net.reqly.Reqly/images")
+        #expect(
+            PreviewView.openingFolder(environment: ["XDG_CACHE_HOME": "/home/u/.cache", "HOME": "/home/u"])?.path
+                == "/home/u/.cache/reqly/images")
+        #expect(
+            PreviewView.openingFolder(environment: ["XDG_RUNTIME_DIR": "run", "HOME": "/home/u"])?.path
+                == "/home/u/.cache/reqly/images")
+        #expect(PreviewView.openingFolder(environment: [:]) == nil)
+    }
+
     @Test func countsBytesExactly() {
         #expect(BodyWords.bytes(1) == "1 byte")
         #expect(BodyWords.bytes(12_871, locale: Self.english) == "12,871 bytes")

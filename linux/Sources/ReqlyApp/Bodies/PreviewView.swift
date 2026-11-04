@@ -178,14 +178,29 @@ final class PreviewView {
 
     // MARK: - Opening and saving
 
-    /// The picture as a file to open, in a folder of Reqly's in the temporary folder, named as
-    /// its URL names it.
+    /// The picture as a file to open, in ``openingFolder(environment:)``, named as its URL names
+    /// it.
     func fileToOpen() async throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "Reqly Images", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        guard let folder = Self.openingFolder() else { throw CocoaError(.fileNoSuchFile) }
+        try FileManager.default.createDirectory(
+            at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let file = folder.appending(path: BodyWords.fileName(for: format, url: await url()))
         try data.write(to: file)
         return file
+    }
+
+    /// The folder the pictures you open are written to: Reqly's in `XDG_RUNTIME_DIR`, which only
+    /// you can open, as its icons' is, or in your cache folder. Never one in the temporary folder
+    /// others share, which another account could make first, with links in it.
+    static func openingFolder(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        if let runtime = environment["XDG_RUNTIME_DIR"], runtime.hasPrefix("/") {
+            return URL(filePath: runtime, directoryHint: .isDirectory)
+                .appending(path: "net.reqly.Reqly/images", directoryHint: .isDirectory)
+        }
+        let cache =
+            environment["XDG_CACHE_HOME"].flatMap { $0.hasPrefix("/") ? $0 : nil }
+            ?? environment["HOME"].map { $0 + "/.cache" }
+        return cache.map { URL(filePath: $0, directoryHint: .isDirectory).appending(path: "reqly/images") }
     }
 
     /// Opens the picture in an app you choose, through GTK's file launcher, which asks.
