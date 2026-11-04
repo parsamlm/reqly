@@ -7,8 +7,10 @@ import ReqlyModel
 extension SelfCheck {
     /// The list follows new traffic, as the Mac's does: from its last row, the newest row shows
     /// after each single request and each burst, and a list scrolled up doesn't move, until it's
-    /// back at its end. A burst of 10,000 requests all arrive, and every row of the session coming
-    /// again, as a search ends, goes in before the newest row shows, once. Then, in a copy of Reqly
+    /// back at its end. A burst of 10,000 requests all arrive; a filter that leaves every other
+    /// one, and takes them back, shows within seconds with the list at its end; and every row of
+    /// the session coming again, as a search ends, goes in before the newest row shows, once. A
+    /// burst into an empty list is followed to its newest row too. Then, in a copy of Reqly
     /// whose session keeps 300 requests, the list goes on following past that limit, where as many
     /// rows go as new ones come. In that copy, this part checks only that.
     func checkFollowing() async throws {
@@ -68,17 +70,19 @@ extension SelfCheck {
         follower.said = []
         try await checkScrollingUpBeforeAReveal(&follower)
 
-        // 10,000 in one burst, as fast as Reqly answers. The window keeps answering meanwhile:
-        // far from the speed part's numbers, but a row's cells that cost too much show here.
+        // 10,000 in one burst, as fast as Reqly answers, every other one answered 404 for the
+        // filter after. The window keeps answering meanwhile: far from the speed part's numbers,
+        // but a row's cells that cost too much show here.
         let watch = ThreadWatch()
         watch.start()
         defer { watch.stop() }
         let started = monotonicMicroseconds()
-        try await follower.send(10_000, seconds: 90)
+        try await follower.send(10_000, seconds: 90) { $0 % 2 == 0 ? 404 : 200 }
         let burstWaits = watch.waits(from: started)
         note("10,000 at once: \(follower.said.joined(separator: "; ")); the window's thread: \(burstWaits)")
         try require(burstWaits.longest < 250, "the window's thread waited \(burstWaits.longest) ms during the burst")
         follower.said = []
+        try await checkFilteringEveryOtherRow(watch)
 
         // Every row again: a search that leaves none, then the search ending.
         let resets = ResetsSeen()
@@ -111,6 +115,53 @@ extension SelfCheck {
         try require(
             list.reveals - revealsBefore == 1, "the list showed its newest row \(list.reveals - revealsBefore) times")
         try await checkKeepingTheSelection(session, &follower)
+        try await checkABurstIntoAnEmptyList(&follower)
+    }
+
+    /// The 4xx filter on, then off, with the list at its end, where every other request of the
+    /// burst before was answered 404: 5,000 rows go, each apart from the next, then come back, and
+    /// the list shows what's left within seconds, at its end still. GTK takes a change near the
+    /// list's end slowly, a few milliseconds each, so the list doesn't give it one for each row.
+    private func checkFilteringEveryOtherRow(_ watch: ThreadWatch) async throws {
+        let list = window.list
+        let button = try present(window.filters.statusButtons[.clientError], "there's no 4xx button")
+        let all = list.count
+        var said: [String] = []
+        for (isOn, rows) in [(true, 5_000), (false, all)] {
+            let what = isOn ? "with the 4xx filter" : "with it off again"
+            let started = monotonicMicroseconds()
+            gtk_toggle_button_set_active(cast(button), cBool(isOn))
+            do {
+                try await until("the list's rows \(what)", seconds: 10) { list.count == rows && list.isSettled }
+            } catch {
+                throw Failure(
+                    "\(what), the list shows \(Format.count(list.count)) rows, not \(Format.count(rows)), "
+                        + "\((monotonicMicroseconds() - started) / 1000) ms after, "
+                        + "\(list.isSettled ? "settled" : "still changing")")
+            }
+            let took = (monotonicMicroseconds() - started) / 1000
+            let last = try present(list.exchange(at: list.count - 1), "\(what), the list has no last row")
+            try await until("the list's last row to show, \(what)", seconds: 5) {
+                list.isSettled && self.rowShows(last)
+            }
+            said.append(
+                "\(what), \(Format.count(rows)) rows in \(took) ms, the last showing; \(watch.waits(from: started))")
+        }
+        note("every other row filtered, at the list's end: \(said.joined(separator: "; "))")
+    }
+
+    /// Requests into an empty list, as when capturing starts, twice: 1,000 on two connections,
+    /// as an app sends them, then a burst of 4,000. The list follows them to the newest row, though
+    /// when it first shows rows, GTK has yet to go to the row it was asked to.
+    private func checkABurstIntoAnEmptyList(_ follower: inout Follower) async throws {
+        follower.said = []
+        for _ in 1...2 {
+            try await emptyTheList()
+            try await follower.send(1_000, seconds: 30, connections: 2)
+            try await follower.send(4_000, seconds: 30)
+        }
+        note("into an empty list: \(follower.said.joined(separator: "; "))")
+        follower.said = []
     }
 
     /// The wheel, turned up while the newest row waits to show, as rows came within 100 ms of
@@ -288,15 +339,24 @@ private struct Follower {
     }
 
     /// Sends `count` requests, one or a burst, then waits for the newest row to show, unless
-    /// the list doesn't follow, when it waits for every change to be in.
-    mutating func send(_ count: Int, follows: Bool = true, seconds: Int = 15) async throws {
+    /// the list doesn't follow, when it waits for every change to be in. A burst goes on
+    /// `connections` at once. `status` gives the status each is answered with, by its place in the
+    /// burst, from 1.
+    mutating func send(
+        _ count: Int, follows: Bool = true, seconds: Int = 15, connections: Int = 8,
+        status: (UInt64) -> Int = { _ in 200 }
+    ) async throws {
         let (server, client) = (traffic.server, traffic.client)
         let base = newest.rawValue
         let started = monotonicMicroseconds()
+        let urls = (1...UInt64(count)).map { place in
+            let answer = status(place)
+            return server.url(.ok, (answer == 200 ? "" : "status=\(answer)&") + "n=\(base + place)")
+        }
         if count == 1 {
-            _ = try await client.send(server.url(.ok, "n=\(base + 1)"))
+            _ = try await client.send(urls[0])
         } else {
-            let burst = await client.burst((1...UInt64(count)).map { server.url(.ok, "n=\(base + $0)") })
+            let burst = await client.burst(urls, connections: connections)
             try check.require(
                 burst.answered == count, "of \(count), \(burst.answered) were answered: \(burst.problems)")
         }

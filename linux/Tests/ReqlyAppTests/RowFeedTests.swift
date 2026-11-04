@@ -27,7 +27,7 @@ import Testing
         let none = feed.next()
         #expect(feed.isEmpty && none == nil)
         let burst = Self.ids(1...5_000)
-        feed.append(RowMirror.Change(splices: [RowMirror.Splice(position: 0, removing: 0, inserting: burst)]))
+        feed.append(RowMirror.Change(splices: [RowMirror.Splice(position: 0, removing: 0, inserting: burst)]), shown: 0)
         #expect(!feed.isEmpty && !feed.isResetting)
         let (rows, pieces) = Self.fed([], &feed)
         #expect(rows == burst)
@@ -44,14 +44,15 @@ import Testing
             RowMirror.Splice(position: 10, removing: 0, inserting: Self.ids(11...13)),
             RowMirror.Splice(position: 0, removing: 3, inserting: []),
         ])
-        feed.append(change)
+        feed.append(change, shown: 10)
         let (rows, pieces) = Self.fed(start, &feed)
         #expect(rows == Self.ids(4...13))
         #expect(pieces.count == 2)
         // And a splice that takes rows out and puts more in, in pieces.
         var replacing = RowFeed()
         replacing.append(
-            RowMirror.Change(splices: [RowMirror.Splice(position: 2, removing: 5, inserting: Self.ids(100...2_200))]))
+            RowMirror.Change(splices: [RowMirror.Splice(position: 2, removing: 5, inserting: Self.ids(100...2_200))]),
+            shown: 10)
         let replaced = Self.fed(start, &replacing)
         #expect(replaced.rows == Self.ids(1...2) + Self.ids(100...2_200) + Self.ids(8...10))
         #expect(replaced.pieces.map(\.removing) == [5, 0])
@@ -61,8 +62,10 @@ import Testing
         var feed = RowFeed()
         let all = Self.ids(1...5_000)
         feed.append(
-            RowMirror.Change(splices: [RowMirror.Splice(position: 0, removing: 10, inserting: all)], isReset: true))
-        feed.append(RowMirror.Change(splices: [RowMirror.Splice(position: 5_000, removing: 0, inserting: [])]))
+            RowMirror.Change(splices: [RowMirror.Splice(position: 0, removing: 10, inserting: all)], isWhole: true),
+            shown: 10)
+        feed.append(
+            RowMirror.Change(splices: [RowMirror.Splice(position: 5_000, removing: 0, inserting: [])]), shown: 10)
         var resetting: [Bool] = []
         while !feed.isEmpty {
             resetting.append(feed.isResetting)
@@ -70,6 +73,34 @@ import Testing
         }
         // Three pieces of the reset, then the change after it.
         #expect(resetting == [true, true, true, false])
+    }
+
+    /// A search typed a character at a time: each character's rows put in every row again, so
+    /// the pieces still waiting of the one before go, and the new one takes out what shows.
+    @Test func putsInOnlyTheLatestOfEveryRow() {
+        var feed = RowFeed()
+        let start = Self.ids(1...10_000)
+        var rows = start
+        let even = Self.ids(1...5_000).filter { $0.rawValue % 2 == 0 }
+        feed.append(
+            RowMirror.Change(
+                splices: [RowMirror.Splice(position: 0, removing: 10_000, inserting: even)], isWhole: true),
+            shown: 10_000)
+        // One piece in, then the next character's rows come.
+        let first = feed.next()
+        if let first {
+            rows.replaceSubrange(first.position..<first.position + first.removing, with: first.inserting)
+        }
+        #expect(rows.count == 2_048)
+        let latest = Self.ids(1...5_000).filter { $0.rawValue % 4 == 0 }
+        feed.append(
+            RowMirror.Change(
+                splices: [RowMirror.Splice(position: 0, removing: 2_500, inserting: latest)], isWhole: true),
+            shown: rows.count)
+        let (after, pieces) = Self.fed(rows, &feed)
+        #expect(after == latest)
+        #expect(pieces.map(\.removing) == [2_048])
+        #expect(feed.isEmpty)
     }
 
     // MARK: - Following

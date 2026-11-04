@@ -6,7 +6,8 @@ import ReqlyModel
 /// ends, goes in as many pieces as fit in a few milliseconds, then the window draws, and the list
 /// goes on: the splices ``RowMirror`` gives, in order, each cut into pieces of at most
 /// ``pieceRows`` rows. A splice's first piece takes out all the rows it takes out, as removing is
-/// quick.
+/// quick. A change that puts in every row again takes the place of the pieces still waiting, as
+/// a search does each time you type.
 struct RowFeed {
     /// A piece of a splice, as `gtk_string_list_splice` takes it.
     struct Piece: Equatable {
@@ -18,8 +19,8 @@ struct RowFeed {
     /// The most rows a piece puts in.
     static let pieceRows = 2048
 
-    /// The splices waiting, each with whether it came with every row.
-    private var waiting: [(splice: RowMirror.Splice, isReset: Bool)] = []
+    /// The splices waiting, each with whether its change puts in every row again.
+    private var waiting: [(splice: RowMirror.Splice, isWhole: Bool)] = []
     /// The first splice not all in yet.
     private var head = 0
     /// How many of its rows are in.
@@ -28,12 +29,21 @@ struct RowFeed {
     /// Whether every piece is in.
     var isEmpty: Bool { head == waiting.count }
 
-    /// Whether the piece to come is of a change that brought every row, which the list doesn't
-    /// follow until it's all in.
-    var isResetting: Bool { head < waiting.count && waiting[head].isReset }
+    /// Whether the piece to come is of a change that puts in every row again, which the list
+    /// doesn't follow until it's all in.
+    var isResetting: Bool { head < waiting.count && waiting[head].isWhole }
 
-    mutating func append(_ change: RowMirror.Change) {
-        waiting += change.splices.map { ($0, change.isReset) }
+    /// Adds a change's splices after those waiting, or for one that puts in every row again, in
+    /// their place: its first splice then takes out the `shown` rows the view has.
+    mutating func append(_ change: RowMirror.Change, shown: Int) {
+        var splices = change.splices
+        if change.isWhole, !isEmpty, !splices.isEmpty {
+            waiting.removeAll(keepingCapacity: true)
+            head = 0
+            done = 0
+            splices[0].removing = shown
+        }
+        waiting += splices.map { ($0, change.isWhole) }
     }
 
     /// The next piece, or `nil` once they're all in.

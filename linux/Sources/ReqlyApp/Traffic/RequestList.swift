@@ -402,7 +402,7 @@ final class RequestList {
         if cache.hasWanted {
             fetchSoon()
         }
-        feed.append(change)
+        feed.append(change, shown: shown.count)
         if !isFeeding {
             feedSome()
         }

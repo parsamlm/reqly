@@ -98,7 +98,47 @@ import Testing
         let change = try #require(received)
         #expect(change.splices == [RowMirror.Splice(position: 0, removing: 2, inserting: Self.ids([7, 8, 9]))])
         #expect(mirror.ids == Self.ids([7, 8, 9]))
-        #expect(change.isReset)
+        #expect(change.isReset && change.isWhole)
+    }
+
+    /// A filter that leaves every other row of 100,000: rather than 50,000 splices, which GTK
+    /// takes in milliseconds each near the list's end, one that puts in the rows left. No row
+    /// left shows anything new, so it isn't a reset.
+    @Test func takesRowsLeftHereAndThereAtOnce() throws {
+        var mirror = RowMirror()
+        let all = (1...UInt64(100_000)).map(ExchangeID.init(rawValue:))
+        _ = mirror.receive(version: 1, steps: [.reset(all)])
+        let received = mirror.receive(version: 2, steps: [.removed(Array(stride(from: 1, to: 100_000, by: 2)))])
+        let change = try #require(received)
+        let left = all.filter { $0.rawValue % 2 == 1 }
+        #expect(change.splices == [RowMirror.Splice(position: 0, removing: 100_000, inserting: left)])
+        #expect(change.isWhole && !change.isReset)
+        #expect(change.inserted.isEmpty)
+        #expect(mirror.ids == left)
+
+        // And as the filter goes: the rows that come back, which may have changed meanwhile.
+        let back = stride(from: 1, to: 100_000, by: 2).map { RowStep.InsertedRow(row: $0, id: all[$0]) }
+        let returned = mirror.receive(version: 3, steps: [.inserted(back)])
+        let again = try #require(returned)
+        #expect(again.splices == [RowMirror.Splice(position: 0, removing: 50_000, inserting: all)])
+        #expect(again.isWhole && !again.isReset)
+        #expect(again.inserted == back.map(\.id))
+        #expect(mirror.ids == all)
+    }
+
+    /// Up to the most splices an event makes, each goes in apart, as the rows around them stay.
+    @Test func splicesAFewRunsApart() throws {
+        var mirror = RowMirror()
+        _ = mirror.receive(version: 1, steps: [.reset(Self.ids(Array(1...200)))])
+        let places = Array(stride(from: 0, to: 2 * RowMirror.mostSplices, by: 2))
+        let received = mirror.receive(version: 2, steps: [.removed(places)])
+        let change = try #require(received)
+        #expect(change.splices.count == RowMirror.mostSplices && !change.isWhole)
+        #expect(Self.spliced(Self.ids(Array(1...200)), change.splices) == mirror.ids)
+        #expect(mirror.ids.count == 200 - RowMirror.mostSplices)
+        // A place named twice doesn't fit: the mirror waits for every row.
+        #expect(mirror.receive(version: 3, steps: [.removed([4, 4])]) == nil)
+        #expect(mirror.isWaitingForRows)
     }
 
     /// Every row comes in place of the steps when many join at once, so a row that stays, such as
