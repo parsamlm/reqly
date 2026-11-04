@@ -136,6 +136,8 @@ extension SelfCheck {
         note(
             "Add Comment…: the request on the details' Overview\(over ? ", over the list" : ""); with its comment, "
                 + "the row's bubble and tooltip, and Edit Comment…")
+        try await until("the menu to close", seconds: 3) { !menu.isOpen }
+        try await checkEditingAnotherComment(warnings, comment, while: radar, session: session)
 
         try await checkDecrypting(encrypted, list: list, menu: menu)
 
@@ -168,6 +170,47 @@ extension SelfCheck {
         note(
             "Unpin All: no pins; Ctrl+K: the 2 pinned requests stay, and the selection with them, until it was one that went"
         )
+    }
+
+    /// Edit Comment… from the menu of a row that isn't the one the details show, with a click with
+    /// the right button, which doesn't choose it: the field has the request's comment, which stays
+    /// as you leave it for another request.
+    private func checkEditingAnotherComment(
+        _ id: ExchangeID, _ comment: String, while other: ExchangeID, session: SessionHost
+    ) async throws {
+        let window = window
+        let list = window.list
+        let menu = list.menu
+        let details = window.details
+        try await focus(other)
+        try await until("the details to show the other request", seconds: 3) {
+            details.shown == other && details.summary != nil
+        }
+        let cell = try present(list.cell(.request, of: id), "the commented row has no cell")
+        try FakeInput.click(cell, button: 3)
+        try await until("a click with the right button to open the commented row's menu", seconds: 3) {
+            menu.isOpen && menu.target?.id == id
+        }
+        try choose("Edit Comment…", in: menu)
+        let field = details.commentField
+        var said = ""
+        do {
+            try await until("the comment field to have the focus, and the comment", seconds: 3) {
+                said = string(gtk_editable_get_text(cast(field))) ?? ""
+                return details.shown == id && said == comment
+                    && self.focusWidget.map { window.isInside($0, field) } ?? false
+            }
+        } catch {
+            throw Failure(
+                "Edit Comment… on a row not shown: the field says “\(said)”, not “\(comment)”, the focus on the "
+                    + "\(focusType)\(details.shown == id ? "" : ", another request shown")")
+        }
+        // Another request, as leaving the field saves it.
+        try await focus(other)
+        await settle()
+        let kept = await session.rows([id]).first?.annotation.comment
+        try require(kept == comment, "once the field was left, the comment is “\(kept ?? "gone")”")
+        note("Edit Comment… on a row not shown: the field has its comment, which stays as you leave it")
     }
 
     /// For an encrypted connection: Decrypt 127.0.0.1, or Stop Decrypting 127.0.0.1 when Reqly

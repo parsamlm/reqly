@@ -117,6 +117,9 @@ final class DetailsPane {
     private var presentedSizes: [MessagePart: Int] = [:]
     /// The request Add Comment asked to write a comment on, while you write it.
     private var writing: ExchangeID?
+    /// Whether the comment field takes the focus once the request's row is read, as Add Comment
+    /// asked before it was.
+    private var focusesComment = false
     /// The request the comment field's words are about, and whether it has the focus.
     private var commentOf: ExchangeID?
     private var isInComment = false
@@ -299,6 +302,7 @@ final class DetailsPane {
         showsCookieValues = []
         rawShowsSecrets = false
         writing = nil
+        focusesComment = false
         commentOf = nil
         // The bodies' views go while their widgets are still there, which go with the pages'.
         let leaving = bodies.values.map(\.widget)
@@ -369,6 +373,10 @@ final class DetailsPane {
             annotation: summary.annotation)
         gtk_widget_set_visible(heading, 1)
         showComment()
+        if focusesComment {
+            focusesComment = false
+            focusComment()
+        }
         updateActions()
         refresh(visiblePage)
     }
@@ -486,12 +494,25 @@ final class DetailsPane {
     // MARK: - The comment
 
     /// Add Comment, from the heading, the details' menu or the list's: Overview, with the comment
-    /// field shown, which has the focus once it shows.
+    /// field shown, which has the focus once it shows. For a request whose row isn't read yet, as
+    /// from the menu of a row that wasn't shown, the field waits for the row and its comment:
+    /// empty, it would save that over the comment as you leave it.
     func editComment() {
-        guard let id = shown else { return }
-        writing = id
+        guard shown != nil else { return }
+        writing = shown
         show(page: .overview)
+        guard summary != nil else {
+            focusesComment = true
+            return
+        }
         showComment()
+        focusComment()
+    }
+
+    /// Gives the comment field the keyboard's focus, now or once it shows, while you write the
+    /// comment.
+    private func focusComment() {
+        guard let id = writing else { return }
         let field = commentField
         if gtk_widget_get_mapped(field) != 0 {
             gtk_widget_grab_focus(field)
@@ -511,20 +532,23 @@ final class DetailsPane {
     /// The comment section shows once the request has a comment, or while you write one, with the
     /// request's comment in it, unless you're in it. A comment removed elsewhere while you're in
     /// its field takes what the field says with it, and the Comment button has the focus, rather
-    /// than the hidden field, which would save it again as you leave.
+    /// than the hidden field, which would save it again as you leave. The field is about the
+    /// request once its row is read, and takes its comment then, even with the focus, which
+    /// libadwaita may give it as the details open over the list.
     private func showComment() {
         let comment = summary?.annotation.comment
+        let about = summary == nil ? nil : shown
         let shows = comment != nil || (writing != nil && writing == shown)
-        if !shows, isInComment {
+        if !shows, isInComment, commentOf != nil {
             isInComment = false
             gtk_editable_set_text(cast(commentField), "")
-            commentOf = shown
+            commentOf = about
             gtk_widget_grab_focus(headingView.commentButton)
         }
         gtk_widget_set_visible(commentSection, cBool(shows))
-        guard !isInComment else { return }
+        guard !isInComment || commentOf == nil else { return }
         gtk_editable_set_text(cast(commentField), comment ?? "")
-        commentOf = shown
+        commentOf = about
     }
 
     /// Enter saves the comment. With nothing in it, the comment goes, and so does its section, and
@@ -540,13 +564,16 @@ final class DetailsPane {
     }
 
     /// Leaving the field saves the comment. The window going inactive leaves the focus in the
-    /// field, as while the menu Add Comment… came from closes, so you're still writing.
+    /// field, as while the menu Add Comment… came from closes, so you're still writing. So does
+    /// leaving it before the request's row is read, as libadwaita gives it the focus it had in
+    /// the details as they open over the list, and takes it away: you haven't written in it yet.
     private func commentLeft() {
         let focus = gtk_widget_get_root(commentField).flatMap { gtk_root_get_focus($0) }
         if let focus, focus == commentField || gtk_widget_is_ancestor(focus, commentField) != 0 {
             return
         }
         isInComment = false
+        guard commentOf != nil else { return }
         saveComment()
         if writing == shown {
             writing = nil
