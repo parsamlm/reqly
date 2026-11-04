@@ -80,11 +80,15 @@ import Testing
         #expect(duration(0.02, tenths: true) == "20 ms")
         // The time of day as the list has it, as on the Mac. ICU puts a narrow space before AM.
         #expect(Format.time(Self.start + 1, locale: Self.english, timeZone: Self.utc) == "4:00:01\u{202F}AM")
+        // When it started and when a cookie expires in the locale's own clock too, 12 or 24 hours.
         #expect(
-            DetailsFormat.moment(Self.start + 1.25, locale: Self.english, timeZone: Self.utc) == "Oct 3 at 04:00:01.250"
-        )
+            DetailsFormat.moment(Self.start + 1.25, locale: Self.english, timeZone: Self.utc)
+                == "Oct 3 at 4:00:01.250\u{202F}AM")
         let expiry = Date(timeIntervalSince1970: 1_792_567_680)
-        #expect(DetailsFormat.day(expiry, locale: Self.english, timeZone: Self.utc) == "Oct 21, 2026 at 07:28")
+        #expect(DetailsFormat.day(expiry, locale: Self.english, timeZone: Self.utc) == "Oct 21, 2026 at 7:28\u{202F}AM")
+        let british = Locale(identifier: "en_GB")
+        #expect(DetailsFormat.moment(Self.start + 1.25, locale: british, timeZone: Self.utc) == "3 Oct at 04:00:01.250")
+        #expect(DetailsFormat.day(expiry, locale: british, timeZone: Self.utc) == "21 Oct 2026 at 07:28")
         #expect(DetailsFormat.messages(1, locale: Self.english) == "1 message")
         #expect(DetailsFormat.messages(1_204, locale: Self.english) == "1,204 messages")
         #expect(DetailsFormat.host(scheme: "https", host: "api.weatherly.dev", port: 443) == "api.weatherly.dev")
@@ -170,7 +174,8 @@ import Testing
         let request = words.sections[0].rows.map { "\($0.name): \($0.value)" }
         #expect(
             request == [
-                "Method: GET", "App: Weatherly", "Bundle ID: dev.weatherly.app", "Started: Oct 3 at 04:00:00.000",
+                "Method: GET", "App: Weatherly", "Bundle ID: dev.weatherly.app",
+                "Started: Oct 3 at 4:00:00.000\u{202F}AM",
                 "Sent: 0 B",
             ])
         let response = words.sections[1].rows.map { "\($0.name): \($0.value)" }
@@ -263,7 +268,7 @@ import Testing
         let response = MessageWords(details, part: .response, locale: Self.english, timeZone: Self.utc)
         #expect(response.hasBody && response.bodySize == 17 && response.note == nil)
         #expect(response.cookies.count == 1)
-        #expect(response.cookies.first?.attributes == "Expires Oct 21, 2026 at 07:28 · Path / · Secure")
+        #expect(response.cookies.first?.attributes == "Expires Oct 21, 2026 at 7:28\u{202F}AM · Path / · Secure")
         #expect(response.query.isEmpty && response.trailers.isEmpty)
 
         var unread = Self.forecast()

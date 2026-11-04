@@ -7,14 +7,15 @@ import ReqlyModel
 /// millisecond; when a cookie expires; how many messages; and a host with its port. Durations,
 /// sizes, times of day and counts are the list's, in ``Format``.
 enum DetailsFormat {
-    /// When a request started, to the millisecond, as Overview has it, such as `Oct 3 at 10:42:07.123`.
+    /// When a request started, to the millisecond, as Overview has it, such as `Oct 3 at 10:42:07.123 AM`:
+    /// in the locale's own clock, 12 or 24 hours, as the list's times are.
     static func moment(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
-        formatter("MMMdHHmmssSSS", locale: locale, timeZone: timeZone).string(from: date)
+        formatter("MMMdjmmssSSS", locale: locale, timeZone: timeZone).string(from: date)
     }
 
-    /// When a cookie expires, such as `Oct 21, 2026 at 07:28`.
+    /// When a cookie expires, such as `Oct 21, 2026 at 7:28 AM`, in the locale's own clock.
     static func day(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
-        formatter("MMMdyyyyHHmm", locale: locale, timeZone: timeZone).string(from: date)
+        formatter("MMMdyyyyjmm", locale: locale, timeZone: timeZone).string(from: date)
     }
 
     /// "1 message", or "1,204 messages".
