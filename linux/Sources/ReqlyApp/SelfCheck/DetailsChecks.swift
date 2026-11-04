@@ -372,10 +372,11 @@ extension SelfCheck {
             descendants(of: entry).filter { typeName(raw($0)) == "GtkLabel" }
                 .compactMap { string(gtk_label_get_text(cast($0))) }.joined()
         }
+        // Decrypt, or Stop Decrypting where the parts before had Reqly decrypt every host.
+        let entry = entries.first { $0 == "Decrypt \(host)" || $0 == "Stop Decrypting \(host)" }
         try require(
-            entries.contains("Decrypt \(host)"),
-            "the details' menu for \(host), answered “\(answer.prefix(40))”, shows \(entries)")
-        note("a host with an underscore: the details' menu shows “Decrypt \(host)”")
+            entry != nil, "the details' menu for \(host), answered “\(answer.prefix(40))”, shows \(entries)")
+        note("a host with an underscore: the details' menu shows “\(entry ?? "")”")
     }
 
     /// A CONNECT through Reqly's proxy to the traffic maker, which Reqly passes through, kept open:
