@@ -1,3 +1,4 @@
+import CGio
 import CGtk
 import Foundation
 import GtkBinding
