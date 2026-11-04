@@ -113,9 +113,8 @@ final class DetailsPane {
     /// What each page showed when it was built, so a page that would show the same stays.
     private var built: [Page: AnyHashable] = [:]
     /// The size of each body as the session last presented it, so a body that grows is presented
-    /// again; and the mode you chose for each part's body, for the next one that has it.
+    /// again.
     private var presentedSizes: [MessagePart: Int] = [:]
-    private var modes: [MessagePart: BodyMode] = [:]
     /// The request Add Comment asked to write a comment on, while you write it.
     private var writing: ExchangeID?
     /// The request the comment field's words are about, and whether it has the focus.
@@ -467,14 +466,11 @@ final class DetailsPane {
 
     /// The view of `part`'s body, made the first time, which the session presents the body to
     /// again whenever the body has grown since. It shows in the mode you chose last for the part's
-    /// bodies, while the body has it.
+    /// bodies, while the body has it, as the view keeps that.
     func bodyView(_ part: MessagePart, size: Int) -> BodyView? {
         guard let id = shown, let session = model.session else { return nil }
         let view = bodies[part] ?? BodyView(model: model, id: id, part: part)
-        if bodies[part] == nil {
-            bodies[part] = view
-            view.onMode = { [weak self] mode in self?.modes[part] = mode }
-        }
+        bodies[part] = view
         if presentedSizes[part] != size {
             presentedSizes[part] = size
             let generation = generation
@@ -482,9 +478,6 @@ final class DetailsPane {
                 let presented = try? await session.presentBody(id, part: part == .request ? .request : .response)
                 guard let self, let view, let presented, generation == self.generation else { return }
                 view.show(presented)
-                if let mode = modes[part], presented.body.modes.contains(mode) {
-                    view.show(mode: mode)
-                }
             }
         }
         return view
@@ -516,10 +509,19 @@ final class DetailsPane {
     }
 
     /// The comment section shows once the request has a comment, or while you write one, with the
-    /// request's comment in it, unless you're in it.
+    /// request's comment in it, unless you're in it. A comment removed elsewhere while you're in
+    /// its field takes what the field says with it, and the Comment button has the focus, rather
+    /// than the hidden field, which would save it again as you leave.
     private func showComment() {
         let comment = summary?.annotation.comment
-        gtk_widget_set_visible(commentSection, cBool(comment != nil || (writing != nil && writing == shown)))
+        let shows = comment != nil || (writing != nil && writing == shown)
+        if !shows, isInComment {
+            isInComment = false
+            gtk_editable_set_text(cast(commentField), "")
+            commentOf = shown
+            gtk_widget_grab_focus(headingView.commentButton)
+        }
+        gtk_widget_set_visible(commentSection, cBool(shows))
         guard !isInComment else { return }
         gtk_editable_set_text(cast(commentField), comment ?? "")
         commentOf = shown
@@ -537,8 +539,13 @@ final class DetailsPane {
         showComment()
     }
 
-    /// Leaving the field saves the comment.
+    /// Leaving the field saves the comment. The window going inactive leaves the focus in the
+    /// field, as while the menu Add Comment… came from closes, so you're still writing.
     private func commentLeft() {
+        let focus = gtk_widget_get_root(commentField).flatMap { gtk_root_get_focus($0) }
+        if let focus, focus == commentField || gtk_widget_is_ancestor(focus, commentField) != 0 {
+            return
+        }
         isInComment = false
         saveComment()
         if writing == shown {

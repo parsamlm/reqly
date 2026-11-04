@@ -77,6 +77,11 @@ final class MainWindow {
     private var isShowingCapture = false
     /// How many of the session's requests are pinned, which Clear keeps.
     private var pinned = 0
+    /// Whether the keyboard's first focus waits for the session to open.
+    private var isFirstFocusDue = true
+    /// What has had the keyboard's focus since the first focus gave it to the capture switch, as
+    /// the session had no requests, until the list first shows some.
+    private var firstFocus: Widget?
     /// Clear's action, which is on while there's something to clear.
     var clearAction: OpaquePointer?
     /// Settings and Set Up HTTPS…, each made the first time it opens and kept, as they keep
@@ -246,7 +251,7 @@ final class MainWindow {
         connect(raw(search.widget), "notify::search-mode-enabled") { [weak self] in self?.searchChanged() }
         list.onSelection = { [weak self] id in self?.details.show(id) }
         list.onActivate = { [weak self] _ in self?.openDetails() }
-        list.onRows = { [weak self] in self?.showTitle() }
+        list.onRows = { [weak self] in self?.rowsChanged() }
         list.onComment = { [weak self] id in self?.editComment(id) }
         sidebar.onScope = { [weak self] _ in self?.scopeChosen() }
         sidebar.onCount = { [weak self] in self?.showTitle() }
@@ -272,6 +277,7 @@ final class MainWindow {
             }
         }
         addActions()
+        focusCaptureSwitchOnClick()
         showSidebarToggle()
         update()
     }
@@ -304,6 +310,10 @@ final class MainWindow {
         // It waits for a start or a stop, and for the session.
         let canSwitch = model.session != nil && (model.capture == .stopped || model.capture == .capturing)
         gtk_widget_set_sensitive(captureSwitch, cBool(canSwitch))
+        if isFirstFocusDue, model.session != nil {
+            isFirstFocusDue = false
+            giveFirstFocus()
+        }
         let status = model.statusText
         gtk_label_set_text(cast(statusLabel), status)
         // The line may be cut short, advice and all, in a narrow window.
@@ -343,6 +353,29 @@ final class MainWindow {
         showTitle()
     }
 
+    /// The list's rows changed: its title says so, and the first rows of a session that opened
+    /// with requests in it, as a saved one does, take the keyboard's first focus, unless it has
+    /// moved since.
+    private func rowsChanged() {
+        showTitle()
+        guard let first = firstFocus, list.count > 0 else { return }
+        firstFocus = nil
+        if gtk_root_get_focus(cast(window)) == first, !model.isCapturing {
+            list.focusSelection()
+        }
+    }
+
+    /// The keyboard's first focus, once the session has opened: the list, or while the session
+    /// has no requests, the capture switch, from which typing still starts a search.
+    private func giveFirstFocus() {
+        idle { [weak self] in
+            guard let self, visibleDialog(over: window) == nil else { return false }
+            focusContent()
+            firstFocus = list.count == 0 ? gtk_root_get_focus(cast(window)) : nil
+            return false
+        }
+    }
+
     // MARK: - The panes
 
     /// Whether the details show over the list.
@@ -356,19 +389,34 @@ final class MainWindow {
     }
 
     /// Shows the details over the list, when they don't fit beside it, as a row's Enter or click
-    /// asks. Choosing a row with the arrow keys doesn't.
+    /// asks, and screen readers say so. Choosing a row with the arrow keys doesn't. libadwaita gives
+    /// the keyboard's focus back to what had it in the details last time, which may not show any
+    /// more, such as another request's comment field; then the details' first widget has it.
     func openDetails() {
-        if adw_navigation_split_view_get_collapsed(inner) != 0 {
-            adw_navigation_split_view_set_show_content(inner, 1)
+        guard adw_navigation_split_view_get_collapsed(inner) != 0,
+            adw_navigation_split_view_get_show_content(inner) == 0
+        else { return }
+        adw_navigation_split_view_set_show_content(inner, 1)
+        announce(window, "Details")
+        idle { [weak self] in
+            guard let self, detailsAreOver else { return false }
+            if let focus = gtk_root_get_focus(cast(window)), gtk_widget_is_visible(focus) == 0 {
+                gtk_root_set_focus(cast(window), nil)
+                focusContent()
+            }
+            return false
         }
     }
 
     /// Add or Edit Comment…, from a row's menu: its request, selected, on the details' Overview,
-    /// where its comment is, and over the list when the details don't fit beside it.
+    /// over the list when the details don't fit beside it, with the comment's field showing and
+    /// the keyboard's focus in it.
     private func editComment(_ id: ExchangeID) {
         list.select(id: id)
-        details.show(page: .overview)
+        // A request a filter hides is selected with no row, and the details show it all the same.
+        details.show(id)
         openDetails()
+        details.editComment()
     }
 
     /// The details went over the list, or back. Back, libadwaita gives the keyboard's focus back to

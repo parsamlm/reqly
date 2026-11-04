@@ -35,6 +35,7 @@ final class SelfCheck {
     /// Every part, in the order they run.
     static var parts: [Part] {
         windowParts + captureParts + httpsParts + findParts + toolParts + trafficParts + detailsParts + bodyParts
+            + inspectParts
     }
 
     let app: App
