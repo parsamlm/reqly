@@ -452,8 +452,16 @@ extension SelfCheck {
         let narrow = hex.shownLines.first ?? ""
         try require(narrow == "000000  7B 22 63 69 74 79 22 3A  {\"city\":", "a narrow first line is “\(narrow)”")
         note("    400 pixels wide: “\(narrow)”; pictures: \(try await pictures(of: page, "json-hex-narrow"))")
+        // The lines chosen at 8 bytes stay chosen, whole, at 16.
+        gtk_selection_model_unselect_all(gtk_list_view_get_model(cast(hex.list)))
+        hex.select(8..<24)
         page.resize(width: BodyPage.width)
         try await until("hex lines of 16 bytes", seconds: 5) { hex.perLine == 16 }
+        let widened = hex.selectedBytes
+        try require(
+            widened == 0..<32, "bytes 8 to 24, chosen at 8 a line, are \(widened.map { "\($0)" } ?? "none") at 16")
+        gtk_selection_model_unselect_all(gtk_list_view_get_model(cast(hex.list)))
+        note("    bytes 8 to 24, chosen at 8 a line, are the lines of bytes 0 to 32 at 16")
 
         // A request with no body.
         let none = try await show(id, .request, on: page)

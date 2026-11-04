@@ -202,7 +202,8 @@ final class HexView {
         }
     }
 
-    /// 16 bytes a line while they fit, and 8 when they don't, keeping the first line in view.
+    /// 16 bytes a line while they fit, and 8 when they don't, keeping the first line in view, and
+    /// every byte that was chosen in a line that's chosen.
     private func fitLines() {
         let width = Int32(gtk_adjustment_get_page_size(gtk_scrolled_window_get_hadjustment(cast(scroller))))
         guard width > 0 else { return }
@@ -215,9 +216,7 @@ final class HexView {
         reqly_numbers_set_count(cast(numbers), 0)
         reqly_numbers_set_count(cast(numbers), UInt32(HexLines.count(size: size, perLine: perLine)))
         if let chosen {
-            gtk_selection_model_select_range(
-                cast(selection), UInt32(chosen.lowerBound / perLine),
-                UInt32(HexLines.count(size: chosen.count, perLine: perLine)), 1)
+            select(chosen)
         }
         idle { [weak self] in
             guard let self else { return false }
@@ -253,7 +252,8 @@ final class HexView {
         return first * perLine..<min(size, (last + 1) * perLine)
     }
 
-    /// Chooses the lines that hold `bytes`, as the self-check does.
+    /// Chooses the lines that hold `bytes`, as the self-check does, and as the lines' length
+    /// changes.
     func select(_ bytes: Range<Int>) {
         let first = bytes.lowerBound / perLine
         let last = (bytes.upperBound - 1) / perLine
