@@ -53,7 +53,8 @@ extension DetailsPane {
             gtk_box_append(cast(box), DetailsBlocks.section("Body", content: [DetailsBlocks.note(note)]))
         }
         if !words.trailers.isEmpty {
-            let trailers = headerRows(words.trailers, part: part, shown: [], offset: words.headers.count)
+            let trailers = headerRows(
+                words.trailers, part: part, shown: message.shownHeaders, offset: words.headers.count)
             gtk_box_append(
                 cast(box),
                 DetailsBlocks.section(
