@@ -144,10 +144,12 @@ enum DetailsBlocks {
         return button
     }
 
-    /// A page's scroller, which scrolls up and down, and which screen readers call by its name.
+    /// A page's scroller, which screen readers call by its name. It scrolls up and down, and
+    /// sideways only when what the page holds can't be narrower than the pane, such as a body's
+    /// modes in the narrowest, so the page never makes the details wider than their pane.
     static func scroller(named name: String) -> Widget {
         let scroller = namedScroller(name)
-        gtk_scrolled_window_set_policy(cast(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC)
+        gtk_scrolled_window_set_policy(cast(scroller), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC)
         return scroller
     }
 

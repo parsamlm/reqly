@@ -173,10 +173,6 @@ final class DetailsPane {
             adw_view_switcher_set_stack(cast(switcher), stack)
             adw_view_switcher_set_policy(cast(switcher), ADW_VIEW_SWITCHER_POLICY_WIDE)
         }
-        // Kept for as long as the window is: the breakpoint takes it out of the header bar while
-        // the pane is narrow.
-        g_object_ref_sink(raw(switcher))
-
         colors = g_menu_new()
         menu = g_menu_new()
         marksMenu = g_menu_new()
@@ -186,8 +182,16 @@ final class DetailsPane {
         gtk_widget_set_tooltip_text(menuButton, "More")
         setAccessibleLabel(menuButton, "More")
         gtk_menu_button_set_menu_model(cast(menuButton), cast(menu))
+        // The tabs, or the pane's title while they're under the pages: both stay in the header
+        // bar, and the breakpoint shows one. GTK 4.14 warns as a widget that screen readers have
+        // read is put in place again, which the tabs would be each time the pane widens.
+        let title = adw_window_title_new("Details", nil)!
+        gtk_widget_set_visible(title, 0)
+        let titles = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0)!
+        gtk_box_append(cast(titles), title)
+        gtk_box_append(cast(titles), switcher)
         headerBar = adw_header_bar_new()
-        adw_header_bar_set_title_widget(cast(headerBar), switcher)
+        adw_header_bar_set_title_widget(cast(headerBar), titles)
         adw_header_bar_pack_end(cast(headerBar), menuButton)
 
         heading = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4)
@@ -217,12 +221,12 @@ final class DetailsPane {
 
         // Five tabs, the details' menu and the window's buttons fit from about 515 pixels.
         let narrow = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 550sp"))!
-        let bar = switcherBar
-        Value.bool(true).with { adw_breakpoint_add_setter(narrow, cast(bar), "reveal", $0) }
-        var noTitle = GValue()
-        g_value_init(&noTitle, gtk_widget_get_type())
-        adw_breakpoint_add_setter(narrow, cast(headerBar), "title-widget", &noTitle)
-        g_value_unset(&noTitle)
+        let setters: [(Widget, String, Bool)] = [
+            (switcherBar, "reveal", true), (switcher, "visible", false), (title, "visible", true),
+        ]
+        for (object, property, value) in setters {
+            Value.bool(value).with { adw_breakpoint_add_setter(narrow, cast(object), property, $0) }
+        }
         adw_breakpoint_bin_add_breakpoint(cast(widget), narrow)
         self.narrow = narrow
 

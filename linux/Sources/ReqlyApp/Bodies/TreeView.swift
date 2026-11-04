@@ -101,16 +101,21 @@ final class TreeView {
             let expander = gtk_tree_expander_new()!
             let row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)!
             gtk_widget_add_css_class(row, "tree-row")
+            // Widths in characters, which shrink in a narrow pane, a deep node's key and type
+            // first, as its value matters most.
             let key = gtk_inscription_new(nil)!
             gtk_widget_add_css_class(key, "key")
-            gtk_widget_set_size_request(key, 150, -1)
+            gtk_inscription_set_min_chars(cast(key), 4)
+            gtk_inscription_set_nat_chars(cast(key), 18)
             let value = gtk_inscription_new(nil)!
             gtk_widget_add_css_class(value, "monospace")
             gtk_widget_set_hexpand(value, 1)
+            gtk_inscription_set_nat_chars(cast(value), 30)
             let type = gtk_inscription_new(nil)!
             gtk_widget_add_css_class(type, "dim-label")
             gtk_widget_add_css_class(type, "caption")
-            gtk_widget_set_size_request(type, 84, -1)
+            gtk_inscription_set_min_chars(cast(type), 4)
+            gtk_inscription_set_nat_chars(cast(type), 10)
             gtk_inscription_set_xalign(cast(type), 1)
             for inscription in [key, value, type] {
                 gtk_inscription_set_text_overflow(cast(inscription), GTK_INSCRIPTION_OVERFLOW_ELLIPSIZE_END)
