@@ -618,6 +618,11 @@ extension SelfCheck {
         try require(
             rows.map { "\($0.name)=\($0.value)" } == ["city=Tehran", "days=3", "units=metric"],
             "the form's rows are \(rows)")
+        let form = try present(fields.views[.form] as? FormView, "Form shows no form")
+        let selectable = Self.selectableWords(under: form.widget)
+        try require(
+            rows.allSatisfy { selectable.contains($0.value) },
+            "of the form's values, only \(selectable) can be selected")
         note(
             "    \(rows.map { "\($0.name): \($0.value)" }.joined(separator: ", ")); pictures: \(try await pictures(of: page, "form"))"
         )
@@ -634,6 +639,12 @@ extension SelfCheck {
         note("    \(partRows.map { "\($0.name): \($0.value)" }.joined(separator: ", "))")
     }
 
+    /// The words of the labels under `root` you can select and copy.
+    private static func selectableWords(under root: Widget) -> [String] {
+        widgets(under: root).filter { typeName(raw($0)) == "GtkLabel" && gtk_label_get_selectable(cast($0)) != 0 }
+            .compactMap { string(gtk_label_get_text(cast($0))) }
+    }
+
     // MARK: - A picture
 
     private func checkPicture(_ id: ExchangeID, on page: BodyPage) async throws {
@@ -645,6 +656,10 @@ extension SelfCheck {
         try require(
             facts == ["Format: PNG, with transparency", "Dimensions: 16 × 12 pixels", "Size: \(bytes) B"],
             "the picture's rows say \(facts)")
+        let selectable = Self.selectableWords(under: preview.widget)
+        try require(
+            preview.facts.allSatisfy { selectable.contains($0.value) },
+            "of the picture's facts, only \(selectable) can be selected")
         try require(preview.texture != nil, "GTK didn't read the picture")
         note("    \(facts.joined(separator: ", "))")
         emit(raw(view.copyButton), "clicked")

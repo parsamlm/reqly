@@ -27,7 +27,9 @@ final class PreviewView {
     private let format: ImageFormat
     private let url: @MainActor () async -> URL?
     private let board: Widget
-    private let factsList: Widget
+    /// Where the facts' card goes, as the details' rows: each name beside its value, which you can
+    /// select.
+    private let factsBox: Widget
     private let cannotShow: Widget
 
     /// Shows `data`, a picture in `format`; `url` gives where it came from, which names its file.
@@ -57,9 +59,7 @@ final class PreviewView {
         gtk_widget_add_css_class(overlay, "card")
         gtk_widget_set_overflow(overlay, GTK_OVERFLOW_HIDDEN)
 
-        factsList = gtk_list_box_new()
-        gtk_list_box_set_selection_mode(cast(factsList), GTK_SELECTION_NONE)
-        gtk_widget_add_css_class(factsList, "boxed-list")
+        factsBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0)
         let open = gtk_button_new_with_label("Open With…")!
         let save = gtk_button_new_with_label("Save Image…")!
         let buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)!
@@ -68,7 +68,7 @@ final class PreviewView {
 
         widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12)
         g_object_ref_sink(raw(widget))
-        for child in [overlay, factsList, buttons] {
+        for child in [overlay, factsBox, buttons] {
             gtk_box_append(cast(widget), child)
         }
 
@@ -143,23 +143,15 @@ final class PreviewView {
         onRead?()
     }
 
-    /// Format, Dimensions and Size, as the Mac's rows say them.
+    /// Format, Dimensions and Size, as the Mac's rows say them, each value one you can select.
     private func showFacts(width: Int?, height: Int?, hasAlpha: Bool) {
-        while let row = gtk_widget_get_first_child(factsList) {
-            gtk_list_box_remove(cast(factsList), row)
-        }
+        DetailsBlocks.empty(factsBox)
         facts = [("Format", BodyWords.format(format, hasAlpha: hasAlpha))]
         if let width, let height {
             facts.append(("Dimensions", BodyWords.dimensions(width: width, height: height, fileName: shownName)))
         }
         facts.append(("Size", ByteCount.text(Int64(data.count))))
-        for fact in facts {
-            let row = adw_action_row_new()!
-            adw_preferences_row_set_title(cast(row), fact.name)
-            adw_action_row_set_subtitle(cast(row), fact.value)
-            gtk_widget_add_css_class(row, "property")
-            gtk_list_box_append(cast(factsList), row)
-        }
+        gtk_box_append(cast(factsBox), DetailsBlocks.card(facts.map { DetailsBlocks.row($0.name, value: $0.value) }))
     }
 
     /// The file's name, once the URL's known, for its 2x or 3x.

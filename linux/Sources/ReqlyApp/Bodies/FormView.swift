@@ -3,9 +3,9 @@ import CGtk
 import GtkBinding
 
 /// A form's fields, for a body sent as `application/x-www-form-urlencoded` or as
-/// `multipart/form-data`, as the Mac shows them: each field's name over its value, and for a
-/// file, its name, type and size. A row each, which Tab stops on once, as a screen reader reads
-/// its name and value.
+/// `multipart/form-data`, as the Mac shows them: each field's name beside its value, which you can
+/// select and copy, and for a file, its name, type and size. A row each, which Tab stops on once,
+/// at its value, which screen readers name by the field's name.
 @MainActor
 final class FormView {
     let widget: Widget
@@ -29,24 +29,12 @@ final class FormView {
             gtk_box_append(cast(widget), none)
             return
         }
-        let list = gtk_list_box_new()!
-        gtk_list_box_set_selection_mode(cast(list), GTK_SELECTION_NONE)
-        gtk_widget_add_css_class(list, "boxed-list")
-        setAccessibleLabel(list, "Form")
-        for row in rows.prefix(Self.most) {
-            let shown = adw_action_row_new()!
-            adw_preferences_row_set_use_markup(cast(shown), 0)
-            adw_preferences_row_set_title(cast(shown), row.name)
-            adw_action_row_set_subtitle(cast(shown), row.value)
-            // The value is what you read, the name over it, as GNOME's property rows have it.
-            gtk_widget_add_css_class(shown, "property")
-            if row.isText {
-                gtk_widget_add_css_class(shown, "monospace")
-            }
-            gtk_list_box_append(cast(list), shown)
-            self.rows.append((row.name, row.value))
-        }
-        gtk_box_append(cast(widget), list)
+        // The details' rows, as the Mac's: each name beside its value, which you can select, a text
+        // field's in a monospace font.
+        let shown = rows.prefix(Self.most)
+        let card = DetailsBlocks.card(shown.map { DetailsBlocks.row($0.name, value: $0.value, isCode: $0.isText) })
+        self.rows = shown.map { ($0.name, $0.value) }
+        gtk_box_append(cast(widget), card)
         if rows.count > Self.most {
             let more = gtk_label_new("Showing the first \(Self.most.formatted()) fields of \(rows.count.formatted()).")!
             gtk_label_set_xalign(cast(more), 0)
