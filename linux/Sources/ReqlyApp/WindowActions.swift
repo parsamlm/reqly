@@ -47,8 +47,11 @@ extension MainWindow {
     /// F9: shows the sidebar, or hides it, at any width.
     func toggleSidebar() {
         guard visibleDialog(over: window) == nil else { return }
-        let shows = adw_overlay_split_view_get_show_sidebar(outer) != 0
-        adw_overlay_split_view_set_show_sidebar(outer, cBool(!shows))
+        if adw_overlay_split_view_get_show_sidebar(outer) != 0 {
+            hideSidebar()
+        } else {
+            adw_overlay_split_view_set_show_sidebar(outer, 1)
+        }
     }
 
     /// Ctrl+F: the search bar, with the keyboard's focus in its field. Over the details, it's the
@@ -104,7 +107,7 @@ extension MainWindow {
             return true
         }
         if sidebarIsOver {
-            adw_overlay_split_view_set_show_sidebar(outer, 0)
+            hideSidebar()
             return true
         }
         if detailsAreOver {

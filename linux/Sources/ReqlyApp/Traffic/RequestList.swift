@@ -280,12 +280,14 @@ final class RequestList {
     func focusSelection() -> Bool {
         guard gtk_widget_get_mapped(view) != 0 else { return false }
         let row = gtk_single_selection_get_selected(selection)
-        // GTK moves the focus to the row itself only while the list has it, so the list then
-        // gives it to the row.
-        if row != UInt32.max {
-            gtk_column_view_scroll_to(cast(view), row, nil, GTK_LIST_SCROLL_FOCUS, nil)
-        }
-        return gtk_widget_grab_focus(view) != 0
+        // GTK 4.14 gives the list's focus to the row it scrolled to, and 4.18 and later to the
+        // row that had it before, moving it as it scrolls only while the list has the focus: so it
+        // scrolls before the list takes the focus, and again after.
+        guard row != UInt32.max else { return gtk_widget_grab_focus(view) != 0 }
+        gtk_column_view_scroll_to(cast(view), row, nil, GTK_LIST_SCROLL_FOCUS, nil)
+        let took = gtk_widget_grab_focus(view) != 0
+        gtk_column_view_scroll_to(cast(view), row, nil, GTK_LIST_SCROLL_FOCUS, nil)
+        return took
     }
 
     private func selectionChanged() {

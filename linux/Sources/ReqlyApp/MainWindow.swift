@@ -249,7 +249,10 @@ final class MainWindow {
         connect(outer, "notify::collapsed") { [weak self] in self?.sidebarChanged() }
         connect(inner, "notify::show-content") { [weak self] in self?.detailsChanged() }
         connect(raw(search.widget), "notify::search-mode-enabled") { [weak self] in self?.searchChanged() }
-        connect(window, "notify::focus-widget") { [weak self] in self?.forgetOldFocus() }
+        connect(window, "notify::focus-widget") { [weak self] in
+            self?.forgetOldFocus()
+            self?.leaveDetailsThatDontShow()
+        }
         list.onSelection = { [weak self] id in self?.details.show(id) }
         list.onActivate = { [weak self] _ in self?.openDetails() }
         list.onRows = { [weak self] in self?.rowsChanged() }
@@ -449,6 +452,13 @@ final class MainWindow {
             if !isInSidebar, sidebarIsOver || isLost, !sidebar.focus() {
                 gtk_widget_child_focus(sidebarPane, GTK_DIR_TAB_FORWARD)
             }
+            if sidebarIsOver {
+                focusTheChosenScope()
+                idle { [weak self] in
+                    self?.focusTheChosenScope()
+                    return false
+                }
+            }
         } else if isInSidebar || isLost {
             focusContent()
         }
@@ -467,6 +477,36 @@ final class MainWindow {
                 widget = child
             }
         }
+    }
+
+    /// libadwaita 1.7 and later give a sidebar that shows over the list the keyboard's focus
+    /// themselves, as it shows or just after, on the main menu's button or the row the sidebar's
+    /// list had before: the chosen scope's row has it instead, as with libadwaita 1.5.
+    private func focusTheChosenScope() {
+        if sidebarIsOver {
+            sidebar.focus()
+        }
+    }
+
+    /// libadwaita 1.7 and later can give the keyboard's focus to the details while they don't
+    /// show, folded away under the list, as the sidebar goes from over it: once that's done, the
+    /// pane that shows has it. A push of the details, which gives them the focus, shows them by
+    /// then.
+    private func leaveDetailsThatDontShow() {
+        guard isInHiddenDetails else { return }
+        idle { [weak self] in
+            if let self, isInHiddenDetails {
+                focusContent()
+            }
+            return false
+        }
+    }
+
+    /// Whether the keyboard's focus is in the details while they're folded away under the list.
+    private var isInHiddenDetails: Bool {
+        guard let focus = gtk_root_get_focus(cast(window)), isInside(focus, details.widget) else { return false }
+        let isFolded = adw_navigation_split_view_get_collapsed(inner) != 0
+        return isFolded && adw_navigation_split_view_get_show_content(inner) == 0
     }
 
     /// The sidebar's toggle shows while the sidebar is folded away, or hidden with F9.
@@ -491,8 +531,18 @@ final class MainWindow {
     private func scopeChosen() {
         showTitle()
         if sidebarIsOver {
-            adw_overlay_split_view_set_show_sidebar(outer, 0)
+            hideSidebar()
         }
+    }
+
+    /// Puts the sidebar away. Over the list, with the keyboard's focus in it, the pane under it has
+    /// the focus first: libadwaita 1.7 and later would give it to a widget that doesn't show, such
+    /// as the details' back button.
+    func hideSidebar() {
+        if sidebarIsOver, gtk_root_get_focus(cast(window)).map({ isInside($0, sidebarPane) }) ?? false {
+            focusContent()
+        }
+        adw_overlay_split_view_set_show_sidebar(outer, 0)
     }
 
     /// Gives the keyboard's focus to the pane that shows: the details over the list, or the list's

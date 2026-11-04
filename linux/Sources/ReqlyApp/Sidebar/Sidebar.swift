@@ -160,10 +160,13 @@ final class Sidebar {
     @discardableResult
     func focus() -> Bool {
         let position = rows.position(of: chosen) ?? 0
-        // GTK moves the focus to the row itself only while the list has it, so the list then
-        // gives it to the row.
+        // GTK 4.14 gives the list's focus to the row it scrolled to, and 4.18 and later to the
+        // row that had it before, moving it as it scrolls only while the list has the focus: so it
+        // scrolls before the list takes the focus, and again after.
         gtk_list_view_scroll_to(cast(view), UInt32(position), GTK_LIST_SCROLL_FOCUS, nil)
-        return gtk_widget_grab_focus(view) != 0
+        let took = gtk_widget_grab_focus(view) != 0
+        gtk_list_view_scroll_to(cast(view), UInt32(position), GTK_LIST_SCROLL_FOCUS, nil)
+        return took
     }
 
     /// Narrows the list to the row with `key`, as choosing it does, while it shows. Once you're
