@@ -73,6 +73,10 @@ final class Sidebar {
     private var folded: Set<SidebarRows.Section> = []
     /// The rows GTK has bound, by list item, with the key each shows.
     private var bound: [UnsafeMutableRawPointer: String] = [:]
+    /// What each bound row's label says, for its key and name, and the label the row with the
+    /// keyboard's focus waits to have, as only its count changed, until the focus leaves it.
+    private var spoken: [UnsafeMutableRawPointer: (key: String, name: String, label: String)] = [:]
+    private var held: [UnsafeMutableRawPointer: String] = [:]
     /// Whether the rows are being shown, rather than chosen by you.
     private var isShowing = false
     /// The latest change of scope. The next one waits for it, so the session gets them in order.
@@ -130,7 +134,10 @@ final class Sidebar {
             self?.bind(arguments.object(1)!)
         }
         connect(factory, "unbind") { [weak self] (arguments: Arguments) in
-            _ = self?.bound.removeValue(forKey: arguments.object(1)!)
+            let item = arguments.object(1)!
+            self?.bound[item] = nil
+            self?.spoken[item] = nil
+            self?.held[item] = nil
         }
         connect(selection, "notify::selected") { [weak self] in self?.selectionChanged() }
         // Enter or a double click: a section's title folds, and another row is chosen for good.
@@ -505,7 +512,7 @@ final class Sidebar {
         gtk_widget_set_visible(arrow, cBool(isTitle))
         showIcon(of: row, in: icon)
 
-        gtk_list_item_set_accessible_label(cast(item), row.spoken())
+        label(item, row, cell)
         gtk_list_item_set_accessible_description(cast(item), row.section.title ?? "")
         // A title says whether its section shows, as an expander does.
         if let listRow = gtk_widget_get_parent(cell) {
@@ -515,6 +522,40 @@ final class Sidebar {
             } else {
                 gtk_accessible_reset_state(cast(listRow), GTK_ACCESSIBLE_STATE_EXPANDED)
             }
+        }
+    }
+
+    /// A row's label, its name and count. Orca says the row with the keyboard's focus again
+    /// whenever its label changes, as All Traffic's count does with every request, so while it has
+    /// the focus, a new count waits until the focus leaves it; a new name is said at once.
+    private func label(_ item: UnsafeMutableRawPointer, _ row: SidebarRows.Row, _ cell: Widget) {
+        let words = row.spoken()
+        if let said = spoken[item], said.key == row.key, said.name == row.name, hasFocus(cell) {
+            held[item] = said.label == words ? nil : words
+            return
+        }
+        held[item] = nil
+        spoken[item] = (row.key, row.name, words)
+        gtk_list_item_set_accessible_label(cast(item), words)
+    }
+
+    /// Whether the row showing `cell` has the keyboard's focus: its list item's widget, the
+    /// cell's parent.
+    private func hasFocus(_ cell: Widget) -> Bool {
+        guard let focus = gtk_widget_get_root(view).flatMap({ gtk_root_get_focus($0) }) else { return false }
+        return gtk_widget_get_parent(cell) == focus
+    }
+
+    /// The keyboard's focus moved, as the window hears: a row it left has the count it waited
+    /// for.
+    func focusMoved() {
+        for (item, words) in held {
+            guard let cell = gtk_list_item_get_child(cast(item)), !hasFocus(cell), let said = spoken[item] else {
+                continue
+            }
+            held[item] = nil
+            spoken[item] = (said.key, said.name, words)
+            gtk_list_item_set_accessible_label(cast(item), words)
         }
     }
 

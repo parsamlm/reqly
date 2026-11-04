@@ -252,6 +252,8 @@ final class MainWindow {
         connect(window, "notify::focus-widget") { [weak self] in
             self?.forgetOldFocus()
             self?.leaveDetailsThatDontShow()
+            self?.list.focusMoved()
+            self?.sidebar.focusMoved()
         }
         list.onSelection = { [weak self] id in self?.details.show(id) }
         list.onActivate = { [weak self] _ in self?.openDetails() }

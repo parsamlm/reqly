@@ -112,7 +112,58 @@ extension SelfCheck {
         try await checkDots(list, ids)
         try await checkWhatScreenReadersHear(list, ids)
         try await checkTab(list, ids[.success]!)
+        try await checkTheFocusedRowsQuiet(list, ids[.success]!, traffic)
         try await checkBesideTheDetails(list)
+    }
+
+    /// While requests come in, screen readers hear no change to the words of the row with the
+    /// keyboard's focus, as Orca would say each, nor of the sidebar's row with it, All Traffic,
+    /// while the other rows say their new places and counts.
+    private func checkTheFocusedRowsQuiet(_ list: RequestList, _ id: ExchangeID, _ traffic: Traffic) async throws {
+        let window = window
+        let kinds = ["object:property-change:accessible-name", "object:property-change:accessible-description"]
+        var sent = 0
+        let send: @MainActor (Int) async -> Void = { count in
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            for _ in 0..<count {
+                sent += 1
+                _ = try? await traffic.client.send(traffic.server.url(.ok, "quiet=\(sent)"))
+            }
+            // The rows' places are said at most three times a second.
+            try? await Task.sleep(for: .milliseconds(1000))
+        }
+
+        list.select(id: id)
+        try await until("the row to be selected", seconds: 3) { list.selected == id }
+        list.focusSelection()
+        try await until("the row to have the focus", seconds: 3) { self.listHasFocus }
+        let label = try present(list.text(of: id)?.label, "the focused row has no words")
+        let heard = try await AccessibilityTree.events(kinds, seconds: 6) { await send(20) }
+        let focused = heard.filter { $0.name == label }
+        let others = heard.filter { $0.name != label && $0.detail?.hasPrefix("Request ") == true }
+        note(
+            "20 requests with a row focused: screen readers heard \(focused.count) changes to it, and "
+                + "\(others.count) to the other rows' places")
+        let changes = focused.prefix(3).map { "\($0.type) “\($0.detail ?? "")”" }
+        try require(focused.isEmpty, "with the focus on a row, screen readers heard it change: \(changes)")
+        try require(!others.isEmpty, "screen readers heard no other row's place change: \(heard.count) events")
+
+        window.sidebar.choose("all")
+        try require(window.sidebar.focus(), "the sidebar doesn't take the focus")
+        try await until("All Traffic to have the focus", seconds: 3) {
+            self.focusWidget.map { window.isInside($0, window.sidebar.view) } == true
+        }
+        let rows = try await AccessibilityTree.events(kinds, seconds: 5) { await send(10) }
+        let all = rows.filter { $0.name.hasPrefix(Sidebar.Scope.all.title) }
+        let counted = rows.filter { !$0.name.hasPrefix(Sidebar.Scope.all.title) && $0.name.hasSuffix(" requests") }
+        note(
+            "10 requests with All Traffic focused: screen readers heard \(all.count) changes to it, and "
+                + "\(counted.count) to the other rows' counts")
+        let names = all.prefix(3).map { "\($0.type) “\($0.name)”" }
+        try require(all.isEmpty, "with the focus on All Traffic, screen readers heard it change: \(names)")
+        try require(!counted.isEmpty, "screen readers heard no other sidebar row's count change: \(rows.count) events")
+        list.focusSelection()
     }
 
     /// At 1280 pixels, with the details beside the list, the columns fit the list's pane, so it

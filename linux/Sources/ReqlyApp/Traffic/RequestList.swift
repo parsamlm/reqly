@@ -145,6 +145,10 @@ final class RequestList {
     /// has, which screen readers hear.
     private var rows: [ExchangeID: UnsafeMutableRawPointer] = [:]
     private var descriptions: [UnsafeMutableRawPointer: String] = [:]
+    /// The words each row's label was made from, and the label a row with the keyboard's focus
+    /// waits to have, as only its times or sizes changed, until the focus leaves it.
+    private var spoken: [UnsafeMutableRawPointer: RowText] = [:]
+    private var held: [UnsafeMutableRawPointer: RowText] = [:]
     private var columns: [Column: OpaquePointer] = [:]
     /// Each column's width in sp, as it starts or as you left it.
     private var widths: [Column: Double] = [:]
@@ -766,7 +770,7 @@ final class RequestList {
             }
         }
         if let row = rows[id] {
-            gtk_column_view_row_set_accessible_label(cast(row), entry.text.label)
+            label(row, of: id, entry.text)
         }
     }
 
@@ -805,15 +809,69 @@ final class RequestList {
         guard let object = gtk_column_view_row_get_item(cast(row)) else { return }
         let id = Self.id(of: object)
         rows[id] = row
-        gtk_column_view_row_set_accessible_label(cast(row), cache[id]?.text.label ?? "")
+        spoken[row] = nil
+        held[row] = nil
+        label(row, of: id, cache[id]?.text)
         descriptions[row] = nil
         describe(row)
     }
 
     private func unbindRow(_ row: UnsafeMutableRawPointer) {
         descriptions[row] = nil
+        spoken[row] = nil
+        held[row] = nil
         if let id = rows.first(where: { $0.value == row })?.key {
             rows[id] = nil
+        }
+    }
+
+    /// A row's label, `text`'s words. Orca says the row with the keyboard's focus again whenever
+    /// its words change, so while it has the focus, a change to only its times, sizes or app,
+    /// as a live request's are, waits until the focus leaves it; one to its status or its marks
+    /// is said at once.
+    private func label(_ row: UnsafeMutableRawPointer, of id: ExchangeID, _ text: RowText?) {
+        if let text, let said = spoken[row], Self.saysTheSame(said, text), hasFocus(id) {
+            held[row] = said.label == text.label ? nil : text
+            return
+        }
+        held[row] = nil
+        spoken[row] = text
+        gtk_column_view_row_set_accessible_label(cast(row), text?.label ?? "")
+    }
+
+    /// Whether two of a row's words say the same request, status and marks, whatever their times
+    /// and sizes.
+    private static func saysTheSame(_ one: RowText, _ other: RowText) -> Bool {
+        one.look == other.look && one.status == other.status && one.statusDescription == other.statusDescription
+            && one.method == other.method && one.host == other.host && one.path == other.path
+            && one.isPinned == other.isPinned && one.color == other.color && one.comment == other.comment
+    }
+
+    /// Whether the row showing `id` has the keyboard's focus.
+    private func hasFocus(_ id: ExchangeID) -> Bool {
+        guard let focus = gtk_widget_get_root(view).flatMap({ gtk_root_get_focus($0) }), let widget = rowWidget(of: id)
+        else { return false }
+        return focus == widget || gtk_widget_is_ancestor(focus, widget) != 0
+    }
+
+    /// The row with the keyboard's focus, a GtkColumnViewRow, or `nil` while none has it.
+    private var focusedRow: UnsafeMutableRawPointer? {
+        guard let focus = gtk_widget_get_root(view).flatMap({ gtk_root_get_focus($0) }),
+            gtk_widget_is_ancestor(focus, view) != 0
+        else { return nil }
+        return rows.first { hasFocus($0.key) }?.value
+    }
+
+    /// The keyboard's focus moved, as the window hears: a row it left has the words it waited
+    /// for, and says where it is now.
+    func focusMoved() {
+        let focused = focusedRow
+        for row in rows.values where row != focused {
+            if let text = held.removeValue(forKey: row) {
+                spoken[row] = text
+                gtk_column_view_row_set_accessible_label(cast(row), text.label)
+            }
+            describe(row)
         }
     }
 
@@ -829,13 +887,15 @@ final class RequestList {
     }
 
     /// The bound rows' descriptions, once rows have moved: at most three times a second while
-    /// traffic comes, as each new row changes every row's.
+    /// traffic comes, as each new row changes every row's. The row with the keyboard's focus
+    /// keeps its own until the focus leaves it, as Orca would say it at each change.
     private func describeSoon() {
         guard describeTimer == nil else { return }
         describeTimer = timeout(300) { [weak self] in
             guard let self else { return false }
             describeTimer = nil
-            for row in rows.values {
+            let focused = focusedRow
+            for row in rows.values where row != focused {
                 describe(row)
             }
             return false
