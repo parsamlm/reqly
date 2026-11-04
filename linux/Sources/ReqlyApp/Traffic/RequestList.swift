@@ -527,8 +527,10 @@ final class RequestList {
         gtk_column_view_scroll_to(cast(view), UInt32(count - 1), nil, GTK_LIST_SCROLL_NONE, nil)
         // GTK places rows it hasn't laid out yet by how tall it guesses they are, and may leave
         // the last one below the edge, so once a frame has laid them out, the list goes to its
-        // very end, frame after frame, until it's there, unless you scroll meanwhile. Until then
-        // it's at its end, for whether it follows.
+        // very end, frame after frame, until it's there, unless you scroll meanwhile, as
+        // `scrolledUp()` hears, or up from where it went, as a touchscreen does. GTK may not have
+        // gone to the row by the first frame, as when the list first shows rows, which isn't you
+        // scrolling. Until then it's at its end, for whether it follows.
         guard !isEnding else { return }
         isEnding = true
         var frames = 0
@@ -540,7 +542,7 @@ final class RequestList {
             let value = adjustment.map { gtk_adjustment_get_value($0) } ?? 0
             let page = adjustment.map { gtk_adjustment_get_page_size($0) } ?? 0
             let end = (adjustment.map { gtk_adjustment_get_upper($0) } ?? 0) - page
-            let isScrolled = setTo.map { value < $0 - 0.5 } ?? (value < end - page)
+            let isScrolled = setTo.map { value < $0 - 0.5 } ?? false
             guard let adjustment, following.isFollowing, !isScrolled, value < end - 0.5, frames < 10 else {
                 isEnding = false
                 return false

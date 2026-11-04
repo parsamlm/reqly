@@ -23,9 +23,9 @@ extension SelfCheck {
     /// at a time and cleared; a filter added and taken off; a host chosen in the sidebar and All
     /// Traffic again; the list scrolled from its top to its end, by its scroll bar and a page at a
     /// time; and Clear. Memory at 0, 50,000 and 100,000 requests, after the three bursts and after
-    /// Clear. The search runs in a copy of Reqly that fills a session of its own, since the list
-    /// can take minutes to show what a search leaves, and every step after it would wait for that:
-    /// the copy waits a few minutes at most. Then each body view at sizes either side of the
+    /// Clear. The search runs in a copy of Reqly that fills a session of its own, so no step after
+    /// it waits for what it leaves, should the list take minutes to show that again, as it once
+    /// did: the copy waits a few minutes at most. Then each body view at sizes either side of the
     /// bodies' inline limit, as the Request page shows it, and as it would without the limit. It
     /// prints a table of each, and fails only when what it measures doesn't happen.
     func checkSpeed() async throws {
@@ -174,11 +174,12 @@ private final class SpeedMeter {
     /// In the copy of Reqly that measures the search: a session of 100,000 requests, filled as the
     /// main run fills its own, then the search typed and cleared with the list at its top, and
     /// again at its end, where it is while it follows traffic; the main run takes their table
-    /// lines. A list that starts empty can stop following its first burst of thousands, which
-    /// isn't what the copy measures, so it waits for each burst's rows rather than for its newest
-    /// to show.
+    /// lines.
     func measureTheSearch() async throws {
-        _ = try await fill(from: 0, to: 100_000, showingEach: false)
+        _ = try await fill(from: 0, to: 100_000)
+        if !unfollowed.isEmpty {
+            check.note("the list had stopped following after: \(unfollowed.joined(separator: "; "))")
+        }
         let list = list
         let adjustment = try check.present(gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
         for isAtTheEnd in [false, true] {
@@ -195,13 +196,13 @@ private final class SpeedMeter {
     }
 
     /// Bursts of 5,000 until the session has `end` requests, from `start`, each one's newest row
-    /// showing before the next, or with `showingEach` false, its rows in the list.
-    private func fill(from start: Int, to end: Int, showingEach: Bool = true) async throws -> [SpeedLine] {
+    /// showing before the next.
+    private func fill(from start: Int, to end: Int) async throws -> [SpeedLine] {
         var lines: [SpeedLine] = []
         var count = start
         while count < end {
             let size = min(5_000, end - count, count % 5_000 == 0 ? 5_000 : 5_000 - count % 5_000)
-            lines.append(try await burst(size, "filling, to \(Format.count(count + size))", showing: showingEach))
+            lines.append(try await burst(size, "filling, to \(Format.count(count + size))"))
             count += size
         }
         try check.require(list.count == end, "the list has \(list.count) rows, not \(Format.count(end))")
@@ -260,12 +261,11 @@ private final class SpeedMeter {
         """
 
     /// Sends `count` of the mix's requests as fast as Reqly answers, on 8 connections, and waits
-    /// for the newest one's row to show, or with `showing` false, to be the list's last, with
-    /// `during` run meanwhile: how long the burst took to send, how soon after its last answer the
+    /// for the newest one's row to show, with `during` run meanwhile: how long the burst took to send, how soon after its last answer the
     /// core's rows event brought its newest request and the row showed, and the window's longest
     /// wait from its start until then.
     private func burst(
-        _ count: Int, _ step: String, showing: Bool = true, during: (@MainActor () async throws -> String)? = nil
+        _ count: Int, _ step: String, during: (@MainActor () async throws -> String)? = nil
     ) async throws -> SpeedLine {
         let urls = (sent..<sent + count).map(mix.url)
         sent += count
@@ -278,7 +278,7 @@ private final class SpeedMeter {
         let burst = await sending.value
         let answered = monotonicMicroseconds()
         try check.require(burst.answered == count, "of \(count), \(burst.answered) were answered: \(burst.problems)")
-        let shownAt = try await waitForNewest(step, showing: showing)
+        let shownAt = try await waitForNewest(step)
         let shown = shownAt ?? monotonicMicroseconds()
         var line = SpeedLine(step: step)
         line.took = (answered - started) / 1000
@@ -296,11 +296,11 @@ private final class SpeedMeter {
         return line
     }
 
-    /// Waits until the list's last row is the newest request's, with every change in, and unless
-    /// `showing` is false, the row shows whole; then gives when. A list that has stopped following
+    /// Waits until the list's last row is the newest request's, with every change in, and the row
+    /// shows whole; then gives when. A list that has stopped following
     /// doesn't show it: then it's noted and brought back to its end, to follow the next, and this
     /// gives `nil`.
-    private func waitForNewest(_ step: String, showing: Bool = true, seconds: Int = 60) async throws -> Int? {
+    private func waitForNewest(_ step: String, seconds: Int = 60) async throws -> Int? {
         let list = list
         let newest = newest
         let check = check
@@ -314,7 +314,6 @@ private final class SpeedMeter {
                 "after \(step), the newest row, #\(newest.rawValue), isn't the last: the last row is \(last), "
                     + "\(list.count) rows, \(list.isSettled ? "settled" : "still changing")")
         }
-        guard showing else { return monotonicMicroseconds() }
         // The list shows its newest row within 100 ms of the last change while it follows.
         do {
             try await check.until("the newest row to show, after \(step)", seconds: 5) {
