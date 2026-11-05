@@ -331,7 +331,9 @@ final class MainWindow {
         // It waits for a start or a stop, and for the session.
         let canSwitch = model.session != nil && (model.capture == .stopped || model.capture == .capturing)
         gtk_widget_set_sensitive(captureSwitch, cBool(canSwitch))
-        if isFirstFocusDue, model.session != nil {
+        // Once the session has opened, and capturing has started when it starts as Reqly opens,
+        // which turns the switch off meanwhile.
+        if isFirstFocusDue, model.session != nil, !model.isOpening {
             isFirstFocusDue = false
             giveFirstFocus()
         }
@@ -386,8 +388,10 @@ final class MainWindow {
         }
     }
 
-    /// The keyboard's first focus, once the session has opened: the list, or while the session
-    /// has no requests, the capture switch, from which typing still starts a search.
+    /// The keyboard's first focus, once the session has opened, and capturing has started when it
+    /// starts as Reqly opens: the list, or while the session has no requests, the capture switch,
+    /// from which typing still starts a search. Not the search's field: its bar is hidden until
+    /// it's asked for, and an empty list asks you to turn on capture.
     private func giveFirstFocus() {
         idle { [weak self] in
             guard let self, visibleDialog(over: window) == nil else { return false }

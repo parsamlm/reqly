@@ -40,6 +40,11 @@ final class AppModel {
     var openedTerminal = false {
         didSet { changed() }
     }
+    /// Whether the session is still opening, or capturing still starting after it, when you asked
+    /// for that as Reqly opens.
+    private(set) var isOpening = true {
+        didSet { changed() }
+    }
 
     private var observers: [@MainActor () -> Void] = []
     private var listeners: [@MainActor (Event) -> Void] = []
@@ -107,6 +112,7 @@ final class AppModel {
     }
 
     private func openSession() async {
+        defer { isOpening = false }
         // Settings a Reqly that quit unexpectedly left pointing at itself go back first, as on
         // Windows.
         await desktopProxy.restoreLeftBehind()

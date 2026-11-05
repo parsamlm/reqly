@@ -184,11 +184,12 @@ extension SelfCheck {
     /// "Details", and the page's tab has the focus. At 1280 pixels, a body fits the details in each
     /// of its modes, and every scroller, and every button, has a name for screen readers; with a
     /// request shown, Ctrl+1 to Ctrl+5 choose its pages, which screen readers hear. Once Ctrl+K has cleared a focused row, Tab
-    /// from the sidebar still reaches the list's header bar. Then two copies of Reqly: with an empty
-    /// session, the first focus is the capture switch; with the session the Mac saved, the list,
-    /// once its requests show. In a copy, this part checks only that.
+    /// from the sidebar still reaches the list's header bar. Then three copies of Reqly: with an
+    /// empty session, the first focus is the capture switch, and with capturing on launch too, once
+    /// it has started; with the session the Mac saved, the list, once its requests show. In a copy,
+    /// this part checks only that.
     func checkKeyboard() async throws {
-        if app.options.startsCapturing == false {
+        if app.options.startsCapturing != nil {
             try await checkTheFirstFocus()
             return
         }
@@ -216,15 +217,17 @@ extension SelfCheck {
         try await emptyTheList()
 
         let empty = try await runInCopy(["keyboard"], options: ["--starts-capturing", "no"])
+        let capturing = try await runInCopy(["keyboard"], options: ["--starts-capturing", "yes"])
         let saved = try await runInCopy(
             ["keyboard"], options: ["--smoke-session", Self.macSession().path, "--starts-capturing", "no"])
-        for line in (empty + saved) where !line.hasSuffix("parts passed") {
+        for line in (empty + capturing + saved) where !line.hasSuffix("parts passed") {
             note("copy: \(line.trimmingCharacters(in: .whitespaces))")
         }
     }
 
     /// The keyboard's first focus, in a copy of Reqly: the capture switch, while the session is
-    /// empty, or the list, once the requests of the session it opened show.
+    /// empty, once it can be used, as Start Capturing on launch has it wait; or the list, once the
+    /// requests of the session it opened show.
     private func checkTheFirstFocus() async throws {
         let window = window
         _ = try await session()
@@ -234,10 +237,17 @@ extension SelfCheck {
             }
             note("the first focus, with a saved session: the list, \(window.list.count) rows")
         } else {
+            let starts = app.options.startsCapturing == true
             try await until("the capture switch to have the first focus", seconds: 10) {
-                self.focusWidget == window.captureSwitch
+                self.focusWidget == window.captureSwitch && (!starts || self.model.capture == .capturing)
             }
-            note("the first focus, with an empty session: the capture switch")
+            await settle()
+            try require(
+                focusWidget == window.captureSwitch, "once capturing started, the first focus is on the \(focusType)")
+            note("the first focus, with an empty session\(starts ? ", capturing on launch" : ""): the capture switch")
+            if starts {
+                try await setCapture(on: false)
+            }
         }
     }
 
