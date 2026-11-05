@@ -383,8 +383,14 @@ extension SelfCheck {
         try await until("Ctrl+F to open the search, its field focused", seconds: 3) {
             search.isOpen && self.focusWidget.map { window.isInside($0, search.entry) } == true
         }
-        for key in ["j", "s", "o", "n"] {
-            try FakeInput.press(key, in: window.window)
+        // Once the search has settled, screen readers in the field hear how many show, once.
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 5) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            for key in ["j", "s", "o", "n"] {
+                try? FakeInput.press(key, in: window.window)
+            }
+            try? await Task.sleep(for: .milliseconds(1500))
         }
         try await until("“json” to narrow the list to its 2 requests", seconds: 5) {
             search.query == "json" && list.count == 2 && self.shown().count == 2
@@ -392,7 +398,9 @@ extension SelfCheck {
         let targets = shown().map(\.path)
         try require(targets.allSatisfy { $0.hasPrefix("/json") }, "“json” shows \(targets)")
         try await checkTitle("All Traffic", "2 of 6 requests", "2 of 6 requests")
-        note("typed “json”: the list shows \(targets.joined(separator: ", ")), 2 of 6 requests")
+        let said = heard.compactMap(\.detail)
+        try require(said == ["2 of 6 requests"], "as “json” was typed, screen readers heard \(said)")
+        note("typed “json”: the list shows \(targets.joined(separator: ", ")), 2 of 6 requests, as screen readers hear")
 
         // A word only the text's body has.
         let typed = monotonicMicroseconds()
@@ -426,13 +434,22 @@ extension SelfCheck {
         }
         try await until("“teh” to find Tehran in 5 bodies", seconds: 5) { list.count == 5 }
         note("typing “teh” in the list: the search opens with it, and finds Tehran in 5 bodies")
+        // Once screen readers have heard what “teh” found, half a second after it settled.
+        try? await Task.sleep(for: .milliseconds(800))
 
-        gtk_editable_set_text(cast(search.entry), "zzqx")
+        let nothing = try await AccessibilityTree.events(["object:announcement"], seconds: 4) {
+            try? await Task.sleep(for: .milliseconds(1500))
+            gtk_editable_set_text(cast(search.entry), "zzqx")
+            try? await Task.sleep(for: .milliseconds(1000))
+        }
         try await until("nothing to match “zzqx”", seconds: 5) {
             list.count == 0 && gtk_widget_get_mapped(window.noMatches.widget) != 0
         }
         await settle()
         let words = window.noMatches.words
+        try require(
+            nothing.compactMap(\.detail) == [words.title],
+            "as nothing matched, screen readers heard \(nothing.compactMap(\.detail))")
         try require(
             words.title == "No Results for “zzqx”" && gtk_widget_get_visible(window.noMatches.clearButton) == 0,
             "with nothing matching, the page says \(words.title), and Clear Filters shows")

@@ -83,9 +83,12 @@ extension MainWindow {
         }
     }
 
-    /// Ctrl+R: starts or stops capturing, as the switch does, when it can.
+    /// Ctrl+R: starts or stops capturing, as the switch does, when it can, and screen readers hear
+    /// what the status line says once it's done, such as why it couldn't start, as the switch may
+    /// not have the focus.
     func toggleCapture() {
         guard visibleDialog(over: window) == nil, gtk_widget_get_sensitive(captureSwitch) != 0 else { return }
+        saysCapturing = true
         gtk_switch_set_active(cast(captureSwitch), cBool(gtk_switch_get_active(cast(captureSwitch)) == 0))
     }
 

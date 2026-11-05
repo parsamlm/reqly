@@ -84,6 +84,11 @@ final class MainWindow {
     private var firstFocus: Widget?
     /// Clear's action, which is on while there's something to clear.
     var clearAction: OpaquePointer?
+    /// Whether screen readers hear what capturing does once Ctrl+R's start or stop is done, as
+    /// the switch it turns may not have the focus.
+    var saysCapturing = false
+    /// Says what a search or filters found, once they've settled.
+    private var findingTimer: UInt32?
     /// Settings and Set Up HTTPS…, each made the first time it opens and kept, as they keep
     /// their pages.
     private(set) var settings: SettingsDialog?
@@ -259,8 +264,14 @@ final class MainWindow {
         list.onComment = { [weak self] id in self?.editComment(id) }
         sidebar.onScope = { [weak self] _ in self?.scopeChosen() }
         sidebar.onCount = { [weak self] in self?.showTitle() }
-        search.onSearch = { [weak self] in self?.showTitle() }
-        filters.onFilter = { [weak self] in self?.showTitle() }
+        search.onSearch = { [weak self] in
+            self?.showTitle()
+            self?.sayWhatsFoundSoon()
+        }
+        filters.onFilter = { [weak self] in
+            self?.showTitle()
+            self?.sayWhatsFoundSoon()
+        }
         noMatches.onClear = { [weak self] in self?.filters.clear() }
         connect(captureSwitch, "notify::active") { [weak self] in
             guard let self, !self.isShowingCapture else { return }
@@ -552,6 +563,28 @@ final class MainWindow {
             focusContent()
         }
         adw_overlay_split_view_set_show_sidebar(outer, 0)
+    }
+
+    /// Once a search or the filters have settled, half a second after their last change, screen
+    /// readers hear what they found while you're in the search's field or the filter bar: how
+    /// many requests show, as the list's subtitle says, or that none do.
+    private func sayWhatsFoundSoon() {
+        if let findingTimer {
+            g_source_remove(findingTimer)
+        }
+        findingTimer = timeout(500) { [weak self] in
+            guard let self else { return false }
+            findingTimer = nil
+            guard let focus = gtk_root_get_focus(cast(window)),
+                isInside(focus, search.widget) || isInside(focus, filters.widget)
+            else { return false }
+            let nothingMatches = gtk_stack_get_visible_child(cast(listContent)) == noMatches.widget
+            let words = nothingMatches ? noMatches.words.title : string(adw_window_title_get_subtitle(cast(listTitle)))
+            if let words, !words.isEmpty {
+                announce(window, words)
+            }
+            return false
+        }
     }
 
     /// Gives the keyboard's focus to the pane that shows: the details over the list, or the list's

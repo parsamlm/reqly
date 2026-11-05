@@ -15,10 +15,10 @@ extension SelfCheck {
     /// The window's panes at 1280, 1000 and 700 pixels wide, and at 1280 with the text at 1.25, as
     /// the window's breakpoints have them: the details beside the list or over it, the sidebar
     /// beside them or folded away, and the main menu's button that shows, with pictures in light
-    /// and dark, while the window is empty. The shortcuts, pressed as keys: F9, F10, Ctrl+F, and
-    /// Ctrl+1 to Ctrl+5, which screen readers hear; Escape, in its order; and Enter and a click on
-    /// a row, which open the details over the list, and Escape and Alt+←, after which the row has
-    /// the focus again. GTK warns of nothing meanwhile. The app's icon is found by its name.
+    /// and dark, while the window is empty. The shortcuts, pressed as keys: F9, F10, Ctrl+R, Ctrl+F,
+    /// and Ctrl+1 to Ctrl+5, which screen readers hear; Escape, in its order; and Enter and a click
+    /// on a row, which open the details over the list, and Escape and Alt+←, after which the row
+    /// has the focus again. GTK warns of nothing meanwhile. The app's icon is found by its name.
     func checkLayout() async throws {
         let window = window
         try await until("the window to show") { gtk_widget_get_mapped(window.window) != 0 }
@@ -204,8 +204,9 @@ extension SelfCheck {
 
     /// At 1280 pixels: F9 hides and shows the sidebar; F10 opens the sidebar's main menu, and
     /// Escape closes only that, and with the sidebar hidden, the list's; Ctrl+R starts and stops
-    /// capturing, and the list's title says so; Ctrl+F opens the search bar, and Escape closes it;
-    /// Ctrl+1 to Ctrl+5 choose the details' pages, and screen readers hear each.
+    /// capturing, and the list's title says so, as screen readers hear; Ctrl+F opens the search
+    /// bar, and Escape closes it; Ctrl+1 to Ctrl+5 choose the details' pages, and screen readers
+    /// hear each.
     private func checkKeysBeside() async throws {
         let window = window
         try await resize(to: Self.layouts[0])
@@ -243,16 +244,36 @@ extension SelfCheck {
 
         try JSONEncoder().encode(Self.yourProxySettings).write(to: try standInFile())
         _ = try await switchReady()
-        try FakeInput.press("Control_L", "r", in: window.window)
-        try await until("Ctrl+R to start capturing", seconds: 5) { model.isCapturing }
-        let capturing = subtitle
-        try FakeInput.press("Control_L", "r", in: window.window)
-        try await until("Ctrl+R to stop capturing", seconds: 5) { model.capture == .stopped }
-        let stopped = subtitle
+        var capturing = ""
+        var stopped = ""
+        var statuses: [String] = []
+        let saidCapturing = try await AccessibilityTree.events(["object:announcement"], seconds: 8) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            try? FakeInput.press("Control_L", "r", in: window.window)
+            for _ in 0..<500 where !model.isCapturing {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            capturing = subtitle
+            statuses.append(model.statusText)
+            try? await Task.sleep(for: .milliseconds(500))
+            try? FakeInput.press("Control_L", "r", in: window.window)
+            for _ in 0..<500 where model.capture != .stopped {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            stopped = subtitle
+            statuses.append(model.statusText)
+            try? await Task.sleep(for: .milliseconds(500))
+        }
         note("Ctrl+R: starts capturing, the list's title saying “\(capturing)”, then stops, saying “\(stopped)”")
         try require(
             capturing == "Waiting for traffic" && stopped == "Not capturing",
             "the list's title said “\(capturing)”, then “\(stopped)”")
+        // With the focus away from the switch, screen readers hear what the status line says.
+        let heardCapturing = saidCapturing.compactMap(\.detail)
+        try require(
+            statuses.allSatisfy { heardCapturing.contains($0) }, "after Ctrl+R, screen readers heard \(heardCapturing)")
+        note("    screen readers heard “\(statuses.joined(separator: "”, then “"))”")
 
         try FakeInput.press("Control_L", "f", in: window.window)
         try await until("Ctrl+F to open the search bar, its field focused", seconds: 3) {

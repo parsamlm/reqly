@@ -72,10 +72,16 @@ extension MainWindow {
     /// can't be used while capturing starts or stops, and has the keyboard's focus again after.
     func captureSwitched(on: Bool) {
         let hadFocus = gtk_widget_is_focus(captureSwitch) != 0
+        let says = saysCapturing
+        saysCapturing = false
         Task {
             await model.setCapturing(on)
             if hadFocus, gtk_widget_get_sensitive(captureSwitch) != 0 {
                 gtk_widget_grab_focus(captureSwitch)
+            }
+            // Ctrl+R, away from the switch, which screen readers would have said.
+            if says, gtk_widget_is_focus(captureSwitch) == 0 {
+                announce(window, model.statusText)
             }
         }
     }
