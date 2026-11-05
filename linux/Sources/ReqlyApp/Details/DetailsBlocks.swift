@@ -134,14 +134,29 @@ enum DetailsBlocks {
         return button
     }
 
-    /// A button that copies what `text` gives when you click it, and says so to screen readers.
+    /// A button that copies what `text` gives when you click it, and says so in a toast.
     static func copyButton(_ label: String, _ text: @escaping @MainActor () -> String) -> Widget {
         let button = iconButton("edit-copy-symbolic", label)
         connect(button, "clicked") {
             gdk_clipboard_set_text(gtk_widget_get_clipboard(button), text())
-            announce(button, "Copied")
+            toast("Copied", from: button)
         }
         return button
+    }
+
+    /// Says `words` at the bottom of `widget`'s window, as a toast, such as "Copied": plain text,
+    /// not Pango markup, since they may hold a path or a message. libadwaita says a toast to screen
+    /// readers itself from 1.7, as the self-check hears, but 1.5 doesn't, so there they hear it
+    /// from here, as they do when no toast can show.
+    static func toast(_ words: String, from widget: Widget) {
+        let overlay = gtk_widget_get_ancestor(widget, adw_toast_overlay_get_type())
+        if let overlay, let toast = adw_toast_new(words) {
+            adw_toast_set_use_markup(toast, 0)
+            adw_toast_overlay_add_toast(cast(overlay), toast)
+        }
+        if overlay == nil || !LibraryVersion.adwaita(atLeast: 7) {
+            announce(widget, words)
+        }
     }
 
     /// A page's scroller, which screen readers call by its name. It scrolls up and down, and

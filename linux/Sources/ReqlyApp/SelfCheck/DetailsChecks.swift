@@ -126,13 +126,27 @@ extension SelfCheck {
             "Request: Show shows Authorization's token, which stays shown; Show Values shows theme=light, session=abc123"
         )
 
-        // Copy Headers copies them as they came, secrets and all.
+        // Copy Headers copies them as they came, secrets and all, and says so in a toast, which
+        // screen readers hear once.
         let copy = try present(iconButton("Copy Headers", in: page), "the headers have no Copy Headers")
-        emit(raw(copy), "clicked")
+        // GTK tells screen readers of an element only once they've read it, as Orca has.
+        _ = try await AccessibilityTree.read(depth: 60, children: 60)
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 4) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            emit(raw(copy), "clicked")
+            try? await Task.sleep(for: .milliseconds(1000))
+        }
         let copied = copiedText() ?? ""
         try require(
             copied.contains("Authorization: Bearer self-check-token") && copied.contains("Host: 127.0.0.1"),
             "Copy Headers copied “\(copied)”")
+        let toasts = toastWords()
+        let said = heard.filter { $0.detail == "Copied" }.count
+        try require(
+            toasts.contains("Copied") && said == 1,
+            "Copy Headers showed the toasts \(toasts), and screen readers heard “Copied” \(said) times")
+        note("Copy Headers: a toast, “Copied”, which screen readers hear once")
 
         // The response: its cookies, with when they expire and their attributes, and its body.
         let response = try await pageWords(.response)
@@ -953,6 +967,13 @@ extension SelfCheck {
     }
 
     /// The widgets under `root`, depth first.
+    /// The words of the toasts that show in the window.
+    private func toastWords() -> [String] {
+        descendants(of: window.window).filter { typeName(raw($0)) == "AdwToastWidget" }
+            .flatMap { descendants(of: $0) }.filter { typeName(raw($0)) == "GtkLabel" }
+            .compactMap { string(gtk_label_get_text(cast($0))) }
+    }
+
     private func descendants(of root: Widget) -> [Widget] {
         var found: [Widget] = []
         var child = gtk_widget_get_first_child(root)

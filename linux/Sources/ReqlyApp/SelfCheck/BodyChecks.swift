@@ -344,8 +344,18 @@ extension SelfCheck {
             scheme == (isDark ? "Adwaita-dark" : "Adwaita"), "the code view's style scheme is \(scheme ?? "none")")
         note("    a caret, line numbers, no wrapping, GtkSourceView's highlighter off, \(scheme ?? "")")
         try await checkHighContrast(formatted, on: page)
-        emit(raw(view.copyButton), "clicked")
+        // Its toast, which screen readers hear once, whether libadwaita says it or Reqly does. GTK
+        // tells them of an element only once they've read it, as Orca has.
+        _ = try await AccessibilityTree.read(depth: 40, children: 40)
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 4) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            emit(raw(view.copyButton), "clicked")
+            try? await Task.sleep(for: .milliseconds(1000))
+        }
         try require(copiedText() == text, "Copy Body copied “\(copiedText()?.prefix(40) ?? "nothing")”")
+        let said = heard.filter { $0.detail == "Copied" }.count
+        try require(said == 1, "screen readers heard Copy Body's “Copied” \(said) times")
         note("    Copy Body: the formatted text; pictures: \(try await pictures(of: page, "json-formatted"))")
 
         // Tree: the root and its children open, the filter, and the path of a row chosen.
