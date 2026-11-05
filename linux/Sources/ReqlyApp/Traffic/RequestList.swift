@@ -755,6 +755,17 @@ final class RequestList {
         gtk_column_view_column_get_fixed_width(columns[column])
     }
 
+    /// A column's GtkColumnViewColumn, such as App's, which the window hides while the details
+    /// beside the list leave Request little room.
+    func viewColumn(_ column: Column) -> OpaquePointer? {
+        columns[column]
+    }
+
+    /// Whether `column` shows.
+    func shows(_ column: Column) -> Bool {
+        gtk_column_view_column_get_visible(columns[column]) != 0
+    }
+
     private func bind(_ item: UnsafeMutableRawPointer, _ column: Column) {
         guard let object = gtk_list_item_get_item(cast(item)) else { return }
         let id = Self.id(of: object)

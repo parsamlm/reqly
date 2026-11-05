@@ -167,7 +167,8 @@ extension SelfCheck {
     }
 
     /// At 1280 pixels, with the details beside the list, the columns fit the list's pane, so it
-    /// doesn't scroll sideways, with a picture of it.
+    /// doesn't scroll sideways, and the App column goes, leaving Request room for a host and a
+    /// path, with a picture of it.
     private func checkBesideTheDetails(_ list: RequestList) async throws {
         let window = window
         var width: Int32 = 0
@@ -179,12 +180,19 @@ extension SelfCheck {
             gtk_widget_get_width(window.window) > 1260 && adw_navigation_split_view_get_collapsed(window.inner) == 0
         }
         await settle()
-        let columns = RequestList.Column.allCases.map { "\($0.title) \(list.width(of: $0))" }
+        let shown = RequestList.Column.allCases.filter { list.shows($0) }
+        let columns = shown.map { "\($0.title) \(list.width(of: $0))" }
         let sideways = try present(gtk_scrolled_window_get_hadjustment(cast(list.scroller)), "no adjustment")
         let room = gtk_adjustment_get_page_size(sideways)
         let needed = gtk_adjustment_get_upper(sideways)
+        let others = shown.filter { $0 != .request }.reduce(0) { $0 + Double(list.width(of: $1)) }
+        let request = Int(room - others)
         note("beside the details: columns \(columns.joined(separator: ", ")) px, in the list's \(Int(room)) px")
         try require(needed <= room + 1, "beside the details, the columns need \(Int(needed)) px of \(Int(room))")
+        try require(
+            !list.shows(.app) && request >= 160,
+            "beside the details, App \(list.shows(.app) ? "shows" : "doesn't show"), and Request has \(request) px")
+        note("beside the details: no App column, and Request has \(request) px")
         let file = try picture("list-beside-the-details.png")
         _ = try await ownPicture(window.window, to: file)
         note("picture: \(file.lastPathComponent)")
@@ -193,7 +201,7 @@ extension SelfCheck {
     /// A row's cells in the Mac's colors: the status in the text's own, the method, app, time,
     /// duration and size dimmed, and the method in a monospace font, which its column fits.
     private func checkCellsColors(of id: ExchangeID, _ list: RequestList, kind: String) throws {
-        for column in RequestList.Column.allCases where column != .request {
+        for column in RequestList.Column.allCases where column != .request && list.shows(column) {
             let cell = try present(list.cell(column, of: id), "the \(kind) row has no \(column.rawValue) cell")
             let words = try present(
                 column == .status || column == .app ? gtk_widget_get_last_child(cell) : cell,
@@ -218,7 +226,7 @@ extension SelfCheck {
     private func checkCells(of id: ExchangeID, _ list: RequestList, kind: String) throws {
         let text = try present(list.text(of: id), "the \(kind) row has no words")
         var said: [String] = []
-        for column in RequestList.Column.allCases {
+        for column in RequestList.Column.allCases where list.shows(column) {
             let cell = try present(list.cell(column, of: id), "the \(kind) row has no \(column.rawValue) cell")
             let words = RequestCells.words(of: cell, column)
             let expected: String =

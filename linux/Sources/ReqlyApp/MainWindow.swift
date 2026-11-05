@@ -66,9 +66,11 @@ final class MainWindow {
     /// How many of the session's requests the list shows, at the status line's end.
     let statusCount: Widget
     /// The window's breakpoints: up to 1100 sp, the details go over the list, and up to 760 sp, the
-    /// sidebar folds away too.
+    /// sidebar folds away too. A third, up to 1400 sp, hides the list's App column while the details
+    /// are beside it.
     let detailsOver: OpaquePointer
     let sidebarFolds: OpaquePointer
+    let listNarrows: OpaquePointer
     private let statusDot: Widget
     private let toasts: Widget
     /// The list, or the no-matches page in its place.
@@ -244,10 +246,18 @@ final class MainWindow {
         for (breakpoint, object, property, value) in collapsed {
             Value.bool(value).with { adw_breakpoint_add_setter(breakpoint, cast(object), property, $0) }
         }
+        // Up to 1400 sp, the details beside the list leave its Request column little room, so the
+        // App column goes, as the sidebar and Overview name the app. Added first, it applies only
+        // while the details are beside the list.
+        let listNarrows = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 1400sp"))!
+        let appColumn = list.viewColumn(.app)
+        Value.bool(false).with { adw_breakpoint_add_setter(listNarrows, cast(appColumn), "visible", $0) }
+        adw_application_window_add_breakpoint(cast(window), listNarrows)
         adw_application_window_add_breakpoint(cast(window), detailsOver)
         adw_application_window_add_breakpoint(cast(window), sidebarFolds)
         self.detailsOver = detailsOver
         self.sidebarFolds = sidebarFolds
+        self.listNarrows = listNarrows
 
         bind(raw(outer), "show-sidebar", to: raw(sidebarToggle), "active")
         bind(raw(search.widget), "search-mode-enabled", to: raw(searchButton), "active")

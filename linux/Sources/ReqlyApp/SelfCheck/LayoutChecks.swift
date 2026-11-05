@@ -119,7 +119,10 @@ extension SelfCheck {
             let width = gtk_widget_get_width(window.window)
             let detailsOver = adw_navigation_split_view_get_collapsed(window.inner) != 0
             let sidebarFolds = adw_overlay_split_view_get_collapsed(window.outer) != 0
-            let expected = layout.sidebarFolds ? window.sidebarFolds : layout.detailsOver ? window.detailsOver : nil
+            // Every layout's width is under 1400 sp, where the list's App column goes while the
+            // details are beside it.
+            let expected =
+                layout.sidebarFolds ? window.sidebarFolds : layout.detailsOver ? window.detailsOver : window.listNarrows
             let current = adw_application_window_get_current_breakpoint(cast(window.window))
             let shown = layout.sidebarFolds ? window.listMenuButton : window.menuButton
             let hidden = layout.sidebarFolds ? window.menuButton : window.listMenuButton
@@ -137,6 +140,9 @@ extension SelfCheck {
                 detailsOver == layout.detailsOver && sidebarFolds == layout.sidebarFolds && current == expected,
                 "at \(layout.name), the details are \(detailsOver ? "over" : "beside") the list and the sidebar "
                     + "\(sidebarFolds ? "folded" : "beside")")
+            try require(
+                window.list.shows(.app) == layout.detailsOver,
+                "at \(layout.name), the list's App column \(window.list.shows(.app) ? "shows" : "doesn't show")")
             try require(
                 gtk_widget_get_mapped(shown) != 0 && gtk_menu_button_get_primary(cast(shown)) != 0
                     && gtk_widget_get_visible(hidden) == 0 && gtk_menu_button_get_primary(cast(hidden)) == 0,
