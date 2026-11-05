@@ -50,6 +50,11 @@ final class BodyView {
     private(set) var views: [BodyMode: AnyObject] = [:]
     /// The whole body's view, while it's open.
     private(set) var whole: WholeBody?
+    /// The body as it has grown since you opened the whole of it, which shows once you close that.
+    private(set) var waiting: PresentedBody?
+    /// Whether Show Whole Body has the keyboard's focus again once the grown body's code is laid
+    /// out, as it had before the whole body opened.
+    private var focusesShowWhole = false
 
     /// The mode last chosen for each part's bodies, for the next body that has it.
     static var chosen: [MessagePart: BodyMode] = [:]
@@ -142,15 +147,20 @@ final class BodyView {
 
     /// Shows `body`, in the mode last chosen for bodies of its part while it has that mode, in the
     /// mode it showed in while it has that, and in its first mode otherwise. The same body again,
-    /// as it was, changes nothing.
+    /// as it was, changes nothing; one that has grown while you read the whole of it waits until
+    /// you close that.
     func show(_ body: PresentedBody) {
         if let old = self.body, Self.isSame(old.body, body.body) {
             self.body = body
             return
         }
+        guard whole == nil else {
+            waiting = body
+            return
+        }
+        waiting = nil
         self.body = body
         shown += 1
-        whole?.close()
         clearViews()
         let presented = body.body
         let isEmpty = presented.wireSize == 0
@@ -324,6 +334,13 @@ final class BodyView {
         }
         gtk_label_set_text(cast(startLabel), BodyWords.start(of: text))
         gtk_widget_set_visible(startLine, 1)
+        if focusesShowWhole {
+            focusesShowWhole = false
+            let focus = gtk_widget_get_root(widget).flatMap { gtk_root_get_focus($0) }
+            if focus == copyButton {
+                gtk_widget_grab_focus(showWhole)
+            }
+        }
     }
 
     // MARK: - Show Whole Body
@@ -345,7 +362,15 @@ final class BodyView {
             whole.onClosed = { [weak self] in
                 guard let self else { return }
                 self.whole = nil
-                if gtk_widget_get_mapped(showWhole) != 0 {
+                if let waiting {
+                    // The body that grew meanwhile shows now. Show Whole Body goes until its code
+                    // is laid out, and Copy Body has the focus till then.
+                    show(waiting)
+                    if gtk_widget_get_visible(copyButton) != 0 {
+                        gtk_widget_grab_focus(copyButton)
+                        focusesShowWhole = true
+                    }
+                } else if gtk_widget_get_mapped(showWhole) != 0 {
                     gtk_widget_grab_focus(showWhole)
                 }
             }

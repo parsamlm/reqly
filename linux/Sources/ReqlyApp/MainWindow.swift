@@ -268,6 +268,7 @@ final class MainWindow {
             self?.leaveDetailsThatDontShow()
             self?.list.focusMoved()
             self?.sidebar.focusMoved()
+            self?.details.focusMoved()
         }
         list.onSelection = { [weak self] id in self?.showDetails(id) }
         list.onActivate = { [weak self] _ in self?.openDetails() }

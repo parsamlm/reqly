@@ -20,7 +20,8 @@ import ReqlyModel
 /// a live request's does, or each half second it's live and nothing else read it, as for one no
 /// row shows, but not when only its pin, color or comment does: those come from the session's
 /// list, whose copy is the latest. A page is built as it shows, and again only when
-/// what it shows changes, keeping where it was scrolled to, and the focus.
+/// what it shows changes, keeping where it was scrolled to, and the focus; as a live request
+/// changes, the page with the focus in it waits until the focus leaves it, or the request ends.
 @MainActor
 final class DetailsPane {
     /// The pages, in their tabs' order, which Ctrl+1 to Ctrl+5 follow.
@@ -138,6 +139,9 @@ final class DetailsPane {
     /// nothing else has for a while.
     private var lastRead = 0
     private var liveTimer: UInt32?
+    /// The page a live request changed on while the keyboard's focus was in it, which is built
+    /// again once the focus leaves it.
+    private var waiting: Page?
 
     init(model: AppModel) {
         self.model = model
@@ -309,6 +313,7 @@ final class DetailsPane {
         summary = nil
         details = nil
         built = [:]
+        waiting = nil
         presentedSizes = [:]
         shownHeaders = []
         showsCookieValues = []
@@ -392,7 +397,7 @@ final class DetailsPane {
             focusComment()
         }
         updateActions()
-        refresh(visiblePage)
+        refresh(visiblePage, waitsForFocus: true)
     }
 
     /// While the request is live, it's read again each half second nothing else has read it, as
@@ -438,29 +443,59 @@ final class DetailsPane {
         refresh(visiblePage)
     }
 
-    /// Builds `page` again if what it would show has changed since it was built.
-    func refresh(_ page: Page) {
+    /// Builds `page` again if what it would show has changed since it was built. When it
+    /// `waitsForFocus`, as for a live request that changed as it goes, the page with the keyboard's
+    /// focus in it waits until the focus leaves it, or the request ends: built again, the widget
+    /// that had the focus would go, and screen readers would say the one in its place each time.
+    func refresh(_ page: Page, waitsForFocus: Bool = false) {
         guard let details, summary != nil, details.exchange.id == shown else { return }
         switch page {
-        case .overview: rebuild(page, showing: overviewContent(details), buildOverview)
-        case .request: rebuild(page, showing: messageContent(details, .request), buildMessage)
-        case .response: rebuild(page, showing: messageContent(details, .response), buildMessage)
-        case .raw: rebuild(page, showing: rawContent(details), buildRaw)
-        case .timing: rebuild(page, showing: timingContent(details), buildTiming)
+        case .overview: rebuild(page, showing: overviewContent(details), buildOverview, waitsForFocus)
+        case .request: rebuild(page, showing: messageContent(details, .request), buildMessage, waitsForFocus)
+        case .response: rebuild(page, showing: messageContent(details, .response), buildMessage, waitsForFocus)
+        case .raw: rebuild(page, showing: rawContent(details), buildRaw, waitsForFocus)
+        case .timing: rebuild(page, showing: timingContent(details), buildTiming, waitsForFocus)
         }
     }
 
-    /// Builds `page` with `build` from `what`, unless it showed `what` already. Built again for the
-    /// same request, the page stays where it was scrolled to, and the widget in the place of the
-    /// one that had the focus has it. A body's view stays as it was, as `build` puts it back.
-    private func rebuild<What: Hashable>(_ page: Page, showing what: What, _ build: (What, Widget) -> Void) {
+    /// The keyboard's focus moved, as the window hears: a page that waited for it to leave is built
+    /// now.
+    func focusMoved() {
+        guard let page = waiting else { return }
+        guard page == visiblePage, let box = contents[page] else {
+            // Another page shows, which is built as it shows.
+            waiting = nil
+            return
+        }
+        let focus = gtk_widget_get_root(widget).flatMap { gtk_root_get_focus($0) }
+        guard focus.map({ gtk_widget_is_ancestor($0, box) == 0 }) ?? true else { return }
+        waiting = nil
+        refresh(page)
+    }
+
+    /// Builds `page` with `build` from `what`, unless it showed `what` already, or unless it
+    /// `waitsForFocus` while the live request it shows has the keyboard's focus in it. Built again
+    /// for the same request, the page stays where it was scrolled to, and the widget in the place
+    /// of the one that had the focus has it. A body's view stays as it was, as `build` puts it back.
+    private func rebuild<What: Hashable>(
+        _ page: Page, showing what: What, _ build: (What, Widget) -> Void, _ waitsForFocus: Bool
+    ) {
         let key = AnyHashable(what)
         guard built[page] != key, let box = contents[page], let scroller = scrollers[page] else { return }
         let isSameRequest = built[page] != nil
+        let focus = gtk_widget_get_root(widget).flatMap { gtk_root_get_focus($0) }
+        if waitsForFocus, isSameRequest, summary?.state.isFinished == false,
+            let focus, gtk_widget_is_ancestor(focus, box) != 0
+        {
+            waiting = page
+            return
+        }
+        if waiting == page {
+            waiting = nil
+        }
         built[page] = key
         let adjustment = gtk_scrolled_window_get_vadjustment(cast(scroller))
         let scrolled = isSameRequest ? gtk_adjustment_get_value(adjustment) : 0
-        let focus = gtk_widget_get_root(widget).flatMap { gtk_root_get_focus($0) }
         let place = focus.flatMap { Self.focusables(in: box).firstIndex(of: $0) }
         // Held while the page is emptied, for `build` to put back.
         let kept = bodies.filter { gtk_widget_is_ancestor($0.value.widget, box) != 0 }

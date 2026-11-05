@@ -36,6 +36,9 @@ final class TestServer: Sendable {
         case fail = "/fail"
         /// Lines of text, a megabyte of them, or `bytes=`.
         case big = "/big"
+        /// Lines of text sent a piece at a time, as a download comes: `pieces=` pieces of a
+        /// kilobyte, 8 unless it says, `gap=` milliseconds apart, 250 unless it says.
+        case drip = "/drip"
         /// "ok", as any other path answers.
         case ok = "/ok"
     }
@@ -93,7 +96,17 @@ final class TestServer: Sendable {
             if answer.wait > 0 {
                 usleep(useconds_t(answer.wait) * 1000)
             }
-            guard wire.write(answer.bytes) else { return }
+            // The head and the first piece, then each piece after a gap.
+            let bytes = answer.bytes
+            let piece = max(1, answer.body.count / max(1, answer.pieces))
+            var sent = bytes.count - answer.body.count + piece
+            guard wire.write(Array(bytes[..<min(sent, bytes.count)])) else { return }
+            while sent < bytes.count {
+                usleep(useconds_t(answer.gap) * 1000)
+                let end = min(sent + piece, bytes.count)
+                guard wire.write(Array(bytes[sent..<end])) else { return }
+                sent = end
+            }
             if HTTPWire.value("Connection", in: headers)?.lowercased() == "close" { return }
         }
     }
@@ -105,6 +118,9 @@ final class TestServer: Sendable {
         var body: [UInt8] = []
         /// How long to wait first, in milliseconds.
         var wait = 0
+        /// How many pieces the body goes in, each `gap` milliseconds after the one before.
+        var pieces = 1
+        var gap = 0
 
         var bytes: [UInt8] {
             var head = "HTTP/1.1 \(status) \(HTTPWire.reason(status))\r\n"
@@ -186,6 +202,12 @@ final class TestServer: Sendable {
             let line = Array("The quick brown fox jumps over the lazy dog, again and again.\n".utf8)
             answer.headers.append(("Content-Type", "text/plain"))
             answer.body = (0..<size).map { line[$0 % line.count] }
+        case .drip:
+            let line = Array("The quick brown fox jumps over the lazy dog, again and again.\n".utf8)
+            answer.pieces = query["pieces"].flatMap { Int($0) } ?? 8
+            answer.gap = query["gap"].flatMap { Int($0) } ?? 250
+            answer.headers.append(("Content-Type", "text/plain"))
+            answer.body = (0..<answer.pieces * 1000).map { line[$0 % line.count] }
         case .ok:
             content("text/plain", "ok")
         }

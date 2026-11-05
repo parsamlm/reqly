@@ -19,9 +19,10 @@ extension SelfCheck {
     /// Enter and on leaving the field, and removed, without reading the details again; the pages
     /// as screen readers have them, one Tab stop to a row; pictures of each page in light and
     /// dark; a failed one; an encrypted connection, whose note's button decrypts its host, and
-    /// stops; and a live one, which the details follow. Then, in a copy of Reqly with the session
-    /// the Mac saved, its decrypted, failed, blocked, gRPC and encrypted requests, and one from a
-    /// phone. In that copy, this part checks only that.
+    /// stops; and live ones, which the details follow, but not while the focus is in the page or
+    /// the whole body is open. Then, in a copy of Reqly with the session the Mac saved, its
+    /// decrypted, failed, blocked, gRPC and encrypted requests, and one from a phone. In that copy,
+    /// this part checks only that.
     func checkDetails() async throws {
         if app.options.smokeSession != nil {
             try await checkTheMacsDetails()
@@ -429,6 +430,71 @@ extension SelfCheck {
         try require(details.reads > reads, "the details weren't read again as the request finished")
         note("live: “\(waiting.last ?? "")”, then “\(words(in: details.heading).last ?? "")”, read again")
         try await checkAHiddenLiveRequest(client, server: server, session: session)
+        try await checkALiveRequestsFocus(client, server: server, session: session)
+        try await checkAGrowingWholeBody(client, server: server, session: session)
+    }
+
+    /// A response that comes a piece at a time, chosen as it comes: while the keyboard's focus is
+    /// in the Overview, the page waits as its Received grows, so the widget with the focus stays,
+    /// rather than going for one screen readers would say again at each piece; once the focus
+    /// leaves, the page follows the request again.
+    private func checkALiveRequestsFocus(_ client: ProxyClient, server: TestServer, session: SessionHost) async throws {
+        let details = window.details
+        let drip = Task { try await client.send(server.url(.drip, "pieces=60&gap=200")) }
+        let id = try await newest(session) { $0.path == "/drip" && $0.port == server.port && !$0.state.isFinished }
+        try await open(id)
+        try await pageWords(.overview)
+        let box = try present(details.contents[.overview], "Overview has no box")
+        let stay = try present(DetailsPane.focusables(in: box).first, "Overview has nothing that takes the focus")
+        g_object_ref(raw(stay))
+        defer { g_object_unref(raw(stay)) }
+        gtk_widget_grab_focus(stay)
+        try await until("the Overview's first value to have the focus", seconds: 3) { self.focusWidget == stay }
+        let received = details.details?.exchange.bytesReceived ?? 0
+        try await until("the details to read more of the response as it comes", seconds: 5) {
+            (details.details?.exchange.bytesReceived ?? 0) > received && details.summary?.state.isFinished == false
+        }
+        await settle()
+        try require(details.summary?.state.isFinished == false, "the response ended before the check")
+        try require(
+            focusWidget == stay && gtk_widget_is_ancestor(stay, box) != 0,
+            "the Overview was built again as the response came, and the \(focusType) has the focus")
+        try require(details.focusTab(), "the details' tab doesn't take the focus")
+        try await until("the Overview to be built again once the focus left it", seconds: 3) {
+            gtk_widget_is_ancestor(stay, box) == 0
+        }
+        note("live, the focus in the Overview: the page waits as \(Format.size(received)) grows, then follows")
+        _ = try await drip.value
+        try await until("the details to follow the response to its end", seconds: 5) {
+            details.summary?.state == .completed
+        }
+    }
+
+    /// A response too big to show inline that's still coming: its whole body, opened, stays open as
+    /// it grows, and the body that grew meanwhile shows once you close it.
+    private func checkAGrowingWholeBody(_ client: ProxyClient, server: TestServer, session: SessionHost) async throws {
+        let details = window.details
+        let drip = Task { try await client.send(server.url(.drip, "pieces=500&gap=20")) }
+        let id = try await newest(session) { $0.path == "/drip" && $0.port == server.port && !$0.state.isFinished }
+        try await open(id)
+        try await pageWords(.response)
+        let view = try present(details.bodies[.response], "the Response page has no body")
+        try await until("Show Whole Body for the response as it comes", seconds: 10) {
+            gtk_widget_get_mapped(view.showWhole) != 0 && details.summary?.state.isFinished == false
+        }
+        emit(raw(view.showWhole), "clicked")
+        try await until("the whole body", seconds: 10) { view.whole?.code.isFilled == true }
+        let size = view.body?.body.wireSize ?? 0
+        try await until("the details to read more of the response", seconds: 5) {
+            (details.details?.exchange.bytesReceived ?? 0) > Int64(size) && view.waiting != nil
+        }
+        try require(view.whole != nil, "Show Whole Body closed as the response grew")
+        view.whole?.close()
+        try await until("the body that grew to show once Show Whole Body closed", seconds: 5) {
+            view.whole == nil && view.waiting == nil && (view.body?.body.wireSize ?? 0) > size
+        }
+        note("live, its whole body open: it stays open as \(Format.size(Int64(size))) grows, then the grown body shows")
+        _ = try await drip.value
     }
 
     /// A slow request, chosen while it waits, then hidden by a search that finds nothing, so no
