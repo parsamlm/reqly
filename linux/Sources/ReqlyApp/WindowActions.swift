@@ -23,8 +23,11 @@ extension MainWindow {
             else { return }
             self?.choose(chosen)
         }
+        // On once the details show a request.
+        g_simple_action_set_enabled(pageAction, cBool(details.shown != nil))
         g_action_map_add_action(cast(window), cast(pageAction))
         g_object_unref(raw(pageAction))
+        self.pageAction = pageAction
         for (index, page) in DetailsPane.Page.allCases.enumerated() {
             withCStrings(["<Control>\(index + 1)"]) {
                 gtk_application_set_accels_for_action(cast(app.application), "win.page::\(page.rawValue)", $0)
@@ -93,11 +96,14 @@ extension MainWindow {
     }
 
     /// Ctrl+1 to Ctrl+5: the details' page, which screen readers then say, since only the tabs
-    /// show it.
+    /// show it. Folded away under the list, the details come over it, and only the page is said.
+    /// With no request, as on the Mac, they do nothing: the action is off.
     func choose(_ page: DetailsPane.Page) {
-        guard visibleDialog(over: window) == nil else { return }
+        guard visibleDialog(over: window) == nil, details.shown != nil else { return }
         details.show(page: page)
-        announce(window, page.title)
+        if !openDetails(saying: page.title) {
+            announce(window, page.title)
+        }
     }
 
     /// Escape, before the window's own widgets: it closes the search bar while it shows, then the

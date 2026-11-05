@@ -15,10 +15,12 @@ extension SelfCheck {
     /// The window's panes at 1280, 1000 and 700 pixels wide, and at 1280 with the text at 1.25, as
     /// the window's breakpoints have them: the details beside the list or over it, the sidebar
     /// beside them or folded away, and the main menu's button that shows, with pictures in light
-    /// and dark, while the window is empty. The shortcuts, pressed as keys: F9, F10, Ctrl+R, Ctrl+F,
-    /// and Ctrl+1 to Ctrl+5, which screen readers hear; Escape, in its order; and Enter and a click
-    /// on a row, which open the details over the list, and Escape and Alt+←, after which the row
-    /// has the focus again. GTK warns of nothing meanwhile. The app's icon is found by its name.
+    /// and dark, while the window is empty. The shortcuts, pressed as keys: F9, F10, Ctrl+R, which
+    /// screen readers hear, Ctrl+F, and Ctrl+1 to Ctrl+5, which do nothing with no request; Escape,
+    /// in its order; Enter and a click on a row, which open the details over the list, and Escape
+    /// and Alt+←, after which the row has the focus again; and Ctrl+3 from a row, which opens them
+    /// on Response, its tab focused. GTK warns of nothing meanwhile. The app's icon is found by its
+    /// name.
     func checkLayout() async throws {
         let window = window
         try await until("the window to show") { gtk_widget_get_mapped(window.window) != 0 }
@@ -205,8 +207,7 @@ extension SelfCheck {
     /// At 1280 pixels: F9 hides and shows the sidebar; F10 opens the sidebar's main menu, and
     /// Escape closes only that, and with the sidebar hidden, the list's; Ctrl+R starts and stops
     /// capturing, and the list's title says so, as screen readers hear; Ctrl+F opens the search
-    /// bar, and Escape closes it; Ctrl+1 to Ctrl+5 choose the details' pages, and screen readers
-    /// hear each.
+    /// bar, and Escape closes it; with no request, Ctrl+1 to Ctrl+5 do nothing.
     private func checkKeysBeside() async throws {
         let window = window
         try await resize(to: Self.layouts[0])
@@ -287,25 +288,19 @@ extension SelfCheck {
             "once the search bar closed, the focus is on \(focusName)")
         note("Ctrl+F: the search bar, its field focused; Escape closes it, and the focus goes to the \(focusName)")
 
-        var chosen: [String] = []
-        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 6) {
+        // With no request, as on the Mac, Ctrl+1 to Ctrl+5 do nothing, and say nothing.
+        let page = window.details.page
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 4) {
             // The reader takes a moment to start listening.
             try? await Task.sleep(for: .milliseconds(1500))
-            for (index, page) in DetailsPane.Page.allCases.enumerated() {
-                try? FakeInput.press("Control_L", "\(index + 1)", in: window.window)
-                for _ in 0..<50 where window.details.page != page {
-                    try? await Task.sleep(for: .milliseconds(10))
-                }
-                chosen.append(window.details.page.title)
-                try? await Task.sleep(for: .milliseconds(300))
-            }
+            try? FakeInput.press("Control_L", "3", in: window.window)
+            try? await Task.sleep(for: .milliseconds(500))
         }
-        let titles = DetailsPane.Page.allCases.map(\.title)
-        let said = titles.filter { title in heard.contains { $0.detail == title } }
-        note("Ctrl+1 to Ctrl+5: \(chosen.joined(separator: ", ")); heard \(said.joined(separator: ", "))")
-        try require(chosen == titles, "Ctrl+1 to Ctrl+5 chose \(chosen), not \(titles)")
-        try require(said == titles, "screen readers heard only \(said) of \(titles)")
-        window.details.show(page: .overview)
+        let said = heard.compactMap(\.detail)
+        try require(
+            window.details.page == page && said.isEmpty,
+            "with no request, Ctrl+3 chose \(window.details.page.title), and screen readers heard \(said)")
+        note("Ctrl+3, with no request: nothing, as on the Mac")
     }
 
     /// F10 opens the main menu `button` has, which shows, and Escape closes the menu, and no more.
@@ -445,6 +440,33 @@ extension SelfCheck {
             !window.detailsAreOver && self.rowHasFocus(second)
         }
         note("a click on a row opens it over the list; Alt+Left goes back, the row focused")
+
+        // Ctrl+3 from the row: the details come over the list, on Response, which screen readers
+        // hear, rather than "Details", and its tab has the focus.
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 4) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            try? FakeInput.press("Control_L", "3", in: window.window)
+            try? await Task.sleep(for: .milliseconds(1000))
+        }
+        let said = heard.compactMap(\.detail)
+        try require(
+            window.detailsAreOver && window.details.page == .response && said == ["Response"],
+            "Ctrl+3 from a row: the details \(window.detailsAreOver ? "over" : "under") the list, on "
+                + "\(window.details.page.title), and screen readers heard \(said)")
+        await settle()
+        // The tab that's on, Response's, has the focus.
+        let isChosenTab = focus.map {
+            (window.isInside($0, window.details.switcher) || window.isInside($0, window.details.switcherBar))
+                && gtk_widget_get_state_flags($0).rawValue & GTK_STATE_FLAG_CHECKED.rawValue != 0
+        }
+        try require(isChosenTab == true, "after Ctrl+3 from a row, the focus is on \(focusName), not Response's tab")
+        try FakeInput.press("Escape", in: window.window)
+        try await until("Escape to go back to the row", seconds: 3) {
+            !window.detailsAreOver && self.rowHasFocus(second)
+        }
+        window.details.show(page: .overview)
+        note("Ctrl+3 from a row: the details over the list, on Response, which screen readers hear, its tab focused")
 
         let counted = subtitle
         try require(

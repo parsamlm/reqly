@@ -84,6 +84,9 @@ final class MainWindow {
     private var firstFocus: Widget?
     /// Clear's action, which is on while there's something to clear.
     var clearAction: OpaquePointer?
+    /// The details' pages' action, Ctrl+1 to Ctrl+5, which is on while the details show a
+    /// request, as on the Mac.
+    var pageAction: OpaquePointer?
     /// Whether screen readers hear what capturing does once Ctrl+R's start or stop is done, as
     /// the switch it turns may not have the focus.
     var saysCapturing = false
@@ -258,7 +261,7 @@ final class MainWindow {
             self?.list.focusMoved()
             self?.sidebar.focusMoved()
         }
-        list.onSelection = { [weak self] id in self?.details.show(id) }
+        list.onSelection = { [weak self] id in self?.showDetails(id) }
         list.onActivate = { [weak self] _ in self?.openDetails() }
         list.onRows = { [weak self] in self?.rowsChanged() }
         list.onComment = { [weak self] id in self?.editComment(id) }
@@ -407,23 +410,37 @@ final class MainWindow {
     }
 
     /// Shows the details over the list, when they don't fit beside it, as a row's Enter or click
-    /// asks, and screen readers say so. Choosing a row with the arrow keys doesn't. libadwaita gives
-    /// the keyboard's focus back to what had it in the details last time, which may not show any
-    /// more, such as another request's comment field; then the details' first widget has it.
-    func openDetails() {
+    /// asks, and screen readers hear `words`, "Details" or the page Ctrl+1 to Ctrl+5 chose. Choosing
+    /// a row with the arrow keys doesn't. The tab of the page that shows has the keyboard's focus,
+    /// rather than whatever libadwaita gives it back to, which varies, and may not show any more,
+    /// such as another request's comment field; Add Comment… gives the comment's field the focus
+    /// itself. Whether the details went over the list.
+    @discardableResult
+    func openDetails(saying words: String = "Details", focusesTab: Bool = true) -> Bool {
         guard adw_navigation_split_view_get_collapsed(inner) != 0,
             adw_navigation_split_view_get_show_content(inner) == 0
-        else { return }
+        else { return false }
         adw_navigation_split_view_set_show_content(inner, 1)
-        announce(window, "Details")
+        announce(window, words)
         idle { [weak self] in
             guard let self, detailsAreOver else { return false }
+            if focusesTab, details.focusTab() {
+                return false
+            }
             if let focus = gtk_root_get_focus(cast(window)), gtk_widget_is_visible(focus) == 0 {
                 gtk_root_set_focus(cast(window), nil)
                 focusContent()
             }
             return false
         }
+        return true
+    }
+
+    /// Shows `id`'s request in the details, or none, and Ctrl+1 to Ctrl+5 choose its pages only
+    /// while there's one.
+    private func showDetails(_ id: ExchangeID?) {
+        details.show(id)
+        g_simple_action_set_enabled(pageAction, cBool(details.shown != nil))
     }
 
     /// Add or Edit Comment…, from a row's menu: its request, selected, on the details' Overview,
@@ -432,8 +449,8 @@ final class MainWindow {
     private func editComment(_ id: ExchangeID) {
         list.select(id: id)
         // A request a filter hides is selected with no row, and the details show it all the same.
-        details.show(id)
-        openDetails()
+        showDetails(id)
+        openDetails(focusesTab: false)
         details.editComment()
     }
 
@@ -587,11 +604,11 @@ final class MainWindow {
         }
     }
 
-    /// Gives the keyboard's focus to the pane that shows: the details over the list, or the list's
-    /// selected row, or while the list is empty, the capture switch.
+    /// Gives the keyboard's focus to the pane that shows: the details over the list, their chosen
+    /// page's tab, or the list's selected row, or while the list is empty, the capture switch.
     func focusContent() {
         if detailsAreOver {
-            if gtk_widget_child_focus(details.widget, GTK_DIR_TAB_FORWARD) != 0 {
+            if details.focusTab() || gtk_widget_child_focus(details.widget, GTK_DIR_TAB_FORWARD) != 0 {
                 return
             }
         } else if list.focusSelection() {

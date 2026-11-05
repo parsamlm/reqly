@@ -180,9 +180,10 @@ extension SelfCheck {
     /// header bar, the search bar and the filter bar, the list in one stop, the details' header bar
     /// and the request's heading, then the page and its tabs, which are under it in a pane this
     /// narrow. A click on the capture switch gives it the focus, as it starts and stops capturing.
-    /// At 1000 pixels, Enter on a row shows the details over the list, and screen readers hear
-    /// "Details". At 1280 pixels, a body fits the details in each of its modes, and every scroller,
-    /// and every button, has a name for screen readers. Once Ctrl+K has cleared a focused row, Tab
+    /// At 1000 pixels, Enter on a row shows the details over the list, screen readers hear
+    /// "Details", and the page's tab has the focus. At 1280 pixels, a body fits the details in each
+    /// of its modes, and every scroller, and every button, has a name for screen readers; with a
+    /// request shown, Ctrl+1 to Ctrl+5 choose its pages, which screen readers hear. Once Ctrl+K has cleared a focused row, Tab
     /// from the sidebar still reaches the list's header bar. Then two copies of Reqly: with an empty
     /// session, the first focus is the capture switch; with the session the Mac saved, the list,
     /// once its requests show. In a copy, this part checks only that.
@@ -203,6 +204,7 @@ extension SelfCheck {
                 try await self.checkTheCaptureSwitchsClick()
                 try await self.checkTheDetailsHeard(ids)
                 try await self.checkTheNames(ids)
+                try await self.checkThePageKeys(ids)
                 try await self.checkTabAfterClear(ids)
             }
         } catch {
@@ -324,6 +326,13 @@ extension SelfCheck {
         let window = window
         try await resize(to: 1000)
         try await focusRow(ids[0])
+        var moves: [String] = []
+        let watch = connect(window.window, "notify::focus-widget") { [weak self] in
+            guard let self else { return }
+            let tip = self.focusWidget.flatMap { string(gtk_widget_get_tooltip_text($0)) } ?? ""
+            moves.append("\(self.focusType) “\(tip)” in the \(self.pane(of: self.focusWidget))")
+        }
+        defer { g_signal_handler_disconnect(raw(window.window), watch) }
         let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 5) {
             // The reader takes a moment to start listening.
             try? await Task.sleep(for: .milliseconds(1500))
@@ -333,6 +342,14 @@ extension SelfCheck {
         try require(window.detailsAreOver, "Enter didn't show the details over the list")
         let said = heard.map(\.detail)
         try require(said.contains("Details"), "as the details showed, screen readers heard \(said)")
+        // The tab of the page that shows has the focus, whatever had it in the details before.
+        let isOnTab = focusWidget.map {
+            window.isInside($0, window.details.switcher) || window.isInside($0, window.details.switcherBar)
+        }
+        try require(
+            isOnTab == true,
+            "once the details showed over the list, the focus is on the \(focusType) in the \(pane(of: focusWidget)), "
+                + "having gone to \(moves)")
         note(
             "Enter at 1000 px: the details over the list, screen readers hear “Details”, the focus in the "
                 + "\(pane(of: focusWidget))")
@@ -384,6 +401,32 @@ extension SelfCheck {
         try require(
             nameless.isEmpty, "\(nameless.count) of \(buttons.count) buttons have no name: \(nameless.prefix(5))")
         note("buttons: all \(buttons.count) named")
+        window.details.show(page: .overview)
+    }
+
+    /// At 1280 pixels, with a request shown: Ctrl+1 to Ctrl+5 choose the details' pages, and screen
+    /// readers hear each.
+    private func checkThePageKeys(_ ids: [ExchangeID]) async throws {
+        let window = window
+        try await focusRow(ids[0])
+        var chosen: [String] = []
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 6) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            for (index, page) in DetailsPane.Page.allCases.enumerated() {
+                try? FakeInput.press("Control_L", "\(index + 1)", in: window.window)
+                for _ in 0..<50 where window.details.page != page {
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+                chosen.append(window.details.page.title)
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+        }
+        let titles = DetailsPane.Page.allCases.map(\.title)
+        let said = titles.filter { title in heard.contains { $0.detail == title } }
+        note("Ctrl+1 to Ctrl+5: \(chosen.joined(separator: ", ")); heard \(said.joined(separator: ", "))")
+        try require(chosen == titles, "Ctrl+1 to Ctrl+5 chose \(chosen), not \(titles)")
+        try require(said == titles, "screen readers heard only \(said) of \(titles)")
         window.details.show(page: .overview)
     }
 

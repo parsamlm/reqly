@@ -754,6 +754,35 @@ final class DetailsPane {
 
     // MARK: - The tabs
 
+    /// Gives the keyboard's focus to the tab of the page that shows, in the header bar or under the
+    /// pages, whichever shows, and says whether it could.
+    @discardableResult
+    func focusTab() -> Bool {
+        guard shown != nil else { return false }
+        for tabs in [switcher, switcherBar] where gtk_widget_is_visible(tabs) != 0 {
+            if let tab = Self.chosenTab(in: tabs), gtk_widget_grab_focus(tab) != 0 {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The tab that's on among `tabs`, the button that takes the focus and shows checked.
+    private static func chosenTab(in tabs: Widget) -> Widget? {
+        var child = gtk_widget_get_first_child(tabs)
+        while let widget = child {
+            let isChecked = gtk_widget_get_state_flags(widget).rawValue & GTK_STATE_FLAG_CHECKED.rawValue != 0
+            if gtk_widget_get_focusable(widget) != 0, isChecked, gtk_widget_get_mapped(widget) != 0 {
+                return widget
+            }
+            if let found = chosenTab(in: widget) {
+                return found
+            }
+            child = gtk_widget_get_next_sibling(widget)
+        }
+        return nil
+    }
+
     /// A click on a tab gives it the keyboard's focus, as a click on a button does, which
     /// libadwaita's tabs don't: the widget clicked that takes the focus has it, before the tab
     /// sees the click.
