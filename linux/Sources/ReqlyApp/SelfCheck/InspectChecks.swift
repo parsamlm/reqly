@@ -183,11 +183,12 @@ extension SelfCheck {
     /// At 1000 pixels, Enter on a row shows the details over the list, screen readers hear
     /// "Details", and the page's tab has the focus. At 1280 pixels, a body fits the details in each
     /// of its modes, and every scroller, and every button, has a name for screen readers; with a
-    /// request shown, Ctrl+1 to Ctrl+5 choose its pages, which screen readers hear. Once Ctrl+K has cleared a focused row, Tab
-    /// from the sidebar still reaches the list's header bar. Then three copies of Reqly: with an
-    /// empty session, the first focus is the capture switch, and with capturing on launch too, once
-    /// it has started; with the session the Mac saved, the list, once its requests show. In a copy,
-    /// this part checks only that.
+    /// request shown, Ctrl+1 to Ctrl+5 choose its pages, which screen readers hear. The focus stays
+    /// on what shows as the panes fold and the hex lines narrow. Ctrl+K leaves it on the pinned row
+    /// that's left, Clear's button on the capture switch, and Tab from the sidebar still reaches
+    /// the list's header bar. Then three copies of Reqly: with an empty session, the first focus is
+    /// the capture switch, and with capturing on launch too, once it has started; with the session
+    /// the Mac saved, the list, once its requests show. In a copy, this part checks only that.
     func checkKeyboard() async throws {
         if app.options.startsCapturing != nil {
             try await checkTheFirstFocus()
@@ -206,6 +207,7 @@ extension SelfCheck {
                 try await self.checkTheDetailsHeard(ids)
                 try await self.checkTheNames(ids)
                 try await self.checkThePageKeys(ids)
+                try await self.checkTheFocusAsPanesChange(ids)
                 try await self.checkTabAfterClear(ids)
             }
         } catch {
@@ -440,13 +442,122 @@ extension SelfCheck {
         window.details.show(page: .overview)
     }
 
-    /// With the keyboard's focus on a row, Ctrl+K clears the list, and the row goes; Tab from the
-    /// sidebar still reaches the list's header bar next.
+    /// The keyboard's focus as the window's breakpoints, and the details' own, change the panes:
+    /// a row keeps it from 1280 pixels to 1000 and 700; Copy Headers beside the list at 1280 gives
+    /// it to the list's pane as the details fold away under it at 1000; a tab of the details over
+    /// the list, as the tabs move under the pages at 500, gives it to a widget that shows; and a
+    /// hex line, as the lines go from 16 bytes to 8 at 800, to the line that has its first byte.
+    private func checkTheFocusAsPanesChange(_ ids: [ExchangeID]) async throws {
+        let window = window
+        let details = window.details
+        let rowFocused = {
+            window.list.rowWidget(of: ids[0]).map { row in self.focusWidget.map { window.isInside($0, row) } } == true
+        }
+        var seen: [String] = []
+        try await resize(to: 1280)
+        try await focusRow(ids[0])
+        var moves: [String] = []
+        let watch = connect(window.window, "notify::focus-widget") { [weak self] in
+            guard let self else { return }
+            let tip = self.focusWidget.flatMap { string(gtk_widget_get_tooltip_text($0)) } ?? ""
+            moves.append("\(self.focusType) “\(tip)” in the \(self.pane(of: self.focusWidget))")
+        }
+        defer { g_signal_handler_disconnect(raw(window.window), watch) }
+        for width: Int32 in [1000, 700] {
+            try await resize(to: width)
+            try await until("the row to keep the focus at \(width) px, not the \(focusType): \(moves)", seconds: 3) {
+                rowFocused()
+            }
+        }
+        seen.append("a row keeps it from 1280 px to 1000 and 700")
+
+        try await resize(to: 1280)
+        details.show(page: .response)
+        try await until("the Response page", seconds: 5) { details.isBuilt(.response) }
+        await settle()
+        let page = try present(details.contents[.response], "the Response page has no box")
+        let copy = try present(
+            Self.widgets(under: page).first {
+                typeName(raw($0)) == "GtkButton" && stringProperty(raw($0), "tooltip-text") == "Copy Headers"
+            }, "the Response page has no Copy Headers")
+        gtk_widget_grab_focus(copy)
+        try await until("Copy Headers to have the focus", seconds: 3) { self.focusWidget == copy }
+        moves = []
+        try await resize(to: 1000)
+        try await until("the focus to leave the details folded away at 1000 px: \(moves)", seconds: 3) {
+            self.focusWidget.map { gtk_widget_get_mapped($0) != 0 && window.isInside($0, window.listPane) } == true
+        }
+        seen.append("Copy Headers beside the list, as the details fold away: the \(pane(of: focusWidget))")
+
+        window.openDetails()
+        try await until("the details over the list", seconds: 3) { window.detailsAreOver }
+        await settle()
+        try require(details.focusTab(), "the details' tab doesn't take the focus")
+        try await until("a tab in the header bar to have the focus", seconds: 3) {
+            self.focusWidget.map { window.isInside($0, details.headerBar) } == true
+        }
+        try await resize(to: 500)
+        try await until("the focus to show as the tabs go under the pages at 500 px", seconds: 3) {
+            self.focusWidget.map { gtk_widget_is_visible($0) != 0 && gtk_widget_get_mapped($0) != 0 } == true
+        }
+        seen.append("a tab, as the tabs go under the pages: the \(pane(of: focusWidget))")
+
+        try await resize(to: 1000)
+        let view = try present(details.bodies[.response], "the Response page has no body")
+        view.show(mode: .hex)
+        let hex = try present(view.views[.hex] as? HexView, "the body shows no hex")
+        try await until("16 bytes a line", seconds: 5) { hex.perLine == HexLines.wide }
+        await settle()
+        gtk_widget_grab_focus(hex.list)
+        gtk_list_view_scroll_to(cast(hex.list), 2, GTK_LIST_SCROLL_FOCUS, nil)
+        try await until("the hex's third line to have the focus, not the \(focusType)", seconds: 3) {
+            hex.focusedLine == 2
+        }
+        // Narrower, with the details still over the list and the sidebar beside them: no pane folds.
+        moves = []
+        try await resize(to: 800)
+        try await until("8 bytes a line", seconds: 5) { hex.perLine == HexLines.narrow }
+        await settle()
+        try require(
+            hex.focusedLine == 4,
+            "with 8 bytes a line, line \(hex.focusedLine.map(String.init) ?? "none") has the focus, not 4, which "
+                + "has byte 32: the \(focusType) in the \(pane(of: focusWidget)), having gone to \(moves)")
+        seen.append("a hex line, as the lines narrow at 800 px: the line with its first byte")
+        view.show(mode: .formatted)
+        details.show(page: .overview)
+        adw_navigation_split_view_set_show_content(window.inner, 0)
+        // Once they've gone back: libadwaita warns of a shadow it draws as they go, with no size.
+        try await until("the details to go back", seconds: 3) { !window.detailsAreOver }
+        await settle()
+        try await resize(to: 1280)
+        note("the focus as the panes change: \(seen.joined(separator: "; "))")
+    }
+
+    /// With the keyboard's focus on a row, Ctrl+K clears the list, and the pinned row that's left
+    /// has the focus; with nothing pinned, Clear's button clears it, and the capture switch has the
+    /// focus. Tab from the sidebar then still reaches the list's header bar next.
     private func checkTabAfterClear(_ ids: [ExchangeID]) async throws {
         let window = window
+        let session = try await session()
+        try await session.annotate(ids[1], isPinned: true)
         try await focusRow(ids[0])
         try FakeInput.press("Control_L", "k", in: window.window)
-        try await until("Ctrl+K to clear the list", seconds: 5) { window.list.count == 0 }
+        try await until("Ctrl+K to clear the list but for the pinned row", seconds: 5) {
+            window.list.count == 1 && window.list.exchange(at: 0) == ids[1]
+        }
+        try await until("the pinned row to have the focus the cleared one had", seconds: 3) {
+            window.list.rowWidget(of: ids[1]).map { row in self.focusWidget.map { window.isInside($0, row) } } == true
+        }
+        note("Ctrl+K with a row focused: the pinned row that's left has the focus")
+        try await session.annotate(ids[1], isPinned: false)
+        try await until("Clear to be on", seconds: 3) { gtk_widget_get_sensitive(window.clearButton) != 0 }
+        gtk_widget_grab_focus(window.clearButton)
+        try FakeInput.press("space", in: window.window)
+        try await until("Clear's button to clear the list", seconds: 5) { window.list.count == 0 }
+        try await until("the capture switch to have the focus Clear's button had", seconds: 3) {
+            self.focusWidget == window.captureSwitch
+        }
+        note("Clear's button, with nothing pinned: the capture switch has the focus")
         await settle()
         try require(window.sidebar.focus(), "the sidebar doesn't take the focus")
         await settle()

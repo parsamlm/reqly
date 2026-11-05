@@ -103,6 +103,9 @@ final class RequestList {
     var onActivate: ((ExchangeID) -> Void)?
     /// Runs after each change to the rows, or to the session's count.
     var onRows: (() -> Void)?
+    /// Runs when the rows changed while the keyboard's focus was on one, and now none has it, as
+    /// when Clear takes the row that had it, so the window can give the focus to what shows.
+    var onFocusLost: (() -> Void)?
     /// Runs when you choose Add or Edit Comment… in a row's menu, with its request, which the
     /// window then shows on the details' Overview, where its comment is written.
     var onComment: ((ExchangeID) -> Void)?
@@ -416,6 +419,7 @@ final class RequestList {
     /// draw before the next pieces. Whether the list follows them is decided before.
     private func feedSome() {
         isFeeding = true
+        let hadFocus = gtk_widget_get_state_flags(view).rawValue & GTK_STATE_FLAG_FOCUS_WITHIN.rawValue != 0
         let started = monotonicMicroseconds()
         following.begin(showsEnd: isEnding || showsEnd())
         var inserted = 0
@@ -437,6 +441,9 @@ final class RequestList {
         showState()
         describeSoon()
         onRows?()
+        if hadFocus, !rowHasFocus {
+            onFocusLost?()
+        }
         guard !feed.isEmpty else {
             isFeeding = false
             return
@@ -821,6 +828,9 @@ final class RequestList {
         label(row, of: id, cache[id]?.text)
         descriptions[row] = nil
         describe(row)
+        if descriptions[row] == nil {
+            describeSoon()
+        }
     }
 
     private func unbindRow(_ row: UnsafeMutableRawPointer) {
@@ -861,6 +871,9 @@ final class RequestList {
         return focus == widget || gtk_widget_is_ancestor(focus, widget) != 0
     }
 
+    /// Whether one of the rows has the keyboard's focus.
+    var rowHasFocus: Bool { focusedRow != nil }
+
     /// The row with the keyboard's focus, a GtkColumnViewRow, or `nil` while none has it.
     private var focusedRow: UnsafeMutableRawPointer? {
         guard let focus = gtk_widget_get_root(view).flatMap({ gtk_root_get_focus($0) }),
@@ -895,14 +908,15 @@ final class RequestList {
 
     /// The bound rows' descriptions, once rows have moved: at most three times a second while
     /// traffic comes, as each new row changes every row's. The row with the keyboard's focus
-    /// keeps its own until the focus leaves it, as Orca would say it at each change.
+    /// keeps its own until the focus leaves it, as Orca would say it at each change, once it has
+    /// one: a row bound before the list counted it has none yet.
     private func describeSoon() {
         guard describeTimer == nil else { return }
         describeTimer = timeout(300) { [weak self] in
             guard let self else { return false }
             describeTimer = nil
             let focused = focusedRow
-            for row in rows.values where row != focused {
+            for row in rows.values where row != focused || descriptions[row] == nil {
                 describe(row)
             }
             return false

@@ -202,8 +202,9 @@ final class HexView {
         }
     }
 
-    /// 16 bytes a line while they fit, and 8 when they don't, keeping the first line in view, and
-    /// every byte that was chosen in a line that's chosen.
+    /// 16 bytes a line while they fit, and 8 when they don't, keeping the first line in view,
+    /// every byte that was chosen in a line that's chosen, and the keyboard's focus on the line
+    /// with the first byte of the line that had it, as every line is made again.
     private func fitLines() {
         let width = Int32(gtk_adjustment_get_page_size(gtk_scrolled_window_get_hadjustment(cast(scroller))))
         guard width > 0 else { return }
@@ -211,6 +212,7 @@ final class HexView {
         guard wanted != perLine else { return }
         let first = bound.values.min() ?? 0
         let offset = first * perLine
+        let focused = focusedLine.map { $0 * perLine }
         let chosen = selectedBytes
         perLine = wanted
         reqly_numbers_set_count(cast(numbers), 0)
@@ -221,6 +223,12 @@ final class HexView {
         idle { [weak self] in
             guard let self else { return false }
             gtk_list_view_scroll_to(cast(list), UInt32(offset / perLine), GTK_LIST_SCROLL_NONE, nil)
+            // The line that had the focus went, and GTK moves the focus out of the list, so the
+            // list has it again, which gives it to the line the scroll chose.
+            if let focused {
+                gtk_list_view_scroll_to(cast(list), UInt32(focused / perLine), GTK_LIST_SCROLL_FOCUS, nil)
+                gtk_widget_grab_focus(list)
+            }
             return false
         }
     }
@@ -238,6 +246,15 @@ final class HexView {
         pango_layout_get_pixel_size(layout, &width, nil)
         // The row's margins, and room for the scrollbar.
         return width + 20 + 12
+    }
+
+    /// The line whose row has the keyboard's focus, or `nil` while none has it.
+    var focusedLine: Int? {
+        guard let focus = gtk_widget_get_root(list).flatMap({ gtk_root_get_focus($0) }) else { return nil }
+        return bound.first { item, _ in
+            guard let row = gtk_list_item_get_child(item).flatMap({ gtk_widget_get_parent($0) }) else { return false }
+            return focus == row || gtk_widget_is_ancestor(focus, row) != 0
+        }?.value
     }
 
     // MARK: - Choosing and copying

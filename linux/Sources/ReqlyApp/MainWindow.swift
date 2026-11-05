@@ -252,7 +252,15 @@ final class MainWindow {
         bind(raw(outer), "show-sidebar", to: raw(sidebarToggle), "active")
         bind(raw(search.widget), "search-mode-enabled", to: raw(searchButton), "active")
         connect(outer, "notify::show-sidebar") { [weak self] in self?.sidebarChanged() }
-        connect(outer, "notify::collapsed") { [weak self] in self?.sidebarChanged() }
+        // As a breakpoint folds a pane away or back, libadwaita may take the focus with it.
+        connect(outer, "notify::collapsed") { [weak self] in
+            self?.showSidebarToggle()
+            self?.keepFocusThroughFold()
+        }
+        connect(inner, "notify::collapsed") { [weak self] in self?.keepFocusThroughFold() }
+        for signal in ["apply", "unapply"] {
+            connect(details.narrow, signal) { [weak self] in self?.focusWhatShowsSoon() }
+        }
         connect(inner, "notify::show-content") { [weak self] in self?.detailsChanged() }
         connect(raw(search.widget), "notify::search-mode-enabled") { [weak self] in self?.searchChanged() }
         connect(window, "notify::focus-widget") { [weak self] in
@@ -264,6 +272,7 @@ final class MainWindow {
         list.onSelection = { [weak self] id in self?.showDetails(id) }
         list.onActivate = { [weak self] _ in self?.openDetails() }
         list.onRows = { [weak self] in self?.rowsChanged() }
+        list.onFocusLost = { [weak self] in self?.focusWhatShowsSoon() }
         list.onComment = { [weak self] id in self?.editComment(id) }
         sidebar.onScope = { [weak self] _ in self?.scopeChosen() }
         sidebar.onCount = { [weak self] in self?.showTitle() }
@@ -363,10 +372,26 @@ final class MainWindow {
         adw_window_title_set_title(cast(listTitle), title.title)
         adw_window_title_set_subtitle(cast(listTitle), title.subtitle)
         gtk_label_set_text(cast(statusCount), ListTitle.sessionCount(shown: list.count, total: total))
-        g_simple_action_set_enabled(clearAction, cBool(model.session != nil && total > pinned))
+        let canClear = model.session != nil && total > pinned
+        // Clear's button, turning off with the keyboard's focus, as it does once it's cleared,
+        // would leave the focus on nothing.
+        if !canClear, gtk_root_get_focus(cast(window)) == clearButton {
+            focusWhatShowsSoon()
+        }
+        g_simple_action_set_enabled(clearAction, cBool(canClear))
         let nothingMatches = total > 0 && list.count == 0
         if nothingMatches {
-            noMatches.show(NoMatches(query: search.query, filtersAreSet: filters.isActive))
+            let words = NoMatches(query: search.query, filtersAreSet: filters.isActive)
+            // Clear Filters goes from the page as you choose it, when the search still matches
+            // nothing: the search's field has the focus instead, rather than nothing.
+            if !words.clearsFilters, let focus = gtk_root_get_focus(cast(window)), focus == noMatches.clearButton {
+                if search.isOpen {
+                    gtk_widget_grab_focus(search.entry)
+                } else {
+                    focusWhatShowsSoon()
+                }
+            }
+            noMatches.show(words)
         }
         gtk_stack_set_visible_child(cast(listContent), nothingMatches ? noMatches.widget : list.widget)
     }
@@ -474,10 +499,11 @@ final class MainWindow {
         }
     }
 
-    /// The sidebar was shown or hidden, or folded away or back. Shown over the list, or with the
-    /// toggle, which goes as it shows, the sidebar has the keyboard's focus; hidden, the pane that
-    /// shows has it. As a breakpoint changes the panes, what has the focus may not show for a
-    /// moment, so only nothing or the toggle having it counts as the focus gone.
+    /// The sidebar was shown or hidden. Shown over the list, or with the toggle, which goes as it
+    /// shows, the sidebar has the keyboard's focus; hidden, the pane that shows has it. As a
+    /// breakpoint changes the panes, what has the focus may not show for a moment, so only nothing
+    /// or the toggle having it counts as the focus gone. A breakpoint folding the sidebar away or
+    /// back keeps the focus where it was: see keepFocusThroughFold().
     private func sidebarChanged() {
         showSidebarToggle()
         let focus = gtk_root_get_focus(cast(window))
@@ -584,6 +610,87 @@ final class MainWindow {
             focusContent()
         }
         adw_overlay_split_view_set_show_sidebar(outer, 0)
+    }
+
+    /// Once GTK and libadwaita have done with a change that took the keyboard's focus with it, the
+    /// pane that shows has it, unless it has gone somewhere that shows meanwhile: as Clear takes the
+    /// list's row that had it, a button that had it goes or turns off, or a breakpoint folds away
+    /// the pane that had it, or hides a tab that had it.
+    func focusWhatShowsSoon() {
+        focusWhatShows(after: 0, tries: 25, keeping: nil, in: nil)
+    }
+
+    /// A breakpoint folded the sidebar or the details away, or back. libadwaita 1.5 puts the panes
+    /// in place again, which takes the keyboard's focus from what had it, and GTK then gives it to
+    /// the sidebar, and libadwaita to the sidebar's toggle as the sidebar goes: what had it has it
+    /// again once the panes show, and once libadwaita's done, if it still shows, or else the pane
+    /// that shows, such as the list for a button in the details as they fold away.
+    private func keepFocusThroughFold() {
+        guard let focus = gtk_root_get_focus(cast(window)) else {
+            focusWhatShowsSoon()
+            return
+        }
+        let pane = [sidebarPane, listPane, details.widget].first { isInside(focus, $0) }
+        focusWhatShows(after: 0, tries: 25, keeping: focus, in: pane)
+        focusWhatShows(after: 400, tries: 0, keeping: focus, in: pane)
+    }
+
+    /// focusWhatShows(tries:keeping:in:) once nothing more urgent waits, for 0 `milliseconds`, or
+    /// after them, holding `kept` until then.
+    private func focusWhatShows(after milliseconds: UInt32, tries: Int, keeping kept: Widget?, in pane: Widget?) {
+        if let kept {
+            g_object_ref(raw(kept))
+        }
+        let look: @MainActor () -> Bool = { [weak self] in
+            self?.focusWhatShows(tries: tries, keeping: kept, in: pane)
+            if let kept {
+                g_object_unref(raw(kept))
+            }
+            return false
+        }
+        if milliseconds == 0 {
+            idle(look)
+        } else {
+            timeout(milliseconds, look)
+        }
+    }
+
+    /// When the keyboard's focus has been lost, or has gone out of `pane`, the one `kept` was in,
+    /// as GTK gives it to the sidebar, or to the sidebar's toggle, as libadwaita does, `kept`, which
+    /// had it, has it again while it shows, or else the pane that shows. A widget that took the
+    /// focus in the same pane meanwhile, such as a hex line made again, or the switch as the first
+    /// focus, keeps it. As a breakpoint folds a pane away, libadwaita 1.5 maps the panes again a
+    /// moment after, so until either the list's pane or the details show, it looks again every
+    /// 20 ms, `tries` times.
+    private func focusWhatShows(tries: Int, keeping kept: Widget?, in pane: Widget?) {
+        guard visibleDialog(over: window) == nil else { return }
+        if gtk_widget_get_mapped(listPane) == 0, gtk_widget_get_mapped(details.widget) == 0, tries > 0 {
+            focusWhatShows(after: 20, tries: tries - 1, keeping: kept, in: pane)
+            return
+        }
+        let focus = gtk_root_get_focus(cast(window))
+        let isLost =
+            focus.map {
+                gtk_widget_get_mapped($0) == 0 || gtk_widget_is_visible($0) == 0 || gtk_widget_is_sensitive($0) == 0
+                    || (isInside($0, list.view) && !list.rowHasFocus)
+            } ?? true
+        let hasLeftPane = pane.map { pane in focus.map { !isInside($0, pane) } ?? true } ?? false
+        let isOnToggle = kept != nil && kept != sidebarToggle && focus == sidebarToggle
+        guard isLost || isInHiddenDetails || hasLeftPane || isOnToggle else { return }
+        if let kept, focus != kept, gtk_widget_get_root(kept) == gtk_widget_get_root(window),
+            gtk_widget_get_mapped(kept) != 0, gtk_widget_is_visible(kept) != 0, gtk_widget_is_sensitive(kept) != 0,
+            !isInHiddenDetails(kept), gtk_widget_grab_focus(kept) != 0
+        {
+            return
+        }
+        gtk_root_set_focus(cast(window), nil)
+        focusContent()
+    }
+
+    /// Whether `widget` is in the details while they're folded away under the list.
+    private func isInHiddenDetails(_ widget: Widget) -> Bool {
+        isInside(widget, details.widget) && adw_navigation_split_view_get_collapsed(inner) != 0
+            && adw_navigation_split_view_get_show_content(inner) == 0
     }
 
     /// Once a search or the filters have settled, half a second after their last change, screen

@@ -754,7 +754,8 @@ extension SelfCheck {
     }
 
     /// With the filters leaving nothing: “No Matching Requests”, with Clear Filters; with a search
-    /// too, “No Results”, which says so. Clear Filters takes the filters off, and the search stays.
+    /// too, “No Results”, which says so. Clear Filters takes the filters off, and the search stays;
+    /// when the search still matches nothing, the button goes, and the search's field has the focus.
     private func checkNoMatches() async throws {
         let window = window
         let filters = window.filters
@@ -789,6 +790,27 @@ extension SelfCheck {
                 && gtk_widget_get_mapped(window.noMatches.widget) == 0
         }
         seen.append("Clear Filters takes them off, leaving “tehran”, which finds 3")
+        await settle()
+        seen.append("the focus then on the \(focusType)")
+
+        // With a search that still matches nothing once the filters are off, Clear Filters goes
+        // from the page, and the search's field has the focus it had.
+        filters.set(filter)
+        gtk_editable_set_text(cast(window.search.entry), "zzqx")
+        try await until("“zzqx” with the filters to match nothing", seconds: 5) {
+            window.search.query == "zzqx" && list.count == 0 && gtk_widget_get_mapped(window.noMatches.clearButton) != 0
+        }
+        await settle()
+        gtk_widget_grab_focus(window.noMatches.clearButton)
+        try FakeInput.press("Return", in: window.window)
+        try await until("Clear Filters to take them off, “zzqx” still matching nothing", seconds: 5) {
+            !filters.isActive && gtk_widget_get_visible(window.noMatches.clearButton) == 0
+        }
+        await settle()
+        try require(
+            focusWidget.map { window.isInside($0, window.search.entry) } == true,
+            "once Clear Filters went from the page, the focus is on the \(focusType)")
+        seen.append("with “zzqx”, Clear Filters goes, and the search's field has the focus")
         window.search.close()
         try await until("every request again", seconds: 5) { list.count == 10 }
         note("no matches: \(seen.joined(separator: "; "))")

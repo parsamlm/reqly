@@ -74,7 +74,8 @@ extension MainWindow {
 
     /// Ctrl+K: Clear Traffic, which keeps pinned requests. A second after, once the list has let
     /// go of its rows too, what the requests took goes back to the system, away from the window's
-    /// thread, rather than staying with malloc.
+    /// thread, rather than staying with malloc. The keyboard's focus, on a row that goes, or on
+    /// Clear's button as it turns off, goes to the pane that shows: see showTitle().
     func clear() {
         guard visibleDialog(over: window) == nil, let session = model.session else { return }
         Task {

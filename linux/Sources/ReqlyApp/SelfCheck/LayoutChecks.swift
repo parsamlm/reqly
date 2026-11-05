@@ -18,9 +18,9 @@ extension SelfCheck {
     /// and dark, while the window is empty. The shortcuts, pressed as keys: F9, F10, Ctrl+R, which
     /// screen readers hear, Ctrl+F, and Ctrl+1 to Ctrl+5, which do nothing with no request; Escape,
     /// in its order; Enter and a click on a row, which open the details over the list, and Escape
-    /// and Alt+←, after which the row has the focus again; and Ctrl+3 from a row, which opens them
-    /// on Response, its tab focused. GTK warns of nothing meanwhile. The app's icon is found by its
-    /// name.
+    /// and Alt+←, after which the row has the focus again; Ctrl+3 from a row, which opens them on
+    /// Response, its tab focused; and Ctrl+K, after which the capture switch has the focus the row
+    /// had. GTK warns of nothing meanwhile. The app's icon is found by its name.
     func checkLayout() async throws {
         let window = window
         try await until("the window to show") { gtk_widget_get_mapped(window.window) != 0 }
@@ -482,9 +482,14 @@ extension SelfCheck {
         }
         await settle()
         try require(gtk_widget_get_sensitive(window.clearButton) == 0, "Clear is still on, with nothing to clear")
+        // The row that had the keyboard's focus went, and the capture switch has it.
+        try await until("the capture switch to have the focus the row had", seconds: 3) {
+            self.focus == window.captureSwitch
+        }
         note(
             "Ctrl+K: with the list's title saying “\(counted)”, clears the list, the details showing nothing, and Clear goes off"
         )
+        note("    the focus then on the capture switch, as the row that had it went")
     }
 
     /// Whether `id`'s row has the keyboard's focus, or one of its cells: the row that has the cell
