@@ -191,6 +191,11 @@ extension SelfCheck {
         defer { g_object_unref(raw(method)) }
         let width = gtk_column_view_column_get_fixed_width(method)
         let layout = gtk_widget_create_pango_layout(window.list.view, "CONNECT")
+        // In a monospace font, as the cell shows it.
+        let font = pango_font_description_copy(pango_context_get_font_description(pango_layout_get_context(layout)))
+        pango_font_description_set_family(font, "monospace")
+        pango_layout_set_font_description(layout, font)
+        pango_font_description_free(font)
         var needed: Int32 = 0
         pango_layout_get_pixel_size(layout, &needed, nil)
         g_object_unref(raw(layout))
