@@ -109,7 +109,10 @@ extension SelfCheck {
         var found: [String: ExchangeID] = [:]
         let deadline = monotonicMicroseconds() + 15_000_000
         repeat {
-            let candidates = (before + 1...before + UInt64(names.count) * 2 + 10).map { ExchangeID(rawValue: $0) }
+            // Up to the newest, as a part before may have cleared the session, whose next requests
+            // then come long after the newest it had, none.
+            let newest = await session.trafficSummary().newest?.id.rawValue ?? before
+            let candidates = (before..<max(before, newest)).map { ExchangeID(rawValue: $0 + 1) }
             for summary in await session.rows(candidates) where summary.state == .completed {
                 let query = summary.target.split(separator: "?").last ?? ""
                 if let name = query.split(separator: "&").first(where: { $0.hasPrefix("body=") })?.dropFirst(5) {
