@@ -203,9 +203,9 @@ extension SelfCheck {
     // MARK: - Keys
 
     /// At 1280 pixels: F9 hides and shows the sidebar; F10 opens the sidebar's main menu, and
-    /// Escape closes only that; Ctrl+R starts and stops capturing, and the list's title says so;
-    /// Ctrl+F opens the search bar, and Escape closes it; Ctrl+1 to Ctrl+5 choose the details'
-    /// pages, and screen readers hear each.
+    /// Escape closes only that, and with the sidebar hidden, the list's; Ctrl+R starts and stops
+    /// capturing, and the list's title says so; Ctrl+F opens the search bar, and Escape closes it;
+    /// Ctrl+1 to Ctrl+5 choose the details' pages, and screen readers hear each.
     private func checkKeysBeside() async throws {
         let window = window
         try await resize(to: Self.layouts[0])
@@ -223,6 +223,23 @@ extension SelfCheck {
         note("F9: hides the sidebar, and the toggle shows, then shows it again, and the toggle goes")
 
         try await checkMenuKey(window.menuButton, "the sidebar's")
+        // With the sidebar hidden, its main menu can't be reached, so the list's shows instead.
+        try FakeInput.press("F9", in: window.window)
+        try await until("F9 to hide the sidebar", seconds: 3) {
+            adw_overlay_split_view_get_show_sidebar(window.outer) == 0
+        }
+        await settle()
+        try await checkMenuKey(window.listMenuButton, "the list's, with the sidebar hidden,")
+        try FakeInput.press("F9", in: window.window)
+        try await until("F9 to show it again", seconds: 3) {
+            adw_overlay_split_view_get_show_sidebar(window.outer) != 0
+        }
+        await settle()
+        let listsShows = gtk_widget_get_visible(window.listMenuButton) != 0
+        let sidebarsOpens = gtk_menu_button_get_primary(cast(window.menuButton)) != 0
+        try require(
+            !listsShows && sidebarsOpens,
+            "with the sidebar back, the list's main menu still shows, or F10 doesn't open the sidebar's")
 
         try JSONEncoder().encode(Self.yourProxySettings).write(to: try standInFile())
         _ = try await switchReady()

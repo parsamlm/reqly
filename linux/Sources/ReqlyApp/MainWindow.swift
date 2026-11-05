@@ -228,12 +228,10 @@ final class MainWindow {
         // applies, so the second says all the first says.
         let detailsOver = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 1100sp"))!
         let sidebarFolds = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 760sp"))!
+        // The main menu's buttons follow the sidebar: see showSidebarToggle().
         let collapsed: [(OpaquePointer, UnsafeMutableRawPointer?, String, Bool)] = [
             (detailsOver, raw(inner), "collapsed", true),
             (sidebarFolds, raw(inner), "collapsed", true), (sidebarFolds, raw(outer), "collapsed", true),
-            // F10 opens the main menu that shows.
-            (sidebarFolds, raw(menuButton), "visible", false), (sidebarFolds, raw(menuButton), "primary", false),
-            (sidebarFolds, raw(listMenuButton), "visible", true), (sidebarFolds, raw(listMenuButton), "primary", true),
         ]
         for (breakpoint, object, property, value) in collapsed {
             Value.bool(value).with { adw_breakpoint_add_setter(breakpoint, cast(object), property, $0) }
@@ -514,11 +512,17 @@ final class MainWindow {
         return isFolded && adw_navigation_split_view_get_show_content(inner) == 0
     }
 
-    /// The sidebar's toggle shows while the sidebar is folded away, or hidden with F9.
+    /// The sidebar's toggle shows while the sidebar is folded away, or hidden with F9, and so
+    /// does the list's main menu. F10 opens the sidebar's while the sidebar shows, and the list's
+    /// while it doesn't, as the sidebar's can't be reached then.
     private func showSidebarToggle() {
         let isDocked = adw_overlay_split_view_get_collapsed(outer) == 0
         let shows = adw_overlay_split_view_get_show_sidebar(outer) != 0
         gtk_widget_set_visible(sidebarToggle, cBool(!(isDocked && shows)))
+        gtk_widget_set_visible(listMenuButton, cBool(!(isDocked && shows)))
+        gtk_widget_set_visible(menuButton, cBool(shows))
+        gtk_menu_button_set_primary(cast(menuButton), cBool(shows))
+        gtk_menu_button_set_primary(cast(listMenuButton), cBool(!shows))
     }
 
     /// The search bar opened or closed. Closed, the list has the keyboard's focus, when the bar
