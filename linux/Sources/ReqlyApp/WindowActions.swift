@@ -31,15 +31,20 @@ extension MainWindow {
             }
         }
 
-        // Before the widgets in the window, which would take Escape for themselves first.
+        // Before the widgets in the window, which would take Escape for themselves first, and
+        // Alt+←, which a body's code view takes to move by words, even though you can't edit it.
         let keys = gtk_event_controller_key_new()!
         gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE)
         connect(keys, "key-pressed") { [weak self] (arguments: Arguments) in
             let modifiers = GDK_CONTROL_MASK.rawValue | GDK_SHIFT_MASK.rawValue | GDK_ALT_MASK.rawValue
-            guard let self, arguments.uint(1) == UInt32(GDK_KEY_Escape), arguments.flags(3) & modifiers == 0 else {
-                return
+            guard let self else { return }
+            let key = Int32(arguments.uint(1))
+            let held = arguments.flags(3) & modifiers
+            if key == GDK_KEY_Escape, held == 0 {
+                arguments.returns(self.escape())
+            } else if key == GDK_KEY_Left || key == GDK_KEY_KP_Left, held == GDK_ALT_MASK.rawValue {
+                arguments.returns(self.goBack())
             }
-            arguments.returns(self.escape())
         }
         gtk_widget_add_controller(window, keys)
     }
@@ -125,6 +130,17 @@ extension MainWindow {
             return true
         }
         return false
+    }
+
+    /// Alt+←: back from the details over the list, as libadwaita's own Alt+← goes, unless a dialog
+    /// or a menu shows. Whether it went back.
+    func goBack() -> Bool {
+        guard detailsAreOver, visibleDialog(over: window) == nil else { return false }
+        if let focus = gtk_root_get_focus(cast(window)), gtk_widget_get_ancestor(focus, gtk_popover_get_type()) != nil {
+            return false
+        }
+        adw_navigation_split_view_set_show_content(inner, 0)
+        return true
     }
 
     /// Adds the action `win.<name>`, which runs `body`, with its keyboard shortcut, and gives it.

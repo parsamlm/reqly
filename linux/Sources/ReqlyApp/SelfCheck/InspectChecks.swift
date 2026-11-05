@@ -75,6 +75,23 @@ extension SelfCheck {
         try require(code.contains("\"city\": \"Tehran\""), "the formatted body shows “\(code.prefix(60))”")
         note("Enter on a row: its details over the list; Ctrl+3: its response, the body “\(summary)”, formatted")
 
+        // Alt+← goes back from the body's code too, which would take it to move by words.
+        let codeView = try present(view.codeView?.view, "the body has no code view")
+        gtk_widget_grab_focus(codeView)
+        try await until("the body's code to have the focus", seconds: 3) {
+            self.focusWidget.map { window.isInside($0, codeView) } == true
+        }
+        try FakeInput.press("Alt_L", "Left", in: window.window)
+        try await until("Alt+Left in the body's code to go back to the row", seconds: 3) { !window.detailsAreOver }
+        await settle()
+        try await focusRow(ids[0])
+        try FakeInput.press("Return", in: window.window)
+        try await until("Enter to show the response's body again", seconds: 5) {
+            window.detailsAreOver && details.page == .response && details.bodies[.response]?.mode == .formatted
+        }
+        await settle()
+        note("Alt+Left in the body's code: back to the row")
+
         let tree = try present(modeButton("Tree", of: view), "the body has no Tree button")
         emit(raw(tree), "clicked")
         try await until("Tree to show", seconds: 5) { view.mode == .tree }
