@@ -142,7 +142,7 @@ extension SelfCheck {
             copied.contains("Authorization: Bearer self-check-token") && copied.contains("Host: 127.0.0.1"),
             "Copy Headers copied “\(copied)”")
         let toasts = toastWords()
-        let said = heard.filter { $0.detail == "Copied" }.count
+        let said = heard.filter { $0.saysToast("Copied") }.count
         try require(
             toasts.contains("Copied") && said == 1,
             "Copy Headers showed the toasts \(toasts), and screen readers heard “Copied” \(said) times")

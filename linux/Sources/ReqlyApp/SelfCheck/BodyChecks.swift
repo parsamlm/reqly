@@ -354,7 +354,7 @@ extension SelfCheck {
             try? await Task.sleep(for: .milliseconds(1000))
         }
         try require(copiedText() == text, "Copy Body copied “\(copiedText()?.prefix(40) ?? "nothing")”")
-        let said = heard.filter { $0.detail == "Copied" }.count
+        let said = heard.filter { $0.saysToast("Copied") }.count
         try require(said == 1, "screen readers heard Copy Body's “Copied” \(said) times")
         note("    Copy Body: the formatted text; pictures: \(try await pictures(of: page, "json-formatted"))")
 

@@ -117,6 +117,12 @@ struct AccessibilityTree {
         var name: String
         /// What it carried, such as an announcement's words.
         var detail: String?
+
+        /// Whether it says a toast of `words`: as Reqly does before libadwaita 1.7, or as
+        /// libadwaita does from 1.7, "A toast appeared: Copied".
+        func saysToast(_ words: String) -> Bool {
+            detail == words || detail?.hasSuffix(": \(words)") == true
+        }
     }
 
     /// The tree in lines, one element each, indented by depth, as a part's notes or a file show it.
