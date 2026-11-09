@@ -668,11 +668,12 @@ final class MainWindow {
 
     /// When the keyboard's focus has been lost, or has gone out of `pane`, the one `kept` was in,
     /// as GTK gives it to the sidebar, or to the sidebar's toggle, as libadwaita does, `kept`, which
-    /// had it, has it again while it shows, or else the pane that shows. A widget that took the
-    /// focus in the same pane meanwhile, such as a hex line made again, or the switch as the first
-    /// focus, keeps it. As a breakpoint folds a pane away, libadwaita 1.5 maps the panes again a
-    /// moment after, so until either the list's pane or the details show, it looks again every
-    /// 20 ms, `tries` times.
+    /// had it, has it again while it shows, or else the pane that shows. From libadwaita 1.7, the
+    /// focus goes on from the toggle to the capture switch beside it, which then counts as the
+    /// toggle when a row had it. Otherwise a widget that took the focus in the same pane meanwhile,
+    /// such as a hex line made again, or the switch as the first focus, keeps it. As a breakpoint
+    /// folds a pane away, libadwaita 1.5 maps the panes again a moment after, so until either the
+    /// list's pane or the details show, it looks again every 20 ms, `tries` times.
     private func focusWhatShows(tries: Int, keeping kept: Widget?, in pane: Widget?) {
         guard visibleDialog(over: window) == nil else { return }
         if gtk_widget_get_mapped(listPane) == 0, gtk_widget_get_mapped(details.widget) == 0, tries > 0 {
@@ -686,7 +687,10 @@ final class MainWindow {
                     || (isInside($0, list.view) && !list.rowHasFocus)
             } ?? true
         let hasLeftPane = pane.map { pane in focus.map { !isInside($0, pane) } ?? true } ?? false
-        let isOnToggle = kept != nil && kept != sidebarToggle && focus == sidebarToggle
+        let isOnToggle =
+            kept.map { kept in
+                kept != focus && (focus == sidebarToggle || (focus == captureSwitch && isInside(kept, list.view)))
+            } ?? false
         guard isLost || isInHiddenDetails || hasLeftPane || isOnToggle else { return }
         if let kept, focus != kept, gtk_widget_get_root(kept) == gtk_widget_get_root(window),
             gtk_widget_get_mapped(kept) != 0, gtk_widget_is_visible(kept) != 0, gtk_widget_is_sensitive(kept) != 0,
