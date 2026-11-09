@@ -805,6 +805,23 @@ extension SelfCheck {
             lines == 1,
             "with the Raw page \(gtk_widget_get_width(page)) px wide, the line about its secrets takes \(lines) lines")
         note("Raw at 1000 px: the line about its secrets on one line, Show Them after it")
+        // The heading lines up with the cards under it, at both sides.
+        let overview = try present(window.details.pages[.overview], "Overview has no box")
+        try await pageWords(.overview)
+        await settle()
+        let card = try present(
+            descendants(of: overview).first { gtk_widget_has_css_class($0, "card") != 0 }, "Overview has no card")
+        let heading = window.details.headingView
+        let edges = [heading.method, heading.commentButton, card].map { widget in
+            var bounds = graphene_rect_t()
+            _ = gtk_widget_compute_bounds(widget, window.window, &bounds)
+            return (Int(bounds.origin.x.rounded()), Int((bounds.origin.x + bounds.size.width).rounded()))
+        }
+        try require(
+            abs(edges[0].0 - edges[2].0) <= 1 && abs(edges[1].1 - edges[2].1) <= 1,
+            "the heading runs from \(edges[0].0) to \(edges[1].1) px, "
+                + "and the cards from \(edges[2].0) to \(edges[2].1)")
+        note("at 1000 px, the heading lines up with the cards, from \(edges[2].0) to \(edges[2].1) px")
         adw_navigation_split_view_set_show_content(window.inner, showsContent)
         gtk_window_set_default_size(cast(window.window), width, height)
         // GTK keeps the window on the screen, inside the shadow's margin.

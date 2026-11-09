@@ -225,7 +225,11 @@ final class DetailsPane {
 
         let toolbar = adw_toolbar_view_new()!
         adw_toolbar_view_add_top_bar(cast(toolbar), headerBar)
-        adw_toolbar_view_add_top_bar(cast(toolbar), heading)
+        // In a clamp as the pages are, so the heading lines up with the cards under it.
+        let headingClamp = adw_clamp_new()!
+        adw_clamp_set_maximum_size(cast(headingClamp), 900)
+        adw_clamp_set_child(cast(headingClamp), heading)
+        adw_toolbar_view_add_top_bar(cast(toolbar), headingClamp)
         adw_toolbar_view_set_content(cast(toolbar), content)
         adw_toolbar_view_add_bottom_bar(cast(toolbar), switcherBar)
         widget = adw_breakpoint_bin_new()

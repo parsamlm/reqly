@@ -9,7 +9,7 @@ import GtkBinding
 @MainActor
 enum DetailsStyles {
     private static let shared = """
-        .details-heading { padding: 12px 18px 10px 18px; }
+        .details-heading { padding: 12px 12px 10px 12px; }
         .details-method { font-family: monospace; }
         .details-rows { padding: 0; }
         .details-row { padding: 7px 12px; }
