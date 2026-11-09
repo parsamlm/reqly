@@ -735,6 +735,17 @@ extension SelfCheck {
             try require(
                 label == "4 filters" && folded.count == 1 && filters.tokens.count == 4,
                 "folded, the token says \(label), with \(folded.count) buttons")
+            // Whole, as the one token has to say how many there are.
+            let words = try present(
+                gtk_widget_get_first_child(gtk_widget_get_first_child(filters.foldedToken)), "the token has no words")
+            try require(
+                pango_layout_is_ellipsized(gtk_label_get_layout(cast(words))) == 0,
+                "folded, “\(label)” is cut at \(gtk_widget_get_width(words)) px, the filters' bar "
+                    + "\(gtk_widget_get_width(filters.widget)) px wide in a window of "
+                    + "\(gtk_widget_get_width(window.window))")
+            let across = gtk_scrolled_window_get_hadjustment(cast(filters.widget))
+            let over = Int(gtk_adjustment_get_upper(across) - gtk_adjustment_get_page_size(across))
+            note("folded at 700 pixels: “\(label)” whole, the filters' bar scrolling \(over) px sideways")
             try await takePicture("filters-folded.png")
             emit(raw(folded[0]), "clicked")
             try await until("its button to remove all four", seconds: 5) { filters.tokens.isEmpty && list.count == 10 }

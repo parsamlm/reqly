@@ -326,9 +326,10 @@ final class FilterBar {
         }
         if !tokens.isEmpty {
             let folded = FoldedTokens(tokens: tokens)
-            let widget = Self.token(folded.title, tip: folded.tip, removal: folded.removal, spoken: folded.spoken) {
-                [weak self] in self?.remove(tokens)
-            }
+            // Whole, as it says how many there are: the bar scrolls sideways before it's cut.
+            let widget = Self.token(
+                folded.title, tip: folded.tip, removal: folded.removal, spoken: folded.spoken, cuts: false
+            ) { [weak self] in self?.remove(tokens) }
             gtk_box_append(cast(foldedToken), widget)
         }
         fitTokens()
@@ -434,16 +435,17 @@ final class FilterBar {
         withCStrings([any] + choices) { gtk_string_list_splice(list, 0, count, $0) }
     }
 
-    /// A token: its title, and a button that removes its filter, named for screen readers, which
-    /// then hear what the filter is.
+    /// A token: its title, cut short where there's no room unless it `cuts` no words, and a button
+    /// that removes its filter, named for screen readers, which then hear what the filter is.
     private static func token(
-        _ title: String, tip: String, removal: String, spoken: String, remove: @escaping @MainActor () -> Void
+        _ title: String, tip: String, removal: String, spoken: String, cuts: Bool = true,
+        remove: @escaping @MainActor () -> Void
     ) -> Widget {
         let token = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2)!
         gtk_widget_add_css_class(token, "filter-token")
         gtk_widget_set_tooltip_text(token, tip)
         let label = gtk_label_new(title)!
-        gtk_label_set_ellipsize(cast(label), PANGO_ELLIPSIZE_END)
+        gtk_label_set_ellipsize(cast(label), cuts ? PANGO_ELLIPSIZE_END : PANGO_ELLIPSIZE_NONE)
         gtk_label_set_max_width_chars(cast(label), 24)
         gtk_label_set_single_line_mode(cast(label), 1)
         let button = gtk_button_new_from_icon_name("window-close-symbolic")!
