@@ -435,8 +435,8 @@ final class FilterBar {
         withCStrings([any] + choices) { gtk_string_list_splice(list, 0, count, $0) }
     }
 
-    /// A token: its title, cut short where there's no room unless it `cuts` no words, and a button
-    /// that removes its filter, named for screen readers, which then hear what the filter is.
+    /// A token: its title, cut short where there's no room if it `cuts`, and a button that removes
+    /// its filter, named for screen readers, which then hear what the filter is.
     private static func token(
         _ title: String, tip: String, removal: String, spoken: String, cuts: Bool = true,
         remove: @escaping @MainActor () -> Void
