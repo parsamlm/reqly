@@ -68,9 +68,12 @@ enum DetailsBlocks {
 
     /// A row of `name`, with `value`'s widgets beside it, the first of which takes the room left,
     /// each on the name's first line. `labelling`, the widget that has the row's Tab stop, takes
-    /// the name's words as its own.
+    /// the name's words as its own. A grid rather than a box, which gives a long name beside a
+    /// one-line value the width of its own one line, out of line with the others, where a grid
+    /// wraps it in the 14 characters every name has.
     static func row(_ name: String, isHeader: Bool = false, value: [Widget], labelling: Widget?) -> Widget {
-        let row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12)!
+        let row = gtk_grid_new()!
+        gtk_grid_set_column_spacing(cast(row), 12)
         gtk_widget_add_css_class(row, "details-row")
         let title = label(name)
         gtk_widget_add_css_class(title, "dim-label")
@@ -81,11 +84,11 @@ enum DetailsBlocks {
         gtk_label_set_width_chars(cast(title), 14)
         gtk_label_set_max_width_chars(cast(title), 14)
         gtk_widget_set_valign(title, GTK_ALIGN_BASELINE_FILL)
-        gtk_box_append(cast(row), title)
+        gtk_grid_attach(cast(row), title, 0, 0, 1, 1)
         for (index, widget) in value.enumerated() {
             gtk_widget_set_hexpand(widget, cBool(index == 0))
             gtk_widget_set_valign(widget, GTK_ALIGN_BASELINE_FILL)
-            gtk_box_append(cast(row), widget)
+            gtk_grid_attach(cast(row), widget, Int32(index + 1), 0, 1, 1)
         }
         if let labelling {
             setAccessibleRelation(labelling, GTK_ACCESSIBLE_RELATION_LABELLED_BY, [title])

@@ -627,6 +627,7 @@ extension SelfCheck {
                 "Sent over TLS by Reqly", "Reverse proxy", "The app sent it to localhost:8080", "Upstream proxy",
                 "proxy.example.com:8080", "Client certificate", "Reqly Test Client",
             ], in: overview, "the composed one's Overview")
+        try await requireValuesInLine(.overview, "the composed one's Overview")
 
         try await open(ExchangeID(rawValue: 13))
         overview = try await pageWords(.overview)
@@ -716,6 +717,7 @@ extension SelfCheck {
                 "Connection", "Protocol", "HTTP/1.1", "To the server", "HTTP/2", "Remote address", "203.0.113.24:443",
                 "TLS", "1.3", "Reused connection", "No",
             ], in: forecast, "the forecast's Timing")
+        try await requireValuesInLine(.timing, "the forecast's Timing")
         let looks = bars().map(look)
         try require(
             looks == ["dim", "dim", "dim", "dim", "dim", "accent", "half-accent"],
@@ -842,6 +844,38 @@ extension SelfCheck {
         let wrong = stops.filter { $0.0 != 1 && !($0.1 && $0.0 == 0) }
         try require(!rows.isEmpty && wrong.isEmpty, "\(name)'s rows have \(stops.map(\.0)) Tab stops each")
         note("\(name): \(rows.count) rows, one Tab stop each, but for cookies whose values are hidden")
+    }
+
+    /// A page's values all start at one place, beside names long and short, as on the Mac.
+    private func requireValuesInLine(_ page: DetailsPane.Page, _ name: String) async throws {
+        let box = try present(window.details.contents[page], "\(name) has no box")
+        await settle()
+        let rows = descendants(of: box).filter {
+            gtk_widget_has_css_class($0, "details-row") != 0
+                && gtk_orientable_get_orientation(cast($0)) == GTK_ORIENTATION_HORIZONTAL
+        }
+        var starts: [String: Int] = [:]
+        // Each name's width and lines, and its least and natural widths, for when they don't line up.
+        var names: [String] = []
+        for row in rows {
+            guard let title = gtk_widget_get_first_child(row), let value = gtk_widget_get_next_sibling(title) else {
+                continue
+            }
+            var bounds = graphene_rect_t()
+            _ = gtk_widget_compute_bounds(value, window.window, &bounds)
+            let words = string(gtk_label_get_text(cast(title))) ?? ""
+            starts[words] = Int(bounds.origin.x.rounded())
+            var least: Int32 = 0
+            var natural: Int32 = 0
+            gtk_widget_measure(title, GTK_ORIENTATION_HORIZONTAL, -1, &least, &natural, nil, nil)
+            let lines = pango_layout_get_line_count(gtk_label_get_layout(cast(title)))
+            names.append("\(words) \(gtk_widget_get_width(title)) px, \(lines) lines, \(least)-\(natural)")
+        }
+        try require(
+            !starts.isEmpty && Set(starts.values).count == 1,
+            "\(name)'s values start at \(starts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }); "
+                + "names: \(names)")
+        note("\(name): \(starts.count) values start at \(starts.values.first ?? 0) px")
     }
 
     // MARK: - Pictures
