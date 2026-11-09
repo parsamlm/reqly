@@ -48,7 +48,8 @@ extension DetailsPane {
             gtk_box_append(cast(box), cookies(words.cookies, part: part, showsValues: message.showsCookieValues))
         }
         if words.hasBody, let view = bodyView(part, size: words.bodySize) {
-            gtk_box_append(cast(box), DetailsBlocks.section("Body", content: [view.widget]))
+            // The body view has the section's title in its own line.
+            gtk_box_append(cast(box), view.widget)
         } else if let note = words.note {
             gtk_box_append(cast(box), DetailsBlocks.section("Body", content: [DetailsBlocks.note(note)]))
         }

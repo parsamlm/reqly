@@ -20,7 +20,7 @@ import ReqlyModel
 final class BodyView {
     let id: ExchangeID
     let part: MessagePart
-    /// The line, then the body, one under the other.
+    /// The line with the section's title, the modes, then the body, one under the other.
     let widget: Widget
     /// The switch between the body's modes, one button for each, one always on; or a label, when
     /// there's only one mode.
@@ -91,11 +91,17 @@ final class BodyView {
         gtk_widget_set_valign(copyButton, GTK_ALIGN_CENTER)
         gtk_widget_set_tooltip_text(copyButton, "Copy Body")
         setAccessibleLabel(copyButton, "Copy Body")
+        // The section's title with the summary beside it, as on the Mac, and the modes on a line
+        // of their own, so the summary shows in narrow details too.
+        let title = gtk_label_new("Body")!
+        gtk_label_set_xalign(cast(title), 0)
+        gtk_widget_add_css_class(title, "heading")
         let line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
         gtk_widget_add_css_class(line, "body-line")
-        for child in [summary, modeSwitch, copyButton] {
+        for child in [title, summary, copyButton] {
             gtk_box_append(cast(line), child)
         }
+        gtk_widget_set_halign(modeSwitch, GTK_ALIGN_START)
 
         noteLabel = gtk_label_new(nil)
         note = Self.noteLine(noteLabel, icon: "dialog-information-symbolic")
@@ -115,7 +121,7 @@ final class BodyView {
         gtk_widget_set_visible(startLine, 0)
         footnotes = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2)
 
-        for child in [line, note, stack, startLine, footnotes] {
+        for child in [line, modeSwitch, note, stack, startLine, footnotes] {
             gtk_box_append(cast(widget), child)
         }
         connect(copyButton, "clicked") { [weak self] in self?.copyBody() }
@@ -221,6 +227,7 @@ final class BodyView {
             gtk_box_remove(cast(modeSwitch), child)
         }
         buttons = [:]
+        gtk_widget_set_visible(modeSwitch, cBool(!modes.isEmpty))
         guard modes.count > 1 else {
             if let only = modes.first {
                 let label = gtk_label_new(BodyWords.title(of: only, in: presented))!

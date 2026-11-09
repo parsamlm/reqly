@@ -476,6 +476,12 @@ extension SelfCheck {
         let narrow = hex.shownLines.first ?? ""
         try require(narrow == "000000  7B 22 63 69 74 79 22 3A  {\"city\":", "a narrow first line is “\(narrow)”")
         note("    400 pixels wide: “\(narrow)”; pictures: \(try await pictures(of: page, "json-hex-narrow"))")
+        // The summary still shows whole beside "Body", as the details narrow to about this.
+        let summary = string(gtk_label_get_text(cast(view.summary))) ?? ""
+        try require(
+            pango_layout_is_ellipsized(gtk_label_get_layout(cast(view.summary))) == 0,
+            "400 pixels wide, the body's “\(summary)” is cut, \(gtk_widget_get_width(view.summary)) px wide")
+        note("    400 pixels wide: “\(summary)” whole")
         // The lines chosen at 8 bytes stay chosen, whole, at 16.
         gtk_selection_model_unselect_all(gtk_list_view_get_model(cast(hex.list)))
         hex.select(8..<24)
