@@ -114,3 +114,24 @@ public func namedScroller(_ name: String) -> Widget {
     setAccessibleLabel(scroller, name)
     return scroller
 }
+
+/// A new status page whose own scrolled window screen readers call `name`, as
+/// ``namedScroller(_:)``'s. GTK changes a widget's role only until screen readers have read it,
+/// so this sets the role as the page is made.
+@MainActor
+public func namedStatusPage(_ name: String) -> Widget {
+    let page: Widget = adw_status_page_new()
+    var child = gtk_widget_get_first_child(page)
+    while let widget = child, typeName(raw(widget)) != "GtkScrolledWindow" {
+        child = gtk_widget_get_next_sibling(widget)
+    }
+    if let scroller = child {
+        var value = GValue()
+        g_value_init(&value, gtk_accessible_role_get_type())
+        g_value_set_enum(&value, Int32(GTK_ACCESSIBLE_ROLE_GROUP.rawValue))
+        g_object_set_property(cast(scroller), "accessible-role", &value)
+        g_value_unset(&value)
+        setAccessibleLabel(scroller, name)
+    }
+    return page
+}

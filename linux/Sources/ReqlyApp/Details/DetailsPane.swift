@@ -212,7 +212,7 @@ final class DetailsPane {
         gtk_widget_set_visible(heading, 0)
         headingView = DetailsHeadingView(heading, colors: colors)
 
-        none = adw_status_page_new()
+        none = namedStatusPage("Details")
         adw_status_page_set_title(cast(none), "No Request Selected")
         adw_status_page_set_description(cast(none), "Select a request to see its details.")
         gtk_widget_add_css_class(none, "compact")

@@ -455,9 +455,24 @@ extension SelfCheck {
             "with nothing matching, the page says \(words.title), and Clear Filters shows")
         try await takePicture("search-no-results.png")
         note("“zzqx”: \(words.title) · \(words.description)")
+        try await requireNamedScrollers("with “No Results” and “No Request Selected”")
         search.close()
         try await until("the list again", seconds: 3) { list.count == 6 && gtk_widget_get_mapped(list.view) != 0 }
         _ = try await emptySession()
+        await settle()
+        try await requireNamedScrollers("with “No Traffic Yet”")
+    }
+
+    /// Every scroller screen readers find has a name, status pages' too.
+    private func requireNamedScrollers(_ showing: String) async throws {
+        let tree = try await AccessibilityTree.read()
+        let scrollers = tree.nodes.filter { $0.role == "scroll pane" }
+        let unnamed = scrollers.filter { $0.name.isEmpty }
+        try require(
+            unnamed.isEmpty,
+            "\(showing), \(unnamed.count) of \(scrollers.count) scrollers have no name: "
+                + "\(scrollers.map { "“\($0.name)”" }.joined(separator: ", "))")
+        note("\(showing): \(scrollers.count) scrollers, all named")
     }
 
     // MARK: - Filters

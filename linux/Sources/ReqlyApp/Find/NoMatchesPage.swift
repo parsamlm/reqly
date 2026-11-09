@@ -15,7 +15,7 @@ final class NoMatchesPage {
     var onClear: (() -> Void)?
 
     init() {
-        widget = adw_status_page_new()
+        widget = namedStatusPage("Requests")
         adw_status_page_set_icon_name(cast(widget), "edit-find-symbolic")
         clearButton = gtk_button_new_with_label("Clear Filters")
         gtk_widget_add_css_class(clearButton, "pill")

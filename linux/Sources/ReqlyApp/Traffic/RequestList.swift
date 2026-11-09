@@ -174,7 +174,7 @@ final class RequestList {
         menu = RowMenu(on: view)
         scroller = namedScroller("Requests")
         gtk_scrolled_window_set_child(cast(scroller), view)
-        empty = adw_status_page_new()
+        empty = namedStatusPage("Requests")
         adw_status_page_set_icon_name(cast(empty), "network-transmit-receive-symbolic")
         widget = gtk_stack_new()
         gtk_stack_add_named(cast(widget), empty, "empty")
