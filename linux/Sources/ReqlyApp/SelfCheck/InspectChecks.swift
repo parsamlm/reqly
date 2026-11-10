@@ -443,10 +443,11 @@ extension SelfCheck {
     }
 
     /// The keyboard's focus as the window's breakpoints, and the details' own, change the panes:
-    /// a row keeps it from 1280 pixels to 1000 and 700; Copy Headers beside the list at 1280 gives
-    /// it to the list's pane as the details fold away under it at 1000; a tab of the details over
-    /// the list, as the tabs move under the pages at 500, gives it to a widget that shows; and a
-    /// hex line, as the lines go from 16 bytes to 8 at 800, to the line that has its first byte.
+    /// a row keeps it from 1280 pixels to 1000 and 700, and so does the search's field from 1000 to
+    /// 700; Copy Headers beside the list at 1280 gives it to the list's pane as the details fold
+    /// away under it at 1000; a tab of the details over the list, as the tabs move under the pages
+    /// at 500, gives it to a widget that shows; and a hex line, as the lines go from 16 bytes to 8
+    /// at 800, to the line that has its first byte.
     private func checkTheFocusAsPanesChange(_ ids: [ExchangeID]) async throws {
         let window = window
         let details = window.details
@@ -470,6 +471,23 @@ extension SelfCheck {
             }
         }
         seen.append("a row keeps it from 1280 px to 1000 and 700")
+
+        // The search's field, as the sidebar folds away: libadwaita 1.7 and later give the focus to
+        // the capture switch on the way.
+        let search = window.search
+        try await resize(to: 1000)
+        search.open()
+        gtk_widget_grab_focus(search.entry)
+        try await until("the search's field to have the focus", seconds: 3) {
+            self.focusWidget.map { window.isInside($0, search.entry) } == true
+        }
+        moves = []
+        try await resize(to: 700)
+        try await until("the search's field to keep the focus at 700 px, not the \(focusType): \(moves)", seconds: 3) {
+            self.focusWidget.map { window.isInside($0, search.entry) } == true
+        }
+        search.close()
+        seen.append("the search's field keeps it from 1000 px to 700")
 
         try await resize(to: 1280)
         details.show(page: .response)

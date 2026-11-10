@@ -81,6 +81,11 @@ final class MainWindow {
     private var pinned = 0
     /// Whether the keyboard's first focus waits for the session to open.
     private var isFirstFocusDue = true
+    /// Counts the folds that kept a widget's focus, and the first focus: only the latest one's
+    /// looks give the focus back.
+    private var focusTurn = 0
+    /// Counts your key presses and clicks, which a later look after a fold leaves alone.
+    private var inputs = 0
     /// What has had the keyboard's focus since the first focus gave it to the capture switch, as
     /// the session had no requests, until the list first shows some.
     private var firstFocus: Widget?
@@ -316,6 +321,7 @@ final class MainWindow {
         }
         addActions()
         focusCaptureSwitchOnClick()
+        countInputs()
         showSidebarToggle()
         update()
     }
@@ -431,6 +437,8 @@ final class MainWindow {
     private func giveFirstFocus() {
         idle { [weak self] in
             guard let self, visibleDialog(over: window) == nil else { return false }
+            // As a fold's looks would take it back.
+            focusTurn += 1
             focusContent()
             firstFocus = list.count == 0 ? gtk_root_get_focus(cast(window)) : nil
             return false
@@ -631,29 +639,51 @@ final class MainWindow {
         focusWhatShows(after: 0, tries: 25, keeping: nil, in: nil)
     }
 
-    /// A breakpoint folded the sidebar or the details away, or back. libadwaita 1.5 puts the panes
-    /// in place again, which takes the keyboard's focus from what had it, and GTK then gives it to
-    /// the sidebar, and libadwaita to the sidebar's toggle as the sidebar goes: what had it has it
-    /// again once the panes show, and once libadwaita's done, if it still shows, or else the pane
-    /// that shows, such as the list for a button in the details as they fold away.
+    /// A breakpoint folded the sidebar or the details away, or back. libadwaita puts the panes in
+    /// place again, which takes the keyboard's focus from what had it: GTK then gives it to the
+    /// sidebar, and libadwaita to the sidebar's toggle as the sidebar goes, and from libadwaita 1.7
+    /// on to the capture switch beside it. What had it has it again once the panes show, and once
+    /// libadwaita's done, if it still shows, or else the pane that shows, such as the list for a
+    /// button in the details as they fold away. The later look leaves the focus where you moved it
+    /// meanwhile, with a key or a click, and only a newer fold's looks, or the first focus, count.
     private func keepFocusThroughFold() {
         guard let focus = gtk_root_get_focus(cast(window)) else {
             focusWhatShowsSoon()
             return
         }
+        focusTurn += 1
         let pane = [sidebarPane, listPane, details.widget].first { isInside(focus, $0) }
-        focusWhatShows(after: 0, tries: 25, keeping: focus, in: pane)
-        focusWhatShows(after: 400, tries: 0, keeping: focus, in: pane)
+        focusWhatShows(after: 0, tries: 25, keeping: focus, in: pane, fold: (focusTurn, nil))
+        focusWhatShows(after: 400, tries: 0, keeping: focus, in: pane, fold: (focusTurn, inputs))
     }
 
-    /// focusWhatShows(tries:keeping:in:) once nothing more urgent waits, for 0 `milliseconds`, or
-    /// after them, holding `kept` until then.
-    private func focusWhatShows(after milliseconds: UInt32, tries: Int, keeping kept: Widget?, in pane: Widget?) {
+    /// Counts your key presses, but for Shift, Ctrl and the like on their own, and your clicks,
+    /// before the window's widgets have them.
+    private func countInputs() {
+        let events = gtk_event_controller_legacy_new()!
+        gtk_event_controller_set_propagation_phase(events, GTK_PHASE_CAPTURE)
+        connect(events, "event") { [weak self] (arguments: Arguments) in
+            guard let self, let event: OpaquePointer = cast(arguments.pointer(1)) else { return }
+            let type = gdk_event_get_event_type(event)
+            if type == GDK_BUTTON_PRESS || type == GDK_TOUCH_BEGIN
+                || (type == GDK_KEY_PRESS && gdk_key_event_is_modifier(event) == 0)
+            {
+                inputs += 1
+            }
+        }
+        gtk_widget_add_controller(window, events)
+    }
+
+    /// focusWhatShows(tries:keeping:in:fold:) once nothing more urgent waits, for 0
+    /// `milliseconds`, or after them, holding `kept` until then.
+    private func focusWhatShows(
+        after milliseconds: UInt32, tries: Int, keeping kept: Widget?, in pane: Widget?, fold: Fold? = nil
+    ) {
         if let kept {
             g_object_ref(raw(kept))
         }
         let look: @MainActor () -> Bool = { [weak self] in
-            self?.focusWhatShows(tries: tries, keeping: kept, in: pane)
+            self?.focusWhatShows(tries: tries, keeping: kept, in: pane, fold: fold)
             if let kept {
                 g_object_unref(raw(kept))
             }
@@ -666,18 +696,26 @@ final class MainWindow {
         }
     }
 
+    /// A fold's turn, which a newer fold or the first focus takes, and for its later look, how many
+    /// of your key presses and clicks there had been.
+    private typealias Fold = (turn: Int, inputs: Int?)
+
     /// When the keyboard's focus has been lost, or has gone out of `pane`, the one `kept` was in,
     /// as GTK gives it to the sidebar, or to the sidebar's toggle, as libadwaita does, `kept`, which
     /// had it, has it again while it shows, or else the pane that shows. From libadwaita 1.7, the
     /// focus goes on from the toggle to the capture switch beside it, which then counts as the
-    /// toggle when a row had it. Otherwise a widget that took the focus in the same pane meanwhile,
-    /// such as a hex line made again, or the switch as the first focus, keeps it. As a breakpoint
-    /// folds a pane away, libadwaita 1.5 maps the panes again a moment after, so until either the
-    /// list's pane or the details show, it looks again every 20 ms, `tries` times.
-    private func focusWhatShows(tries: Int, keeping kept: Widget?, in pane: Widget?) {
-        guard visibleDialog(over: window) == nil else { return }
-        if gtk_widget_get_mapped(listPane) == 0, gtk_widget_get_mapped(details.widget) == 0, tries > 0 {
-            focusWhatShows(after: 20, tries: tries - 1, keeping: kept, in: pane)
+    /// toggle for what was in the list's pane. Otherwise a widget that took the focus in the same
+    /// pane meanwhile, such as a hex line made again, or the switch as the first focus, keeps it,
+    /// and so does a menu that's open. For a `fold`, only its turn's looks count, and once you've
+    /// pressed a key or clicked since `inputs`, only a focus that's lost. As a breakpoint folds a
+    /// pane away, libadwaita 1.5 maps the panes again a moment after, so until either the list's
+    /// pane or the details show, it looks again every 20 ms, `tries` times, and then gives up.
+    private func focusWhatShows(tries: Int, keeping kept: Widget?, in pane: Widget?, fold: Fold?) {
+        guard visibleDialog(over: window) == nil, fold.map({ $0.turn == focusTurn }) ?? true else { return }
+        if gtk_widget_get_mapped(listPane) == 0, gtk_widget_get_mapped(details.widget) == 0 {
+            if tries > 0 {
+                focusWhatShows(after: 20, tries: tries - 1, keeping: kept, in: pane, fold: fold)
+            }
             return
         }
         let focus = gtk_root_get_focus(cast(window))
@@ -690,10 +728,12 @@ final class MainWindow {
                 gtk_widget_get_mapped($0) == 0 || gtk_widget_is_visible($0) == 0 || gtk_widget_is_sensitive($0) == 0
                     || (isInside($0, list.view) && !list.rowHasFocus)
             } ?? true
-        let hasLeftPane = pane.map { pane in focus.map { !isInside($0, pane) } ?? true } ?? false
+        let isYours = fold?.inputs.map { $0 != inputs } ?? false
+        let hasLeftPane = !isYours && pane.map { pane in focus.map { !isInside($0, pane) } ?? true } ?? false
         let isOnToggle =
-            kept.map { kept in
-                kept != focus && (focus == sidebarToggle || (focus == captureSwitch && isInside(kept, list.view)))
+            !isYours
+            && kept.map { kept in
+                kept != focus && (focus == sidebarToggle || (focus == captureSwitch && isInside(kept, listPane)))
             } ?? false
         guard isLost || isInHiddenDetails || hasLeftPane || isOnToggle else { return }
         if let kept, focus != kept, gtk_widget_get_root(kept) == gtk_widget_get_root(window),
