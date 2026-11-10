@@ -9,7 +9,8 @@ extension SelfCheck {
     /// and a click with the right button. Its entries pin a request and unpin it, mark it with
     /// each color and none, and open its comment on the details' Overview, as they say; for an
     /// encrypted connection, it decrypts the host and stops. Each shows on the row at once. Unpin
-    /// All takes every pin away, and Clear keeps pinned requests, and the selection with them.
+    /// All takes every pin away, and Clear keeps pinned requests, and the selection with them. A
+    /// menu that's open keeps the keyboard's focus as traffic comes.
     func checkAnnotating() async throws {
         let session = try await emptyTheList()
         let traffic = try await startTraffic()
@@ -171,6 +172,50 @@ extension SelfCheck {
             "Unpin All: no pins; Ctrl+K: the 2 pinned requests stay, and the selection with them, until it was one that went"
         )
         try await checkClearingWhatDoesntShow(session, traffic)
+        try await checkTheMenuAsTrafficComes(traffic)
+    }
+
+    /// A row's menu, opened with a click with the right button while the list is scrolled up, away
+    /// from the selected row, keeps the keyboard's focus as traffic comes, and the list stays where
+    /// it is.
+    private func checkTheMenuAsTrafficComes(_ traffic: Traffic) async throws {
+        let window = window
+        let list = window.list
+        let menu = list.menu
+        for number in 1...40 {
+            _ = try await traffic.client.send(traffic.server.url(.ok, "menu=\(number)"))
+        }
+        try await until("the 40 rows", seconds: 10) { list.count == 40 && list.isSettled }
+        let last = try present(list.exchange(at: 39), "the list has no last row")
+        list.select(id: last)
+        try await until("the last row to be selected", seconds: 3) { list.selected == last }
+        await settle()
+        let adjustment = try present(gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
+        gtk_adjustment_set_value(adjustment, 0)
+        await settle()
+        try require(!rowShows(last), "scrolled up, the selected row still shows")
+        let second = try present(list.exchange(at: 1), "the list has no second row")
+        let cell = try present(list.cell(.request, of: second), "the second row has no cell")
+        try FakeInput.click(cell, button: 3)
+        try await until("the row's menu to open, with the focus in it", seconds: 3) {
+            menu.isOpen && self.focusWidget.map { window.isInside($0, menu.popover) } == true
+        }
+        await settle()
+        let value = gtk_adjustment_get_value(adjustment)
+        for number in 41...45 {
+            _ = try await traffic.client.send(traffic.server.url(.ok, "menu=\(number)"))
+        }
+        try await until("the 5 new rows", seconds: 5) { list.count == 45 && list.isSettled }
+        await settle()
+        let isInList = focusWidget.map { window.isInside($0, list.view) } == true
+        let focus = "the \(focusType) in the \(isInList ? "list" : "window")"
+        let isInMenu = menu.isOpen && focusWidget.map { window.isInside($0, menu.popover) } == true
+        let now = gtk_adjustment_get_value(adjustment)
+        menu.close()
+        try await until("the menu to close", seconds: 3) { !menu.isOpen }
+        try require(isInMenu, "as traffic came, the focus left the open row's menu for \(focus)")
+        try require(abs(now - value) < 1, "as traffic came, the list scrolled from \(Int(value)) to \(Int(now)) px")
+        note("a row's menu, open as 5 requests came: it keeps the focus, and the list stays where it is")
     }
 
     /// Clear while a search finds nothing, which takes requests no row shows, so no row changes:

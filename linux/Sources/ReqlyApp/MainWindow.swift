@@ -681,6 +681,10 @@ final class MainWindow {
             return
         }
         let focus = gtk_root_get_focus(cast(window))
+        // A menu that's open keeps it, and gives it back as it closes.
+        if let focus, gtk_widget_get_ancestor(focus, gtk_popover_get_type()) != nil {
+            return
+        }
         let isLost =
             focus.map {
                 gtk_widget_get_mapped($0) == 0 || gtk_widget_is_visible($0) == 0 || gtk_widget_is_sensitive($0) == 0

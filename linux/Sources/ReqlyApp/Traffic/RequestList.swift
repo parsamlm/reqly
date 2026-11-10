@@ -419,7 +419,8 @@ final class RequestList {
     /// draw before the next pieces. Whether the list follows them is decided before.
     private func feedSome() {
         isFeeding = true
-        let hadFocus = gtk_widget_get_state_flags(view).rawValue & GTK_STATE_FLAG_FOCUS_WITHIN.rawValue != 0
+        // A row, not the view: a row's menu, which is the view's child, takes the focus too.
+        let hadFocus = rowHasFocus
         let started = monotonicMicroseconds()
         following.begin(showsEnd: isEnding || showsEnd())
         var inserted = 0
