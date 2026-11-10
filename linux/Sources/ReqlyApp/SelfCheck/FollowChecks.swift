@@ -174,7 +174,9 @@ extension SelfCheck {
         let adjustment = try present(gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
         var tries = 0
         var reveals: Int?
-        while reveals == nil, tries < 5 {
+        // A try works only when the search's end comes back within 100 ms of the row showing.
+        // On 4.14 the first try does; on 4.18 and 4.22 it took 2, and once more than 5.
+        while reveals == nil, tries < 10 {
             tries += 1
             await session.setSearch("n=\(follower.newest.rawValue + 1)")
             try await until("the search to leave no rows", seconds: 5) { list.count == 0 && list.isSettled }
