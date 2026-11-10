@@ -506,7 +506,20 @@ extension SelfCheck {
         let view = try present(details.bodies[.response], "the Response page has no body")
         view.show(mode: .hex)
         let hex = try present(view.views[.hex] as? HexView, "the body shows no hex")
-        try await until("16 bytes a line", seconds: 5) { hex.perLine == HexLines.wide }
+        // 16 bytes fit at 1000 px in GTK 4.14's monospace font. Newer GTKs' fonts are wider, so
+        // the window widens, with the details still over the list, until they fit.
+        var width: Int32 = 1000
+        while true {
+            do {
+                try await until("16 bytes a line at \(width) px", seconds: 3) { hex.perLine == HexLines.wide }
+                break
+            } catch {
+                guard width < 1090 else { throw error }
+                width += 45
+                try await resize(to: width)
+                try require(window.detailsAreOver, "at \(width) px, the details aren't over the list")
+            }
+        }
         await settle()
         gtk_widget_grab_focus(hex.list)
         gtk_list_view_scroll_to(cast(hex.list), 2, GTK_LIST_SCROLL_FOCUS, nil)
