@@ -112,7 +112,10 @@ extension SelfCheck {
         try await checkDots(list, ids)
         try await checkWhatScreenReadersHear(list, ids)
         try await checkTab(list, ids[.success]!)
-        try await checkTheFocusedRowsQuiet(list, ids[.success]!, traffic)
+        try await checkTheFocusedRowsQuiet(list, traffic)
+        // Back to the 2xx row, near the list's top, by the rows the next checks look at.
+        list.select(id: ids[.success]!)
+        list.focusSelection()
         try await checkBesideTheDetails(list)
         try await checkTheDesktopsMonospaceFont(list, ids[.encrypted]!)
     }
@@ -155,9 +158,10 @@ extension SelfCheck {
     }
 
     /// While requests come in, screen readers hear no change to the words of the row with the
-    /// keyboard's focus, as Orca would say each, nor of the sidebar's row with it, All Traffic,
-    /// while the other rows say their new places and counts.
-    private func checkTheFocusedRowsQuiet(_ list: RequestList, _ id: ExchangeID, _ traffic: Traffic) async throws {
+    /// keyboard's focus, as Orca would say each: a download's, whose size grows meanwhile. Nor of
+    /// the sidebar's row with it, All Traffic, while the other rows say their new places and
+    /// counts. Once the focus leaves the download's row, it has its new words.
+    private func checkTheFocusedRowsQuiet(_ list: RequestList, _ traffic: Traffic) async throws {
         let window = window
         let kinds = ["object:property-change:accessible-name", "object:property-change:accessible-description"]
         var sent = 0
@@ -172,14 +176,33 @@ extension SelfCheck {
             try? await Task.sleep(for: .milliseconds(1000))
         }
 
+        // 60 pieces 200 ms apart: still coming as screen readers are listened to, for 6 s.
+        let download = Task { try? await traffic.client.send(traffic.server.url(.drip, "pieces=60&gap=200")) }
+        defer { download.cancel() }
+        var live: ExchangeID?
+        try await until("the download's row", seconds: 5) {
+            let rows = (0..<list.count).lazy.compactMap { list.summary(at: $0) }
+            live = rows.first { $0.path == "/drip" && !$0.state.isFinished }?.id
+            return live != nil && list.isSettled
+        }
+        let id = try present(live, "the download has no row")
         list.select(id: id)
         try await until("the row to be selected", seconds: 3) { list.selected == id }
         list.focusSelection()
         try await until("the row to have the focus", seconds: 3) { self.listHasFocus }
-        let label = try present(list.text(of: id)?.label, "the focused row has no words")
+        let label = try present(list.accessibleWords(of: id)?.label, "the focused row has no words")
+        // Its status, method and address, which its words start with, whatever its size.
+        let start = label.components(separatedBy: ", ").prefix(3).joined(separator: ", ")
         let heard = try await AccessibilityTree.events(kinds, seconds: 6) { await send(20) }
-        let focused = heard.filter { $0.name == label }
-        let others = heard.filter { $0.name != label && $0.detail?.hasPrefix("Request ") == true }
+        let grown = list.text(of: id)?.label ?? ""
+        try require(grown != label, "as 20 requests came, the download's row kept its words: \(label)")
+        try require(
+            list.accessibleWords(of: id)?.label == label, "the focused download's row has new words for screen readers")
+        let says = { (event: AccessibilityTree.Event) in
+            event.name.hasPrefix(start) || event.detail?.hasPrefix(start) == true
+        }
+        let focused = heard.filter(says)
+        let others = heard.filter { !says($0) && $0.detail?.hasPrefix("Request ") == true }
         note(
             "20 requests with a row focused: screen readers heard \(focused.count) changes to it, and "
                 + "\(others.count) to the other rows' places")
@@ -201,7 +224,11 @@ extension SelfCheck {
         let names = all.prefix(3).map { "\($0.type) “\($0.name)”" }
         try require(all.isEmpty, "with the focus on All Traffic, screen readers heard it change: \(names)")
         try require(!counted.isEmpty, "screen readers heard no other sidebar row's count change: \(rows.count) events")
-        list.focusSelection()
+        try await until("the download's row to have its new words, the focus gone", seconds: 3) {
+            let now = list.accessibleWords(of: id)?.label
+            return now != label && now == list.text(of: id)?.label
+        }
+        note("the download's row, the focus gone: its words have its size")
     }
 
     /// At 1280 pixels, with the details beside the list, the columns fit the list's pane, so it
