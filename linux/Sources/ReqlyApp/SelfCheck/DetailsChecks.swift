@@ -147,6 +147,30 @@ extension SelfCheck {
             toasts.contains("Copied") && said == 1,
             "Copy Headers showed the toasts \(toasts), and screen readers heard “Copied” \(said) times")
         note("Copy Headers: a toast, “Copied”, which screen readers hear once")
+        // Clicked again and again, each toast takes the place of the one before, rather than
+        // waiting behind it: closed, the one that shows leaves none.
+        for _ in 0..<3 {
+            emit(raw(copy), "clicked")
+        }
+        await settle()
+        let closes = descendants(of: window.window).filter { typeName(raw($0)) == "AdwToastWidget" }
+            .flatMap { descendants(of: $0) }
+            .filter { typeName(raw($0)) == "GtkButton" }
+            .filter { string(gtk_button_get_icon_name(cast($0))) == "window-close-symbolic" }
+        try require(closes.count == 1, "three copies showed \(closes.count) toasts at once")
+        emit(raw(closes[0]), "clicked")
+        await settle()
+        try require(!toastWords().contains("Copied"), "closed, the “Copied” toast had another behind it")
+        // Once more, after the one before has gone.
+        let lines = try await standardError {
+            emit(raw(copy), "clicked")
+            await settle()
+        }.lines
+        let warnings = lines.filter { $0.contains("-WARNING") || $0.contains("-CRITICAL") }
+        try require(
+            toastWords().contains("Copied") && warnings.isEmpty,
+            "copied after the toast went, the toasts say \(toastWords()), and GTK warned \(warnings.prefix(2))")
+        note("Copy Headers three times: one toast, with none behind it; then once more, one more")
 
         // The response: its cookies, with when they expire and their attributes, and its body.
         let response = try await pageWords(.response)
