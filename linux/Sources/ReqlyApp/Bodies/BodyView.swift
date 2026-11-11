@@ -177,13 +177,14 @@ final class BodyView {
         let next =
             Self.chosen[part].flatMap { modes.contains($0) ? $0 : nil }
             ?? mode.flatMap { modes.contains($0) ? $0 : nil } ?? modes.first
-        // Code with the focus, which the body still shows in, gets the new text in place.
+        // Code the body still shows in gets the new text in place, once it's laid out: until then
+        // the text before stays, with Show Whole Body, and the keyboard's focus in it.
         var kept: CodeHolder?
-        if case .view(let focused, _) = place, focused == mode, focused == next,
-            let holder = views[focused] as? CodeHolder, holder.code != nil, let code = Self.code(focused, of: presented)
+        if let current = mode, current == next, let holder = views[current] as? CodeHolder, holder.code != nil,
+            let code = Self.code(current, of: presented)
         {
             kept = holder
-            layOut(code, in: holder, for: focused)
+            layOut(code, in: holder, for: current)
         }
         clearViews(keeping: kept)
         gtk_label_set_text(cast(summary), isEmpty ? BodyWords.empty(part) : BodyWords.summary(presented))
@@ -364,13 +365,20 @@ final class BodyView {
         mode.flatMap { views[$0] as? CodeHolder }?.code
     }
 
-    /// Lays `code` out away from the window, then shows it in `holder`: in a new view, or in place
-    /// of the text in the one it has.
+    /// Lays `code` out away from the window, then shows it in `holder`, while that's the mode's view:
+    /// in a new view, or in place of the text in the one it has. One at a time: code that comes
+    /// meanwhile, as a body grows faster than it's laid out, is laid out next, the latest only.
     private func layOut(_ code: BodyPresentation.Code, in holder: CodeHolder, for mode: BodyMode) {
-        let shown = shown
+        guard !holder.isLayingOut else {
+            holder.next = code
+            return
+        }
+        holder.isLayingOut = true
         Task { [weak self, weak holder] in
             let text = await Task.detached(priority: .userInitiated) { CodeText(code) }.value
-            guard let self, let holder, self.shown == shown else { return }
+            guard let self, let holder else { return }
+            holder.isLayingOut = false
+            guard views[mode] === holder else { return }
             if let view = holder.code {
                 view.replace(with: text)
             } else {
@@ -378,6 +386,10 @@ final class BodyView {
             }
             if self.mode == mode {
                 showStart()
+            }
+            if let next = holder.next {
+                holder.next = nil
+                layOut(next, in: holder, for: mode)
             }
         }
     }
@@ -501,10 +513,13 @@ final class BodyView {
                 guard let self else { return }
                 self.whole = nil
                 if let waiting {
-                    // The body that grew meanwhile shows now. Show Whole Body goes until its code
-                    // is laid out, and Copy Body has the focus till then.
+                    // The body that grew meanwhile shows now. Show Whole Body stays while its code
+                    // does, or else goes until its code is laid out, and Copy Body has the focus till
+                    // then.
                     show(waiting)
-                    if gtk_widget_get_visible(copyButton) != 0 {
+                    if gtk_widget_get_mapped(showWhole) != 0 {
+                        gtk_widget_grab_focus(showWhole)
+                    } else if gtk_widget_get_visible(copyButton) != 0 {
                         gtk_widget_grab_focus(copyButton)
                         focusesShowWhole = true
                     }
@@ -569,6 +584,9 @@ final class BodyView {
 final class CodeHolder {
     let widget: Widget
     private(set) var code: CodeView?
+    /// Whether code is being laid out for it, and the code that's laid out after that.
+    var isLayingOut = false
+    var next: BodyPresentation.Code?
 
     init() {
         widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0)

@@ -523,7 +523,7 @@ extension SelfCheck {
 
     /// A response that grows faster than its body is presented, as the details present each body
     /// 400 ms late: as it comes, its body shows bigger and bigger sizes, never a smaller one after
-    /// a bigger, and its whole size once it ends.
+    /// a bigger, and its whole size once it ends, in the same code view throughout.
     private func checkAFastGrowingBody(_ client: ProxyClient, server: TestServer, session: SessionHost) async throws {
         let details = window.details
         details.presentationDelay = .milliseconds(400)
@@ -535,10 +535,15 @@ extension SelfCheck {
         // Out of the page, which waits while the focus is in it.
         try require(details.focusTab(), "the details' tab doesn't take the focus")
         var shown: [(size: Int, isLive: Bool)] = []
+        // The code views the text showed in, each once.
+        var codes: [ObjectIdentifier] = []
         func look() -> Bool {
             let isLive = details.summary?.state.isFinished == false
             if let size = details.bodies[.response]?.body?.body.wireSize, size != shown.last?.size {
                 shown.append((size, isLive))
+            }
+            if let code = details.bodies[.response]?.codeView, ObjectIdentifier(code) != codes.last {
+                codes.append(ObjectIdentifier(code))
             }
             return !isLive
         }
@@ -557,7 +562,11 @@ extension SelfCheck {
         try require(
             zip(sizes, sizes.dropFirst()).allSatisfy { $0 < $1 }, "the body went back to an older size: \(sizes)")
         try require(live >= 3, "as it came, the body showed \(live) sizes of \(whole) bytes: \(sizes)")
-        note("growing faster than presented: the body showed \(live) sizes as it came, then \(whole) bytes")
+        // In place, so it never goes for a moment, nor waits on a slow layout to show again.
+        try require(codes.count == 1, "as it grew, the body's text showed in \(codes.count) code views in turn")
+        note(
+            "growing faster than presented: the body showed \(live) sizes as it came, then \(whole) bytes, all in"
+                + " the same code view")
     }
 
     /// A response that comes a piece at a time, chosen as it comes: while the keyboard's focus is
