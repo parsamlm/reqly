@@ -170,15 +170,34 @@ final class PreviewView {
 
     // MARK: - Opening and saving
 
-    /// The picture as a file to open, in ``openingFolder(environment:)``, named as its URL names
-    /// it.
+    /// The picture as a file to open, named as its URL names it, in a new folder of its own in
+    /// ``openingFolder(environment:)``, so a picture opened before keeps its file, as a viewer may
+    /// still show it.
     func fileToOpen() async throws -> URL {
         guard let folder = Self.openingFolder() else { throw CocoaError(.fileNoSuchFile) }
         try FileManager.default.createDirectory(
             at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let file = folder.appending(path: BodyWords.fileName(for: format, url: await url()))
-        try data.write(to: file)
+        var template = Array(folder.appending(path: "XXXXXX").path.utf8CString)
+        guard let made = mkdtemp(&template) else { throw CocoaError(.fileWriteUnknown) }
+        let own = URL(filePath: String(cString: made), directoryHint: .isDirectory)
+        let file = own.appending(path: BodyWords.fileName(for: format, url: await url()))
+        try data.write(to: file, options: .atomic)
         return file
+    }
+
+    /// Takes away the pictures written for you to open in an earlier run, as Reqly starts, so they
+    /// don't pile up in `XDG_RUNTIME_DIR`, which is kept in memory, or in your cache folder.
+    static func clearOpened() {
+        guard let folder = openingFolder() else { return }
+        Task.detached(priority: .utility) { removeAll(in: folder) }
+    }
+
+    /// Takes away everything in `folder`, but not the folder.
+    nonisolated static func removeAll(in folder: URL) {
+        let files = FileManager.default
+        for name in (try? files.contentsOfDirectory(atPath: folder.path)) ?? [] {
+            try? files.removeItem(at: folder.appending(path: name))
+        }
     }
 
     /// The folder the pictures you open are written to: Reqly's in `XDG_RUNTIME_DIR`, which only

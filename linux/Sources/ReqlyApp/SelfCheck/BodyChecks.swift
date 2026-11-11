@@ -698,16 +698,20 @@ extension SelfCheck {
         let saved = try scratchFolder("saved").appending(path: "map.png")
         preview.save(to: saved)
         let opened = try await preview.fileToOpen()
+        let again = try await preview.fileToOpen()
         try require(
             (try? Data(contentsOf: saved)) == Data(TestServer.png)
-                && (try? Data(contentsOf: opened)) == Data(TestServer.png)
+                && [opened, again].allSatisfy { (try? Data(contentsOf: $0)) == Data(TestServer.png) }
                 && opened.lastPathComponent == "image.png",
             "the picture saved, or written to open, isn't its bytes, or is called \(opened.lastPathComponent)")
-        // In Reqly's folder in the runtime folder, which only you can open.
+        // In a folder of its own in Reqly's in the runtime folder, which only you can open, so the
+        // second doesn't write over the first, which a viewer may show.
         let runtime = try present(
             ProcessInfo.processInfo.environment["XDG_RUNTIME_DIR"], "the run has no runtime folder")
+        let folders = [opened, again].map { $0.deletingLastPathComponent().deletingLastPathComponent().path }
         try require(
-            opened.path == runtime + "/net.reqly.Reqly/images/image.png", "the picture to open is at \(opened.path)")
+            folders.allSatisfy { $0 == runtime + "/net.reqly.Reqly/images" } && again != opened,
+            "the pictures to open are at \(opened.path) and \(again.path)")
         note("    Copy Body copies the picture, 16 × 12; it saves, and is written as \(opened.path) to open")
         try await checkSaveDialog(view)
         note("    pictures: \(try await pictures(of: page, "picture"))")

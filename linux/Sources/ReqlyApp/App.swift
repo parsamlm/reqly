@@ -100,6 +100,7 @@ final class App {
         Styles.install(theme: options.theme)
         Icons.install()
         Icons.installAppIcon()
+        PreviewView.clearOpened()
         // GtkSourceView's types and translations, once, before any code view.
         gtk_source_init()
         addActions()

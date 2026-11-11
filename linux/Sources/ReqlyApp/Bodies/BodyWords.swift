@@ -111,17 +111,33 @@ enum BodyWords {
     /// The name to save or open a picture as: its URL's last part, when it has the picture's
     /// format's extension, or with that in place of another; or else "image" and its format's.
     /// The server names it, so it can't lead out of its folder, hide as a dot file, or open as
-    /// anything but a picture.
+    /// anything but a picture. A long name is cut short, keeping its extension, to fit
+    /// ``longestFileName``.
     static func fileName(for format: ImageFormat, url: URL?) -> String {
         let extensions = fileExtensions(of: format)
         // The last part is decoded, so a %2F in it is a slash.
         let last = url?.lastPathComponent.split(separator: "/").last ?? ""
         let name = last.drop { $0 == "." }
         guard let dot = name.lastIndex(of: ".") else { return "image." + extensions[0] }
-        if extensions.contains(name[name.index(after: dot)...].lowercased()) {
-            return String(name)
+        let found = String(name[name.index(after: dot)...])
+        return cut(name[..<dot], keeping: extensions.contains(found.lowercased()) ? found : extensions[0])
+    }
+
+    /// The longest name a picture's file gets, in bytes: well under the 255 file systems take.
+    static let longestFileName = 200
+
+    /// `stem` with the extension `kept`, the stem cut short at a character's end so the name fits
+    /// ``longestFileName``.
+    private static func cut(_ stem: Substring, keeping kept: String) -> String {
+        let room = longestFileName - kept.utf8.count - 1
+        var end = stem.startIndex
+        var bytes = 0
+        for index in stem.indices {
+            bytes += stem[index].utf8.count
+            guard bytes <= room else { break }
+            end = stem.index(after: index)
         }
-        return String(name[..<dot]) + "." + extensions[0]
+        return String(stem[..<end]) + "." + kept
     }
 
     /// A format's file extensions, the one a picture is named with first.

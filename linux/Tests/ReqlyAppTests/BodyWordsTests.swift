@@ -109,6 +109,22 @@ import Testing
         #expect(name(.svg, "http://example.com/logo.svg.png") == "logo.svg.svg")
     }
 
+    /// A long name is cut short, at a character's end, keeping its extension, so the file can be
+    /// written: file systems take 255 bytes.
+    @Test func cutsALongFileName() {
+        func name(_ format: ImageFormat, _ last: String) -> String {
+            BodyWords.fileName(for: format, url: URL(string: "http://example.com/")?.appending(path: last))
+        }
+        let long = name(.png, String(repeating: "a", count: 300) + ".png")
+        #expect(long == String(repeating: "a", count: 196) + ".png")
+        #expect(name(.jpeg, String(repeating: "b", count: 300) + ".JPG").hasSuffix("b.JPG"))
+        #expect(name(.jpeg, String(repeating: "b", count: 300) + ".JPG").utf8.count == 200)
+        // Two bytes a letter: 97 letters of 2 bytes, then ".webp", fits; 98 wouldn't.
+        let persian = name(.webp, String(repeating: "ش", count: 150) + ".gif")
+        #expect(persian == String(repeating: "ش", count: 97) + ".webp")
+        #expect(name(.png, "short.png") == "short.png")
+    }
+
     /// A picture to open goes in Reqly's folder in your runtime folder, which only you can open,
     /// or in your cache folder, never in the temporary folder others share.
     @MainActor @Test func opensAPictureFromAFolderOfYourOwn() {
@@ -122,6 +138,19 @@ import Testing
             PreviewView.openingFolder(environment: ["XDG_RUNTIME_DIR": "run", "HOME": "/home/u"])?.path
                 == "/home/u/.cache/reqly/images")
         #expect(PreviewView.openingFolder(environment: [:]) == nil)
+    }
+
+    /// The pictures written to open in an earlier run go as Reqly starts, files and folders, but
+    /// not the folder they're in.
+    @Test func clearsThePicturesOpenedBefore() throws {
+        let files = FileManager.default
+        let folder = URL(filePath: NSTemporaryDirectory()).appending(path: "reqly-opened-\(UUID().uuidString)")
+        try files.createDirectory(at: folder.appending(path: "a1b2c3"), withIntermediateDirectories: true)
+        try Data([1]).write(to: folder.appending(path: "a1b2c3/map.png"))
+        try Data([2]).write(to: folder.appending(path: "image.png"))
+        PreviewView.removeAll(in: folder)
+        #expect(try files.contentsOfDirectory(atPath: folder.path).isEmpty)
+        try files.removeItem(at: folder)
     }
 
     @Test func countsBytesExactly() {
