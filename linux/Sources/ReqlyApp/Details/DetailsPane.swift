@@ -114,12 +114,11 @@ final class DetailsPane {
     private var isChoosing = false
     /// What each page showed when it was built, so a page that would show the same stays.
     private var built: [Page: AnyHashable] = [:]
-    /// The size of each body as the session last presented it, so a body that grows is presented
-    /// again.
-    private var presentedSizes: [MessagePart: Int] = [:]
-    /// How many times each part's body was asked to be presented, so a presentation that lands
-    /// after a later one, of a body that has grown since, is dropped.
-    private var presentations: [MessagePart: Int] = [:]
+    /// When each part's body is presented again, as it grows: one presentation at a time.
+    private var asks: [MessagePart: BodyAsks] = [:]
+    /// How long each presentation waits before it's asked for, none but in the self-check, which
+    /// has a body grow faster than it's presented.
+    var presentationDelay = Duration.zero
     /// The request Add Comment asked to write a comment on, while you write it.
     private var writing: ExchangeID?
     /// Whether the comment field takes the focus once the request's row is read, as Add Comment
@@ -318,7 +317,7 @@ final class DetailsPane {
         details = nil
         built = [:]
         waiting = nil
-        presentedSizes = [:]
+        asks = [:]
         shownHeaders = []
         showsCookieValues = []
         rawShowsSecrets = false
@@ -548,24 +547,37 @@ final class DetailsPane {
     /// again whenever the body has grown since. It shows in the mode you chose last for the part's
     /// bodies, while the body has it, as the view keeps that.
     func bodyView(_ part: MessagePart, size: Int) -> BodyView? {
-        guard let id = shown, let session = model.session else { return nil }
+        guard let id = shown, model.session != nil else { return nil }
         let view = bodies[part] ?? BodyView(model: model, id: id, part: part)
-        bodies[part] = view
-        if presentedSizes[part] != size {
-            presentedSizes[part] = size
-            presentations[part, default: 0] += 1
-            let generation = generation
-            let asked = presentations[part]
-            Task { [weak self, weak view] in
-                let presented = try? await session.presentBody(id, part: part == .request ? .request : .response)
-                // The latest asked for, as an older one can land after it.
-                guard let self, let view, let presented, generation == self.generation,
-                    asked == self.presentations[part]
-                else { return }
-                view.show(presented)
-            }
+        if bodies[part] == nil {
+            bodies[part] = view
+            asks[part, default: BodyAsks()].forget()
+        }
+        if asks[part, default: BodyAsks()].want(size) {
+            present(part)
         }
         return view
+    }
+
+    /// Asks the session to present `part`'s body, shows it in the part's view as it lands, and
+    /// asks again when the body grew meanwhile.
+    private func present(_ part: MessagePart) {
+        guard let id = shown, let session = model.session else { return }
+        let generation = generation
+        let delay = presentationDelay
+        Task { [weak self] in
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+            }
+            let presented = try? await session.presentBody(id, part: part == .request ? .request : .response)
+            guard let self, generation == self.generation else { return }
+            if let presented {
+                bodies[part]?.show(presented)
+            }
+            if asks[part, default: BodyAsks()].landed() {
+                present(part)
+            }
+        }
     }
 
     // MARK: - The comment

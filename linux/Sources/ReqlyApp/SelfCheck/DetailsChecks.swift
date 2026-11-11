@@ -446,6 +446,46 @@ extension SelfCheck {
         try await checkAHiddenLiveRequest(client, server: server, session: session)
         try await checkALiveRequestsFocus(client, server: server, session: session)
         try await checkAGrowingWholeBody(client, server: server, session: session)
+        try await checkAFastGrowingBody(client, server: server, session: session)
+    }
+
+    /// A response that grows faster than its body is presented, as the details present each body
+    /// 400 ms late: as it comes, its body shows bigger and bigger sizes, never a smaller one after
+    /// a bigger, and its whole size once it ends.
+    private func checkAFastGrowingBody(_ client: ProxyClient, server: TestServer, session: SessionHost) async throws {
+        let details = window.details
+        details.presentationDelay = .milliseconds(400)
+        defer { details.presentationDelay = .zero }
+        let drip = Task { try await client.send(server.url(.drip, "pieces=40&gap=100&grows")) }
+        let id = try await newest(session) { $0.target.hasSuffix("&grows") && $0.port == server.port }
+        try await open(id)
+        try await pageWords(.response)
+        // Out of the page, which waits while the focus is in it.
+        try require(details.focusTab(), "the details' tab doesn't take the focus")
+        var shown: [(size: Int, isLive: Bool)] = []
+        func look() -> Bool {
+            let isLive = details.summary?.state.isFinished == false
+            if let size = details.bodies[.response]?.body?.body.wireSize, size != shown.last?.size {
+                shown.append((size, isLive))
+            }
+            return !isLive
+        }
+        try await until("the response to end", seconds: 30) { look() }
+        let whole = try await drip.value.body.count
+        do {
+            try await until("the whole body to show", seconds: 10) {
+                _ = look()
+                return shown.last?.size == whole
+            }
+        } catch {
+            throw Failure("the body of \(whole) bytes showed only \(shown.map(\.size))")
+        }
+        let sizes = shown.map(\.size)
+        let live = shown.filter(\.isLive).count
+        try require(
+            zip(sizes, sizes.dropFirst()).allSatisfy { $0 < $1 }, "the body went back to an older size: \(sizes)")
+        try require(live >= 3, "as it came, the body showed \(live) sizes of \(whole) bytes: \(sizes)")
+        note("growing faster than presented: the body showed \(live) sizes as it came, then \(whole) bytes")
     }
 
     /// A response that comes a piece at a time, chosen as it comes: while the keyboard's focus is
