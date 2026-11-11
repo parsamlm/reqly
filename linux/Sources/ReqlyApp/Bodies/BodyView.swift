@@ -155,9 +155,9 @@ final class BodyView {
     /// Shows `body`, in the mode last chosen for bodies of its part while it has that mode, in the
     /// mode it showed in while it has that, and in its first mode otherwise. The same body again,
     /// as it was, changes nothing; one that has grown while you read the whole of it waits until
-    /// you close that. The keyboard's focus stays where it was: code with the focus shows the new
-    /// text in the same view, and the mode switch stays while the modes do; or else the focus goes
-    /// back to the same mode's view or button, or the mode that shows.
+    /// you close that. Code that still shows gets the new text in the same view, so the keyboard's
+    /// focus and the caret in it stay, and the mode switch stays while the modes do; a focus the
+    /// new body took goes back to the same mode's view or button, or the mode that shows.
     func show(_ body: PresentedBody) {
         if let old = self.body, Self.isSame(old.body, body.body) {
             self.body = body
