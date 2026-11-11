@@ -85,6 +85,9 @@ struct Following {
     /// The least time between two reveals, in microseconds.
     static let revealEvery = 100_000
 
+    /// The least time between two reveals here: ``revealEvery``, unless the self-check holds the
+    /// newest row back longer, so that it waits its turn for sure.
+    var between = Self.revealEvery
     private(set) var isFollowing = false
     /// Whether rows came in since the newest row last showed.
     private(set) var hasUnrevealed = false
@@ -117,12 +120,12 @@ struct Following {
     mutating func reveal(isDone: Bool, isResetting: Bool, now: Int) -> Reveal {
         guard hasUnrevealed, !isResetting else { return .none }
         let since = revealedAt.map { now - $0 } ?? Int.max
-        if since >= Self.revealEvery {
+        if since >= between {
             hasUnrevealed = false
             revealedAt = now
             return .now
         }
         // Changes still to come show it, once the time's up.
-        return isDone ? .after(milliseconds: (Self.revealEvery - since + 999) / 1000) : .none
+        return isDone ? .after(milliseconds: (between - since + 999) / 1000) : .none
     }
 }

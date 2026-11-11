@@ -114,6 +114,12 @@ final class RequestList {
     /// When the newest row is to come into view, once the time between reveals has gone, in
     /// monotonic microseconds, or `nil` while none waits.
     private(set) var revealDue: Int?
+    /// The least time between two reveals, in microseconds: 100 ms, unless the self-check holds
+    /// the newest row back longer.
+    var timeBetweenReveals: Int {
+        get { following.between }
+        set { following.between = newValue }
+    }
     private let model: AppModel
     private let selection: OpaquePointer
     private let empty: Widget

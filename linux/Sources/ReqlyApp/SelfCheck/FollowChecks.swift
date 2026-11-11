@@ -164,54 +164,64 @@ extension SelfCheck {
         follower.said = []
     }
 
-    /// The wheel, turned up while the newest row waits to show, as rows came within 100 ms of
-    /// the last it showed, here as a search for the newest request ends just after its row
-    /// showed: the list doesn't go to the newest row once it's time. Then at its end, it follows
-    /// again.
+    /// Scrolled up while the newest row waits its turn to show, as rows came within 100 ms of the
+    /// last it showed: the list doesn't go to the newest row once it's time. By the wheel, by
+    /// Page Up in the list, and by a press on its scrollbar. Here the list holds the newest row
+    /// back 2 s, so a request just after one that showed waits its turn for sure. Then at its
+    /// end, the list follows again.
     private func checkScrollingUpBeforeAReveal(_ follower: inout Follower) async throws {
+        let window = window
         let list = window.list
-        let session = try await session()
         let adjustment = try present(gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
-        var tries = 0
-        var reveals: Int?
-        // A try works only when the search's end comes back within 100 ms of the row showing.
-        // On 4.14 the first try does; on 4.18 and 4.22 it took 2, and once more than 5.
-        while reveals == nil, tries < 10 {
-            tries += 1
-            await session.setSearch("n=\(follower.newest.rawValue + 1)")
-            try await until("the search to leave no rows", seconds: 5) { list.count == 0 && list.isSettled }
-            let before = list.reveals
+        let bar = try present(gtk_scrolled_window_get_vscrollbar(cast(list.scroller)), "the list has no scrollbar")
+        let ways: [(String, @MainActor () throws -> Void)] = [
+            ("the wheel", { try FakeInput.scrollUp(list.view, notches: 5) }),
+            ("Page Up", { try FakeInput.press("Page_Up", in: window.window) }),
+            ("a press on the scrollbar", { _ = try FakeInput.click(bar) }),
+        ]
+        list.timeBetweenReveals = 2_000_000
+        defer { list.timeBetweenReveals = Following.revealEvery }
+        var said: [String] = []
+        for (way, scrollUp) in ways {
+            try await follower.send(1)
+            let focus = gtk_root_get_focus(cast(window.window))
+            if way == "Page Up" {
+                // The newest row takes the focus, unselected, as it shows.
+                let last = UInt32(list.count - 1)
+                gtk_column_view_scroll_to(cast(list.view), last, nil, GTK_LIST_SCROLL_FOCUS, nil)
+                gtk_widget_grab_focus(list.view)
+                gtk_column_view_scroll_to(cast(list.view), last, nil, GTK_LIST_SCROLL_FOCUS, nil)
+                try await until("the newest row to have the focus", seconds: 3) { self.listHasFocus }
+            }
             try await follower.sendOnly()
-            let shown = monotonicMicroseconds() + 2_000_000
-            while list.reveals == before, monotonicMicroseconds() < shown {
-                try? await Task.sleep(for: .milliseconds(1))
+            try await until("the newest row to wait its turn, before \(way)", seconds: 1) { list.revealDue != nil }
+            let reveals = list.reveals
+            let due = try present(list.revealDue, "the newest row's turn came before \(way)")
+            let early = (due - monotonicMicroseconds()) / 1000
+            try scrollUp()
+            try await until("\(way) to stop the list following", seconds: 1) { list.revealDue == nil }
+            let left = due + 300_000 - monotonicMicroseconds()
+            if left > 0 {
+                try await Task.sleep(for: .microseconds(left))
             }
-            await session.setSearch("")
-            let deadline = monotonicMicroseconds() + 150_000
-            while reveals == nil, monotonicMicroseconds() < deadline {
-                // Long enough before the reveal for the wheel to reach the window first.
-                if let due = list.revealDue, due - monotonicMicroseconds() >= 20_000 {
-                    try FakeInput.scrollUp(list.view, notches: 5)
-                    reveals = list.reveals
-                }
-                try? await Task.sleep(for: .milliseconds(1))
+            try await until("every row to be in", seconds: 5) { list.isSettled }
+            // GTK may keep the rows it's laying out where they were, but the list doesn't go to
+            // its newest row.
+            try require(
+                list.reveals == reveals && list.revealDue == nil,
+                "scrolled up by \(way) as the newest row waited, the list showed it \(list.reveals - reveals) times")
+            said.append("\(way) \(early) ms before")
+            if way == "Page Up" {
+                list.select(id: nil)
+                gtk_root_set_focus(cast(window.window), focus)
             }
-            try await until("every row to be back", seconds: 10) { list.isSettled }
-            if reveals == nil {
-                try await follower.waitForNewest("a search that ended")
-            }
+            gtk_adjustment_set_value(
+                adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+            await settle()
         }
-        let scrolled = try present(reveals, "in \(tries) tries, the newest row never waited its turn to show")
-        await settle()
-        // GTK may keep the rows it's laying out where they were, wheel or not, but the list
-        // doesn't go to its newest row.
-        try require(
-            list.reveals == scrolled && list.revealDue == nil,
-            "scrolled up before the newest row showed, the list showed it \(list.reveals - scrolled) times")
-        note("the wheel, turned up as the newest row waited to show (try \(tries)): the list doesn't go to it")
-        gtk_adjustment_set_value(
-            adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
-        await settle()
+        note(
+            "scrolled up as the newest row waited its turn, the list doesn't go to it: \(said.joined(separator: ", "))")
+        list.timeBetweenReveals = Following.revealEvery
         try await follower.send(1)
         follower.said = []
     }
