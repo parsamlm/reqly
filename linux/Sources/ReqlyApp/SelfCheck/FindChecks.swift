@@ -402,16 +402,27 @@ extension SelfCheck {
         try require(said == ["2 of 6 requests"], "as “json” was typed, screen readers heard \(said)")
         note("typed “json”: the list shows \(targets.joined(separator: ", ")), 2 of 6 requests, as screen readers hear")
 
-        // A word only the text's body has.
-        let typed = monotonicMicroseconds()
-        gtk_editable_set_text(cast(search.entry), "skies")
-        try await until("the store to find “skies” in the text's body", seconds: 5) {
-            search.query == "skies" && list.count == 1 && list.summary(at: 0)?.path.hasPrefix("/text") == true
+        // A word only the text's body has. The list's own match finds nothing, and the store's
+        // finds it after: screen readers hear only what the store found.
+        var found: Int?
+        let skies = try await AccessibilityTree.events(["object:announcement"], seconds: 4.5) {
+            try? await Task.sleep(for: .milliseconds(1500))
+            let typed = monotonicMicroseconds()
+            gtk_editable_set_text(cast(search.entry), "skies")
+            while found == nil, monotonicMicroseconds() - typed < 2_500_000 {
+                if search.query == "skies", list.count == 1, list.summary(at: 0)?.path.hasPrefix("/text") == true {
+                    found = (monotonicMicroseconds() - typed) / 1000
+                }
+                try? await Task.sleep(for: .milliseconds(2))
+            }
+            try? await Task.sleep(for: .milliseconds(1000))
         }
-        let found = (monotonicMicroseconds() - typed) / 1000
-        try require(found >= 150, "the store's match came after \(found) ms, before its 150")
+        let after = try present(found, "the store didn't find “skies” in the text's body")
+        try require(after >= 150, "the store's match came after \(after) ms, before its 150")
         try await checkTitle("All Traffic", "1 of 6 requests", "1 of 6 requests")
-        note("“skies”, only in the text's body: the store found it after \(found) ms")
+        let heardSkies = skies.compactMap(\.detail)
+        try require(heardSkies == ["1 of 6 requests"], "as “skies” was found, screen readers heard \(heardSkies)")
+        note("“skies”, only in the text's body: the store found it after \(after) ms, as screen readers hear")
 
         try FakeInput.press("Escape", in: window.window)
         try await until("Escape to close the search and clear it", seconds: 3) {
@@ -456,8 +467,26 @@ extension SelfCheck {
         try await takePicture("search-no-results.png")
         note("“zzqx”: \(words.title) · \(words.description)")
         try await requireNamedScrollers("with “No Results” and “No Request Selected”")
+
+        // A request that matches, just after screen readers heard what the search found, as the
+        // store's matches may come at 100,000 requests: they hear the new count too.
+        var late: [String] = []
+        try await capturing { client in
+            late = try await AccessibilityTree.events(["object:announcement"], seconds: 5) {
+                try? await Task.sleep(for: .milliseconds(1500))
+                gtk_editable_set_text(cast(search.entry), "json")
+                try? await Task.sleep(for: .milliseconds(800))
+                _ = try? await client.send(server.url(.json, "n=late"))
+                try? await Task.sleep(for: .milliseconds(1500))
+            }.compactMap(\.detail)
+        }
+        try await until("the late request to show", seconds: 5) { list.count == 3 }
+        try require(
+            late == ["2 of 6 requests", "3 of 7 requests"],
+            "as a request matched “json” after it was said, screen readers heard \(late)")
+        note("a request matching “json” after its count was said: screen readers hear \(late.joined(separator: "; "))")
         search.close()
-        try await until("the list again", seconds: 3) { list.count == 6 && gtk_widget_get_mapped(list.view) != 0 }
+        try await until("the list again", seconds: 3) { list.count == 7 && gtk_widget_get_mapped(list.view) != 0 }
         _ = try await emptySession()
         await settle()
         try await requireNamedScrollers("with “No Traffic Yet”")

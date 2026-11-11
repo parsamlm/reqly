@@ -97,7 +97,10 @@ final class MainWindow {
     /// Whether screen readers hear what capturing does once Ctrl+R's start or stop is done, as
     /// the switch it turns may not have the focus.
     var saysCapturing = false
-    /// Says what a search or filters found, once they've settled.
+    /// When screen readers hear what a search or the filters found, the words they heard last, and
+    /// the timer that says them.
+    private var found = FoundWords()
+    private var foundSaid: String?
     private var findingTimer: UInt32?
     /// Settings and Set Up HTTPS…, each made the first time it opens and kept, as they keep
     /// their pages.
@@ -423,6 +426,8 @@ final class MainWindow {
     /// moved since.
     private func rowsChanged() {
         showTitle()
+        found.rowsChanged(count: list.count, at: monotonicMicroseconds())
+        lookForWhatsFound()
         guard let first = firstFocus, list.count > 0 else { return }
         firstFocus = nil
         if gtk_root_get_focus(cast(window)) == first, !model.isCapturing {
@@ -752,25 +757,40 @@ final class MainWindow {
             && adw_navigation_split_view_get_show_content(inner) == 0
     }
 
-    /// Once a search or the filters have settled, half a second after their last change, screen
-    /// readers hear what they found while you're in the search's field or the filter bar: how
-    /// many requests show, as the list's subtitle says, or that none do.
+    /// Once a search or the filters have settled, and the list's count with them, screen readers
+    /// hear what they found while you're in the search's field or the filter bar: how many
+    /// requests show, as the list's subtitle says, or that none do; and again if the count changes
+    /// soon after, as when the store's matches come late. See FoundWords.
     private func sayWhatsFoundSoon() {
-        if let findingTimer {
-            g_source_remove(findingTimer)
-        }
-        findingTimer = timeout(500) { [weak self] in
+        found.changed(count: list.count, at: monotonicMicroseconds())
+        foundSaid = nil
+        lookForWhatsFound()
+    }
+
+    /// Looks again once what's found is due to be said, unless a look is on its way.
+    private func lookForWhatsFound() {
+        guard findingTimer == nil, let due = found.due else { return }
+        let wait = max(0, due - monotonicMicroseconds()) / 1000
+        findingTimer = timeout(UInt32(wait)) { [weak self] in
             guard let self else { return false }
             findingTimer = nil
-            guard let focus = gtk_root_get_focus(cast(window)),
-                isInside(focus, search.widget) || isInside(focus, filters.widget)
-            else { return false }
-            let nothingMatches = gtk_stack_get_visible_child(cast(listContent)) == noMatches.widget
-            let words = nothingMatches ? noMatches.words.title : string(adw_window_title_get_subtitle(cast(listTitle)))
-            if let words, !words.isEmpty {
-                announce(window, words)
+            if found.isDue(at: monotonicMicroseconds(), settled: list.isSettled) {
+                sayWhatsFound()
             }
+            lookForWhatsFound()
             return false
+        }
+    }
+
+    private func sayWhatsFound() {
+        guard let focus = gtk_root_get_focus(cast(window)),
+            isInside(focus, search.widget) || isInside(focus, filters.widget)
+        else { return }
+        let nothingMatches = gtk_stack_get_visible_child(cast(listContent)) == noMatches.widget
+        let words = nothingMatches ? noMatches.words.title : string(adw_window_title_get_subtitle(cast(listTitle)))
+        if let words, !words.isEmpty, words != foundSaid {
+            foundSaid = words
+            announce(window, words)
         }
     }
 
