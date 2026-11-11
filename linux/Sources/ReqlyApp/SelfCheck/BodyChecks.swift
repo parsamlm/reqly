@@ -791,6 +791,21 @@ extension SelfCheck {
         )
         try require(read.prefix(3) == lines.prefix(3), "AT-SPI reads the hex lines as \(read.prefix(3))")
         note("    pictures: \(try await pictures(of: page, "bytes"))")
+        // The desktop's monospace font at twice the size, which the lines show in from libadwaita
+        // 1.7: 8 bytes a line, and 16 again as it goes back.
+        guard LibraryVersion.adwaita(atLeast: 7) else { return }
+        let settings = g_settings_new("org.gnome.desktop.interface")!
+        defer { g_object_unref(raw(settings)) }
+        g_settings_set_string(settings, "monospace-font-name", "Monospace 22")
+        defer { g_settings_reset(settings, "monospace-font-name") }
+        try await until("8 bytes a line in the desktop's monospace font at 22", seconds: 5) {
+            hex.perLine == HexLines.narrow
+        }
+        g_settings_reset(settings, "monospace-font-name")
+        try await until("16 bytes a line again in the desktop's own monospace font", seconds: 5) {
+            hex.perLine == HexLines.wide
+        }
+        note("    the desktop's monospace font at 22: 8 bytes a line, then 16 again as it goes back")
     }
 
     // MARK: - The mode chosen

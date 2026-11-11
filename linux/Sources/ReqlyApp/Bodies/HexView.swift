@@ -120,6 +120,8 @@ final class HexView {
                 return false
             }
         }
+        // The lines' font is the desktop's monospace one from libadwaita 1.7.
+        Styles.whenMonospaceFontChanges(whileAlive: raw(list)) { [weak self] in self?.fitLines() }
     }
 
     isolated deinit {
@@ -238,9 +240,8 @@ final class HexView {
         let characters = HexLines.width(perLine: perLine, size: size)
         let layout = gtk_widget_create_pango_layout(list, String(repeating: "0", count: characters))!
         defer { g_object_unref(raw(layout)) }
-        let font = pango_font_description_copy(pango_context_get_font_description(pango_layout_get_context(layout)))
+        let font = Styles.monospaceFont(for: list)
         defer { pango_font_description_free(font) }
-        pango_font_description_set_family(font, "monospace")
         pango_layout_set_font_description(layout, font)
         var width: Int32 = 0
         pango_layout_get_pixel_size(layout, &width, nil)

@@ -187,6 +187,8 @@ final class RequestList {
         size()
         // The columns' widths are in sp, so they grow as the text does.
         connect(gtk_settings_get_default(), "notify::gtk-xft-dpi") { [weak self] in self?.size() }
+        // The method's font is the desktop's monospace one from libadwaita 1.7.
+        Styles.whenMonospaceFontChanges(whileAlive: raw(view)) { [weak self] in self?.size() }
         icons.onFound = { [weak self] key in self?.iconFound(key) }
         connect(selection, "notify::selected") { [weak self] in self?.selectionChanged() }
         connect(view, "activate") { [weak self] (arguments: Arguments) in
@@ -729,14 +731,14 @@ final class RequestList {
         widths[column] = Double(gtk_column_view_column_get_fixed_width(viewColumn)) / sp
     }
 
-    /// The room a column's widest words take in the window's font, or a monospace one for the
-    /// method's, its title's too, with the cell's padding, libadwaita's 6 pixels at each side,
-    /// and a pixel at each for rounding.
+    /// The room a column's widest words take in the window's font, or for the methods, in the
+    /// font libadwaita's monospace class gives them, which is the desktop's monospace font from
+    /// 1.7, and the title's, with the cell's padding, libadwaita's 6 pixels at each side, and a
+    /// pixel at each for rounding.
     private func fitting(_ column: Column) -> Int32 {
         let (words, beside) = column.widest
-        let font = pango_font_description_copy(pango_context_get_font_description(gtk_widget_get_pango_context(view)))
+        let font = Styles.monospaceFont(for: view)
         defer { pango_font_description_free(font) }
-        pango_font_description_set_family(font, "monospace")
         var widest: Int32 = 0
         for text in words + [column.title] {
             guard let layout = gtk_widget_create_pango_layout(view, text) else { continue }

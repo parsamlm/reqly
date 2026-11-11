@@ -114,6 +114,44 @@ extension SelfCheck {
         try await checkTab(list, ids[.success]!)
         try await checkTheFocusedRowsQuiet(list, ids[.success]!, traffic)
         try await checkBesideTheDetails(list)
+        try await checkTheDesktopsMonospaceFont(list, ids[.encrypted]!)
+    }
+
+    /// The desktop's monospace font, which libadwaita's monospace text takes from 1.7, at twice
+    /// the size: the Method column grows to fit CONNECT as its cells draw it, and back.
+    private func checkTheDesktopsMonospaceFont(_ list: RequestList, _ id: ExchangeID) async throws {
+        let settings = g_settings_new("org.gnome.desktop.interface")!
+        defer { g_object_unref(raw(settings)) }
+        // The row's Method cell as it is then, its font, and the room CONNECT needs in it, of its
+        // width: GTK makes the cells again as the list is laid out again.
+        func cell() throws -> (font: String, needed: Int32, width: Int32) {
+            let cell = try present(list.cell(.method, of: id), "the encrypted connection's row has no Method cell")
+            let font = pango_context_get_font_description(gtk_widget_get_pango_context(cell))
+            let layout = try present(gtk_widget_create_pango_layout(cell, "CONNECT"), "CONNECT can't be measured")
+            defer { g_object_unref(raw(layout)) }
+            var width: Int32 = 0
+            pango_layout_get_pixel_size(layout, &width, nil)
+            return (takeString(pango_font_description_to_string(font)) ?? "", width, gtk_widget_get_width(cell))
+        }
+        await settle()
+        let before = (try cell().font, list.width(of: .method))
+        g_settings_set_string(settings, "monospace-font-name", "Monospace 22")
+        defer { g_settings_reset(settings, "monospace-font-name") }
+        await settle()
+        let bigger = try cell()
+        let column = list.width(of: .method)
+        g_settings_reset(settings, "monospace-font-name")
+        await settle()
+        let after = (try cell().font, list.width(of: .method))
+        note(
+            "the desktop's monospace font at 22: the method's \(before.0) to \(bigger.font), its column \(before.1) to"
+                + " \(column) px, and back to \(after.0), \(after.1) px; CONNECT needs \(bigger.needed) px of"
+                + " \(bigger.width)")
+        try require(
+            bigger.needed <= bigger.width,
+            "with the desktop's monospace font at 22, CONNECT needs \(bigger.needed) px of its cell's \(bigger.width)")
+        try require(
+            after == before, "back to the desktop's own monospace font, the method is \(after), not \(before)")
     }
 
     /// While requests come in, screen readers hear no change to the words of the row with the
