@@ -17,7 +17,7 @@ final class CodeView {
     let widget: Widget
     let view: Widget
     let buffer: UnsafeMutablePointer<GtkTextBuffer>
-    let text: CodeText
+    private(set) var text: CodeText
     /// One tag for each color, and for punctuation, under them, which is code without a token.
     private var tags: [CodeText.Color?: UnsafeMutablePointer<GtkTextTag>] = [:]
     /// The runs colored so far, a frame's worth at a time for a long text, and whether code's
@@ -27,6 +27,8 @@ final class CodeView {
     /// What's left of the text to put in the buffer, for a long one, which goes in a piece at a
     /// time so the window keeps answering.
     private var rest: Substring?
+    /// Whether the text is being replaced, as the caret moves on its own.
+    private var isReplacing = false
 
     /// So many runs color before the view shows, or fewer, as many as color within ``coloring``,
     /// since a run on a line of thousands of characters takes longer; the rest color between
@@ -140,21 +142,46 @@ final class CodeView {
 
     // MARK: - Filling it
 
-    /// Puts the text in the buffer, all at once for a short one, then colors it.
-    private func fill() {
+    /// Shows `text` in place of the text it shows, in the same view, so the keyboard's focus stays
+    /// in it, and the caret too, or at the end of a shorter text, as a body grows. The page stays
+    /// where it was scrolled to.
+    func replace(with text: CodeText) {
+        var caret = GtkTextIter()
+        gtk_text_buffer_get_iter_at_mark(buffer, &caret, gtk_text_buffer_get_insert(buffer))
+        let offset = Int(gtk_text_iter_get_offset(&caret))
+        self.text = text
+        colored = 0
+        isPunctuated = false
+        gtk_text_view_set_wrap_mode(cast(view), text.wraps ? GTK_WRAP_WORD_CHAR : GTK_WRAP_NONE)
+        var horizontal = GTK_POLICY_NEVER
+        var vertical = GTK_POLICY_NEVER
+        gtk_scrolled_window_get_policy(cast(widget), &horizontal, &vertical)
+        gtk_scrolled_window_set_policy(cast(widget), text.wraps ? GTK_POLICY_NEVER : GTK_POLICY_AUTOMATIC, vertical)
+        isReplacing = true
+        fill(caret: offset)
+        isReplacing = false
+    }
+
+    /// Puts the text in the buffer, all at once for a short one, then colors it. The caret goes at
+    /// `caret`, or the end of what's in the buffer.
+    private func fill(caret: Int = 0) {
         let all = Substring(text.text)
         if all.utf8.count <= Self.piece {
+            rest = nil
             gtk_text_buffer_set_text(buffer, text.text, Int32(all.utf8.count))
-            placeCaret()
+            placeCaret(at: caret)
             colorSome(Self.colorsAtOnce, within: Self.coloring)
             finishSoon()
             return
         }
+        if rest == nil {
+            idle(priority: G_PRIORITY_DEFAULT_IDLE) { [weak self] in self?.insertPiece() ?? false }
+        }
+        gtk_text_buffer_set_text(buffer, "", 0)
         rest = all
         // The first piece shows at once; the rest follow between frames.
         _ = insertPiece()
-        placeCaret()
-        idle(priority: G_PRIORITY_DEFAULT_IDLE) { [weak self] in self?.insertPiece() ?? false }
+        placeCaret(at: caret)
     }
 
     /// Puts the next piece of the text at the buffer's end. Gives whether there's more.
@@ -217,10 +244,10 @@ final class CodeView {
         }
     }
 
-    private func placeCaret() {
-        var start = GtkTextIter()
-        gtk_text_buffer_get_start_iter(buffer, &start)
-        gtk_text_buffer_place_cursor(buffer, &start)
+    private func placeCaret(at offset: Int) {
+        var place = GtkTextIter()
+        gtk_text_buffer_get_iter_at_offset(buffer, &place, Int32(clamping: offset))
+        gtk_text_buffer_place_cursor(buffer, &place)
     }
 
     // MARK: - Its look
@@ -243,7 +270,9 @@ final class CodeView {
     /// text, so its own scrolling never has to, and the page's scroller doesn't know where the
     /// caret is.
     private func keepCaretInView() {
-        guard gtk_widget_has_focus(view) != 0, let page = Self.pageScroller(above: widget) else { return }
+        guard !isReplacing, gtk_widget_has_focus(view) != 0, let page = Self.pageScroller(above: widget) else {
+            return
+        }
         var caret = GtkTextIter()
         gtk_text_buffer_get_iter_at_mark(buffer, &caret, gtk_text_buffer_get_insert(buffer))
         var place = GdkRectangle()

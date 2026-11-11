@@ -62,8 +62,9 @@ final class BodyView {
     private let model: AppModel
     private let noteLabel: Widget
     private let startLabel: Widget
-    /// The mode switch's buttons, by mode.
+    /// The mode switch's buttons, by mode, and the modes it has, in its order.
     private var buttons: [BodyMode: Widget] = [:]
+    private var switchModes: [BodyMode] = []
     /// Whether the switch is being set to the mode shown, rather than by you.
     private var isShowingMode = false
     /// Counts the bodies shown, so work for one that's gone is dropped.
@@ -154,7 +155,9 @@ final class BodyView {
     /// Shows `body`, in the mode last chosen for bodies of its part while it has that mode, in the
     /// mode it showed in while it has that, and in its first mode otherwise. The same body again,
     /// as it was, changes nothing; one that has grown while you read the whole of it waits until
-    /// you close that.
+    /// you close that. The keyboard's focus stays where it was: code with the focus shows the new
+    /// text in the same view, and the mode switch stays while the modes do; or else the focus goes
+    /// back to the same mode's view or button, or the mode that shows.
     func show(_ body: PresentedBody) {
         if let old = self.body, Self.isSame(old.body, body.body) {
             self.body = body
@@ -165,11 +168,24 @@ final class BodyView {
             return
         }
         waiting = nil
+        let place = focusPlace()
         self.body = body
         shown += 1
-        clearViews()
         let presented = body.body
         let isEmpty = presented.wireSize == 0
+        let modes = isEmpty ? [] : presented.modes
+        let next =
+            Self.chosen[part].flatMap { modes.contains($0) ? $0 : nil }
+            ?? mode.flatMap { modes.contains($0) ? $0 : nil } ?? modes.first
+        // Code with the focus, which the body still shows in, gets the new text in place.
+        var kept: CodeHolder?
+        if case .view(let focused, _) = place, focused == mode, focused == next,
+            let holder = views[focused] as? CodeHolder, holder.code != nil, let code = Self.code(focused, of: presented)
+        {
+            kept = holder
+            layOut(code, in: holder, for: focused)
+        }
+        clearViews(keeping: kept)
         gtk_label_set_text(cast(summary), isEmpty ? BodyWords.empty(part) : BodyWords.summary(presented))
         gtk_widget_set_visible(copyButton, cBool(!isEmpty))
         gtk_label_set_text(cast(noteLabel), presented.note ?? "")
@@ -185,18 +201,26 @@ final class BodyView {
             gtk_widget_add_css_class(label, "caption")
             gtk_box_append(cast(footnotes), label)
         }
-        makeSwitch(isEmpty ? [] : presented.modes, in: presented)
-        guard !isEmpty else {
+        makeSwitch(modes, in: presented)
+        if isEmpty {
             mode = nil
             gtk_widget_set_visible(stack, 0)
-            return
+        } else {
+            gtk_widget_set_visible(stack, 1)
+            show(mode: next ?? .hex)
         }
-        gtk_widget_set_visible(stack, 1)
-        let modes = presented.modes
-        let next =
-            Self.chosen[part].flatMap { modes.contains($0) ? $0 : nil }
-            ?? mode.flatMap { modes.contains($0) ? $0 : nil } ?? modes.first ?? .hex
-        show(mode: next)
+        if let place {
+            giveBack(place)
+        }
+    }
+
+    /// Code's text in `mode`, as the body has it.
+    private static func code(_ mode: BodyMode, of presented: BodyPresentation) -> BodyPresentation.Code? {
+        switch mode {
+        case .formatted: presented.formatted ?? presented.raw
+        case .raw: presented.raw
+        default: nil
+        }
     }
 
     /// Shows the body in `mode`, when it has it.
@@ -221,8 +245,16 @@ final class BodyView {
 
     private static func name(_ mode: BodyMode) -> String { "\(mode)" }
 
-    /// The buttons for `modes`, or a label for one.
+    /// The buttons for `modes`, or a label for one. The buttons stay while the modes do, so one
+    /// with the keyboard's focus keeps it.
     private func makeSwitch(_ modes: [BodyMode], in presented: BodyPresentation) {
+        if modes.count > 1, modes == switchModes {
+            for mode in modes {
+                buttons[mode].map { gtk_button_set_label(cast($0), BodyWords.title(of: mode, in: presented)) }
+            }
+            return
+        }
+        switchModes = modes
         while let child = gtk_widget_get_first_child(modeSwitch) {
             gtk_box_remove(cast(modeSwitch), child)
         }
@@ -255,13 +287,20 @@ final class BodyView {
         }
     }
 
-    /// Drops the views made for the body before.
-    private func clearViews() {
-        while let child = gtk_widget_get_first_child(stack) {
-            gtk_stack_remove(cast(stack), child)
+    /// Drops the views made for the body before, but the code `kept`, which gets the new body's text
+    /// in place.
+    private func clearViews(keeping kept: CodeHolder? = nil) {
+        var child = gtk_widget_get_first_child(stack)
+        while let widget = child {
+            child = gtk_widget_get_next_sibling(widget)
+            if widget != kept?.widget {
+                gtk_stack_remove(cast(stack), widget)
+            }
         }
-        views = [:]
-        gtk_widget_set_visible(startLine, 0)
+        views = views.filter { $0.value === kept }
+        if kept == nil {
+            gtk_widget_set_visible(startLine, 0)
+        }
     }
 
     /// The view for `mode`, in the stack. Code is laid out away from the window first, so its view
@@ -274,16 +313,8 @@ final class BodyView {
             let holder = CodeHolder()
             made = holder
             child = holder.widget
-            if let code = mode == .formatted ? presented.formatted ?? presented.raw : presented.raw {
-                let shown = shown
-                Task { [weak self, weak holder] in
-                    let text = await Task.detached(priority: .userInitiated) { CodeText(code) }.value
-                    guard let self, let holder, self.shown == shown else { return }
-                    holder.show(CodeView(text))
-                    if self.mode == mode {
-                        showStart()
-                    }
-                }
+            if let code = Self.code(mode, of: presented) {
+                layOut(code, in: holder, for: mode)
             }
         case .tree:
             let tree = TreeView(presented.tree ?? JSONTree(.null, rootLabel: "")) { [weak self] node in
@@ -331,6 +362,106 @@ final class BodyView {
     /// The code view that shows now, once it's laid out.
     var codeView: CodeView? {
         mode.flatMap { views[$0] as? CodeHolder }?.code
+    }
+
+    /// Lays `code` out away from the window, then shows it in `holder`: in a new view, or in place
+    /// of the text in the one it has.
+    private func layOut(_ code: BodyPresentation.Code, in holder: CodeHolder, for mode: BodyMode) {
+        let shown = shown
+        Task { [weak self, weak holder] in
+            let text = await Task.detached(priority: .userInitiated) { CodeText(code) }.value
+            guard let self, let holder, self.shown == shown else { return }
+            if let view = holder.code {
+                view.replace(with: text)
+            } else {
+                holder.show(CodeView(text))
+            }
+            if self.mode == mode {
+                showStart()
+            }
+        }
+    }
+
+    // MARK: - Keeping the focus
+
+    /// Where the keyboard's focus is in the view: on a mode's button, on Show Whole Body, or in the
+    /// view of the mode that shows, with the words in a tree's filter when it's there.
+    private enum FocusPlace {
+        case button(BodyMode)
+        case showWhole
+        case view(BodyMode, filter: String?)
+    }
+
+    private func focusPlace() -> FocusPlace? {
+        guard let focus = gtk_widget_get_root(widget).flatMap({ gtk_root_get_focus($0) }) else { return nil }
+        func isIn(_ root: Widget) -> Bool { focus == root || gtk_widget_is_ancestor(focus, root) != 0 }
+        if let button = buttons.first(where: { isIn($0.value) }) {
+            return .button(button.key)
+        }
+        if isIn(showWhole) {
+            return .showWhole
+        }
+        guard let mode, let shows = gtk_stack_get_visible_child(cast(stack)), isIn(shows) else { return nil }
+        let filter = (views[mode] as? TreeView).flatMap {
+            isIn($0.filter) ? string(gtk_editable_get_text(cast($0.filter))) ?? "" : nil
+        }
+        return .view(mode, filter: filter)
+    }
+
+    /// Gives the keyboard's focus back, when a new body took it from `place`: to the same mode's
+    /// button; to Show Whole Body once its code is laid out, and Copy Body till then; to the same
+    /// mode's view, with the tree's filter's words, once it's laid out; or else to the button of
+    /// the mode that shows.
+    private func giveBack(_ place: FocusPlace) {
+        let focus = gtk_widget_get_root(widget).flatMap { gtk_root_get_focus($0) }
+        if let focus, gtk_widget_is_ancestor(focus, widget) != 0 {
+            return
+        }
+        let shownButton = mode.flatMap { buttons[$0] }
+        switch place {
+        case .button(let mode):
+            grab(buttons[mode] ?? shownButton)
+        case .showWhole:
+            if grab(copyButton) {
+                focusesShowWhole = true
+            }
+        case .view(let mode, let filter):
+            guard mode == self.mode, let made = views[mode] else {
+                grab(shownButton)
+                return
+            }
+            if let tree = made as? TreeView, let filter {
+                tree.setFilter(filter)
+            }
+            // Once its rows are made, which they are as it's laid out.
+            let shown = shown
+            var tries = 0
+            timeout(30) { [weak self] in
+                guard let self, self.shown == shown, self.mode == mode else { return false }
+                let target: Widget? =
+                    switch made {
+                    case let tree as TreeView: filter == nil ? tree.list : tree.filter
+                    case let hex as HexView: hex.list
+                    default: gtk_stack_get_visible_child(cast(stack)).flatMap { DetailsPane.focusables(in: $0).first }
+                    }
+                tries += 1
+                if let target, gtk_widget_get_mapped(target) != 0, gtk_widget_grab_focus(target) != 0 {
+                    return false
+                }
+                if tries >= 10 {
+                    grab(shownButton ?? copyButton)
+                    return false
+                }
+                return true
+            }
+        }
+    }
+
+    /// Gives `target` the keyboard's focus, when it shows. Whether it took it.
+    @discardableResult
+    private func grab(_ target: Widget?) -> Bool {
+        guard let target, gtk_widget_get_mapped(target) != 0 else { return false }
+        return gtk_widget_grab_focus(target) != 0
     }
 
     /// Shows how much of the code shows, and Show Whole Body, when it's cut.

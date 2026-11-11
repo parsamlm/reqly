@@ -447,6 +447,54 @@ extension SelfCheck {
         try await checkALiveRequestsFocus(client, server: server, session: session)
         try await checkAGrowingWholeBody(client, server: server, session: session)
         try await checkAFastGrowingBody(client, server: server, session: session)
+        try await checkTheFocusAsABodyEnds(client, server: server, session: session, onTheButton: false)
+        try await checkTheFocusAsABodyEnds(client, server: server, session: session, onTheButton: true)
+    }
+
+    /// A response that comes a piece at a time, with the keyboard's focus in its body's code, or on
+    /// its body's Text button, as it ends: the whole body shows, and the same widget keeps the
+    /// focus, the code its caret.
+    private func checkTheFocusAsABodyEnds(
+        _ client: ProxyClient, server: TestServer, session: SessionHost, onTheButton: Bool
+    ) async throws {
+        let details = window.details
+        let query = "pieces=30&gap=100&focus=" + (onTheButton ? "button" : "code")
+        let drip = Task { try await client.send(server.url(.drip, query)) }
+        let id = try await newest(session) { $0.target.hasSuffix(query) && $0.port == server.port }
+        try await open(id)
+        try await pageWords(.response)
+        let view = try present(details.bodies[.response], "the Response page has no body")
+        try await until("the response's code as it comes", seconds: 5) {
+            view.codeView?.isFilled == true && details.summary?.state.isFinished == false
+        }
+        let code = try present(view.codeView, "the response has no code")
+        var text = gtk_widget_get_first_child(view.modeSwitch)
+        while let button = text, string(gtk_button_get_label(cast(button))) != "Text" {
+            text = gtk_widget_get_next_sibling(button)
+        }
+        let target = try onTheButton ? present(text, "the body has no Text button") : code.view
+        let what = onTheButton ? "the body's Text button" : "the body's code"
+        g_object_ref(raw(target))
+        defer { g_object_unref(raw(target)) }
+        gtk_widget_grab_focus(target)
+        var caret = GtkTextIter()
+        gtk_text_buffer_get_iter_at_offset(code.buffer, &caret, 50)
+        gtk_text_buffer_place_cursor(code.buffer, &caret)
+        try await until("\(what) to have the focus", seconds: 3) { self.focusWidget == target }
+        let whole = try await drip.value.body.count
+        try await until("the whole body to show", seconds: 10) {
+            view.body?.body.wireSize == whole && view.codeView?.isFilled == true
+                && view.codeView?.shownText.count == view.body?.body.raw?.text.count
+        }
+        await settle()
+        try require(focusWidget == target, "as the response ended, \(what) lost the focus to the \(focusType)")
+        if !onTheButton {
+            gtk_text_buffer_get_iter_at_mark(code.buffer, &caret, gtk_text_buffer_get_insert(code.buffer))
+            let offset = gtk_text_iter_get_offset(&caret)
+            try require(
+                view.codeView === code && offset == 50, "as the response ended, the caret went from 50 to \(offset)")
+        }
+        note("\(what) keeps the focus as the response ends")
     }
 
     /// A response that grows faster than its body is presented, as the details present each body
