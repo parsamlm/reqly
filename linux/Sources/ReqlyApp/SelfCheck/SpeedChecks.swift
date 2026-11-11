@@ -119,7 +119,8 @@ private final class SpeedMeter {
             "the window: \(gtk_widget_get_width(window.window)) × \(gtk_widget_get_height(window.window)) px, the "
                 + "details \(adw_navigation_split_view_get_collapsed(window.inner) == 0 ? "beside" : "over") the list; "
                 + "\(ProcessInfo.processInfo.activeProcessorCount) processors")
-        table.add(SpeedLine(step: "Memory, 0 requests", memory: .now()))
+        let empty = Memory.now()
+        table.add(SpeedLine(step: "Memory, 0 requests", memory: empty))
 
         try await sendAsAnotherApp(1_000)
         var bursts = try await fill(from: 1_000, to: 50_000)
@@ -152,7 +153,8 @@ private final class SpeedMeter {
         table.add(contentsOf: try await filter())
         table.add(contentsOf: try await chooseAHost())
         table.add(contentsOf: try await scroll())
-        table.add(contentsOf: try await clear())
+        let cleared = try await clear()
+        table.add(contentsOf: cleared.lines)
 
         let copy = try await check.runInCopy(
             ["speed"], options: ["--session-limit", String(Self.searchCopy), "--starts-capturing", "yes"],
@@ -169,12 +171,37 @@ private final class SpeedMeter {
         for line in [SpeedLine.heading] + table.lines {
             check.note("    \(line)")
         }
+        try requireFollowing()
+        try requireMemoryGivenBack(empty: empty, full: full, cleared: cleared.later)
+    }
+
+    /// The list followed every burst to its newest row, as it does from its end.
+    private func requireFollowing() throws {
+        try check.require(unfollowed.isEmpty, "the list stopped following after: \(unfollowed.joined(separator: "; "))")
+    }
+
+    /// Five seconds after Clear, Reqly holds at most four fifths of what the requests took at
+    /// 100,000, over what it held with none: a loose ceiling, as it held 0.3 to 0.6 of it in the
+    /// speed part, with the 1,000 requests after Clear, and over 0.9 with neither the arena cap
+    /// nor the trim. And malloc has no more arenas than Reqly allows it, as it would without the
+    /// cap.
+    private func requireMemoryGivenBack(empty: Memory, full: Memory, cleared: Memory) throws {
+        let held = cleared.resident - empty.resident
+        let took = full.resident - empty.resident
+        check.note("5 s after Clear, Reqly holds \(held / 1_024) MB of the \(took / 1_024) MB the requests took")
+        try check.require(
+            held * 5 <= took * 4, "5 s after Clear, Reqly holds \(held / 1_024) MB of the \(took / 1_024) MB")
+        guard ProcessInfo.processInfo.environment["MALLOC_ARENA_MAX"] == nil, let arenas = Memory.arenas() else {
+            return
+        }
+        check.note("malloc's arenas: \(arenas), of at most \(Malloc.arenas)")
+        try check.require(arenas <= Malloc.arenas, "malloc has \(arenas) arenas, more than Reqly's \(Malloc.arenas)")
     }
 
     /// In the copy of Reqly that measures the search: a session of 100,000 requests, filled as the
     /// main run fills its own, then the search typed and cleared with the list at its top, and
     /// again at its end, where it is while it follows traffic; the main run takes their table
-    /// lines.
+    /// lines. Then what screen readers hear the search found.
     func measureTheSearch() async throws {
         _ = try await fill(from: 0, to: 100_000)
         if !unfollowed.isEmpty {
@@ -193,6 +220,47 @@ private final class SpeedMeter {
                 check.note("\(line)")
             }
         }
+        try await checkWhatsSaid()
+        try requireFollowing()
+    }
+
+    /// “tehran” typed again, a character every 200 ms: screen readers in the search's field hear
+    /// the count the list ends with, once it has the store's matches in bodies too, or if they
+    /// heard a count before those came, the whole count after it; twice at most.
+    private func checkWhatsSaid() async throws {
+        let list = list
+        let search = window.search
+        events.reset()
+        var settledAt: Int?
+        // As the field takes the focus, what clearing the last search found is said, if it's yet
+        // to be: before the reader listens.
+        search.open()
+        try await Task.sleep(for: .milliseconds(2500))
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 12) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            var lastKey = 0
+            for count in 1...6 {
+                if count > 1 {
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                lastKey = monotonicMicroseconds()
+                gtk_editable_set_text(cast(search.entry), String("tehran".prefix(count)))
+            }
+            settledAt = try? await self.settled(since: lastKey, quiet: 1_000, seconds: 8)
+            try? await Task.sleep(for: .milliseconds(2500))
+        }
+        let said = heard.compactMap(\.detail)
+        let words = string(adw_window_title_get_subtitle(cast(window.listTitle))) ?? ""
+        check.note("search, what screen readers heard: \(said.joined(separator: "; ")), the list saying \(words)")
+        try check.require(settledAt != nil, "the search for “tehran” didn't settle in 8 s")
+        try check.require(
+            (1...2).contains(said.count) && said.last == words,
+            "screen readers heard \(said) as “tehran” was found, not ending with \(words)")
+        let closed = monotonicMicroseconds()
+        search.close()
+        _ = try await settled(since: closed, seconds: 240)
+        try check.require(list.count == 100_000, "after the search, the list has \(list.count) rows")
     }
 
     /// Bursts of 5,000 until the session has `end` requests, from `start`, each one's newest row
@@ -513,9 +581,11 @@ private final class SpeedMeter {
         return lines
     }
 
-    /// Clear Traffic, as Ctrl+K does, with 100,000 requests, then memory once it's done, a few
-    /// seconds after, and once malloc has given back what it kept.
-    private func clear() async throws -> [SpeedLine] {
+    /// Clear Traffic, as Ctrl+K does, with 100,000 requests, then memory once it's done; the
+    /// window's waits for 3 s after, as requests come, while Reqly gives malloc's free memory back
+    /// a second after Clear, which takes malloc's locks; then memory 5 s after Clear, and once
+    /// malloc has given back what it kept.
+    private func clear() async throws -> (lines: [SpeedLine], later: Memory) {
         let check = check
         let list = list
         let started = monotonicMicroseconds()
@@ -529,11 +599,45 @@ private final class SpeedMeter {
         line.said = "\(events.count) rows events, \(Format.count(events.removed)) rows out"
         check.note("clear: \(line.said), in \(line.took ?? 0) ms; \(line.waits.map { "\($0)" } ?? "")")
         line.memory = .now()
-        try await Task.sleep(for: .seconds(5))
-        let later = SpeedLine(step: "Memory, 5 s after Clear", memory: .now())
+        let trickle = Task { await self.trickle(after: done) }
+        try await sleep(until: done + 3_000_000)
+        let answered = await trickle.value
+        var after = SpeedLine(step: "The 3 s after Clear, the trim at 1 s, as 1,000 requests come")
+        after.waits = watch.waits(from: done, to: done + 3_000_000)
+        let trimming = watch.waits(from: done + 900_000, to: done + 1_600_000)
+        after.said = "\(Format.count(answered)) of 1,000 answered; \(after.waits.map { "\($0)" } ?? "")"
+        check.note("the 3 s after Clear: \(after.said); from 0.9 to 1.6 s, as malloc's trimmed, \(trimming)")
+        try await sleep(until: done + 5_000_000)
+        let later = Memory.now()
+        var lines = [line, after, SpeedLine(step: "Memory, 5 s after Clear", memory: later)]
         // What malloc keeps for later, apart from what's still in use.
-        guard Malloc.trim() else { return [line, later] }
-        return [line, later, SpeedLine(step: "Memory, then malloc_trim(0)", memory: .now())]
+        if Malloc.trim() {
+            lines.append(SpeedLine(step: "Memory, then malloc_trim(0)", memory: .now()))
+        }
+        // The bodies start with the list empty, without the requests after Clear.
+        await session.clear()
+        try await check.until("the requests after Clear to go", seconds: 30) { list.count == 0 && list.isSettled }
+        return (lines, later)
+    }
+
+    /// Sends 50 of the mix's requests every 100 ms, from half a second to two and a half after
+    /// `start`, and gives how many were answered.
+    private func trickle(after start: Int) async -> Int {
+        var answered = 0
+        for step in 0..<20 {
+            try? await sleep(until: start + 500_000 + step * 100_000)
+            let urls = (sent..<sent + 50).map(mix.url)
+            sent += 50
+            answered += await client.burst(urls).answered
+        }
+        return answered
+    }
+
+    private func sleep(until time: Int) async throws {
+        let left = time - monotonicMicroseconds()
+        if left > 0 {
+            try await Task.sleep(for: .microseconds(left))
+        }
     }
 
     /// Waits for the rows events a change since `start` set off to end, and the list to settle with
@@ -1043,6 +1147,20 @@ private struct Memory: CustomStringConvertible {
             return Int(line.split(separator: " ", omittingEmptySubsequences: true).dropFirst().first ?? "") ?? 0
         }
         return Memory(resident: kilobytes("VmRSS"), peak: kilobytes("VmHWM"), anonymous: kilobytes("RssAnon"))
+    }
+
+    /// How many arenas malloc has, as malloc_info(3) lists them, or `nil` where it can't say.
+    static func arenas() -> Int32? {
+        typealias Info = @convention(c) (Int32, UnsafeMutablePointer<FILE>?) -> Int32
+        guard let info = Newer.lookup("malloc_info", as: Info.self) else { return nil }
+        var text: UnsafeMutablePointer<CChar>?
+        var size = 0
+        guard let file = open_memstream(&text, &size) else { return nil }
+        let status = info(0, file)
+        fclose(file)
+        defer { free(text) }
+        guard status == 0, let text else { return nil }
+        return Int32(String(cString: text).components(separatedBy: "<heap nr=").count - 1)
     }
 
     var description: String {
