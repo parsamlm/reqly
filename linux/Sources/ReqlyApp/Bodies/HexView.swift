@@ -19,7 +19,7 @@ final class HexView {
     /// How many bytes each line shows now.
     private(set) var perLine = HexLines.wide
     /// The body's size, in bytes.
-    let size: Int
+    private(set) var size: Int
     /// How many pages the session has been asked for, as the self-check counts them.
     private(set) var pagesRead = 0
     /// Runs once Copy as Hex has copied, with what it copied, so the page can say so.
@@ -33,9 +33,12 @@ final class HexView {
     private let numbers: OpaquePointer
     private let selection: OpaquePointer
     private let selected: Widget
+    private let total: Widget
     private let read: @MainActor (_ offset: Int, _ limit: Int) async -> Data?
     private var pages: [Int: Data] = [:]
     private var reading: Set<Int> = []
+    /// Counts the bodies shown, as a live one grows, so a page read for one before is read again.
+    private var shown = 0
     /// Each row's list item that shows a line now, and its line.
     private var bound: [OpaquePointer: Int] = [:]
     /// Whether the lines will fit themselves to the list's new width.
@@ -68,7 +71,7 @@ final class HexView {
         gtk_label_set_xalign(cast(selected), 0)
         gtk_widget_set_hexpand(selected, 1)
         gtk_label_set_ellipsize(cast(selected), PANGO_ELLIPSIZE_END)
-        let total = gtk_label_new(BodyWords.bytes(size))!
+        total = gtk_label_new(BodyWords.bytes(size))
         for label in [selected, total] {
             gtk_widget_add_css_class(label, "dim-label")
             gtk_widget_add_css_class(label, "caption")
@@ -146,6 +149,28 @@ final class HexView {
         }
     }
 
+    /// Shows `content`, the body as it has grown, in place of the bytes before, in the same rows,
+    /// so the line with the keyboard's focus keeps it, and what's chosen stays: the lines that
+    /// changed are made again, and lines for the new bytes come after them.
+    func show(_ content: Data) {
+        shown += 1
+        size = content.count
+        // The pages kept, and those of the lines in view, from the bytes at hand.
+        let wanted = Set(pages.keys).union(bound.values.map { $0 * perLine / Self.pageSize })
+        for page in wanted {
+            let start = content.startIndex + min(page * Self.pageSize, content.count)
+            pages[page] = Data(content[start..<min(start + Self.pageSize, content.endIndex)])
+        }
+        reqly_numbers_set_count(cast(numbers), UInt32(HexLines.count(size: size, perLine: perLine)))
+        for (item, index) in bound {
+            fill(item, index)
+        }
+        gtk_label_set_text(cast(total), BodyWords.bytes(size))
+        setAccessibleLabel(list, "Hex, \(BodyWords.bytes(size))")
+        // Past 16 MB, the offsets take two more digits, so 16 bytes may no longer fit.
+        fitLines()
+    }
+
     // MARK: - Lines
 
     private func bind(_ item: OpaquePointer) {
@@ -173,6 +198,8 @@ final class HexView {
             text = HexLines.line(at: start, [UInt8](), perLine: perLine, size: size)
             fetch(page)
         }
+        // A line that's the same stays as it is, so a screen reader doesn't hear it again.
+        guard string(gtk_inscription_get_text(cast(row))) != text else { return }
         gtk_inscription_set_text(cast(row), text)
         gtk_list_item_set_accessible_label(item, text)
     }
@@ -182,11 +209,19 @@ final class HexView {
         guard !reading.contains(page) else { return }
         reading.insert(page)
         pagesRead += 1
+        let shown = shown
         Task { [weak self, read] in
             let bytes = await read(page * Self.pageSize, Self.pageSize)
             guard let self else { return }
             reading.remove(page)
             guard let bytes else { return }
+            // Read for a body before this one, which may have fewer bytes: read again, as the lines need.
+            guard self.shown == shown else {
+                for (item, index) in bound where index * perLine / Self.pageSize == page {
+                    fill(item, index)
+                }
+                return
+            }
             pages[page] = bytes
             forget()
             for (item, index) in bound where index * perLine / Self.pageSize == page {

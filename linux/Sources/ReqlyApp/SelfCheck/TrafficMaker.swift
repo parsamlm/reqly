@@ -206,8 +206,14 @@ final class TestServer: Sendable {
             let line = Array("The quick brown fox jumps over the lazy dog, again and again.\n".utf8)
             answer.pieces = query["pieces"].flatMap { Int($0) } ?? 8
             answer.gap = query["gap"].flatMap { Int($0) } ?? 250
-            answer.headers.append(("Content-Type", "text/plain"))
-            answer.body = (0..<answer.pieces * 1000).map { line[$0 % line.count] }
+            if query["bytes"] != nil {
+                // Bytes that aren't text, which show as hex alone.
+                answer.headers.append(("Content-Type", "application/octet-stream"))
+                answer.body = (0..<answer.pieces * 1000).map { UInt8($0 % 256) }
+            } else {
+                answer.headers.append(("Content-Type", "text/plain"))
+                answer.body = (0..<answer.pieces * 1000).map { line[$0 % line.count] }
+            }
         case .ok:
             content("text/plain", "ok")
         }

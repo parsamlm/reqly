@@ -473,6 +473,46 @@ extension SelfCheck {
         try await checkAFastGrowingBody(client, server: server, session: session)
         try await checkTheFocusAsABodyEnds(client, server: server, session: session, onTheButton: false)
         try await checkTheFocusAsABodyEnds(client, server: server, session: session, onTheButton: true)
+        try await checkTheFocusInALiveHex(client, server: server, session: session)
+    }
+
+    /// A response of bytes that comes a piece at a time, with the keyboard's focus on its hex's
+    /// third line as it ends: the whole body shows in the same hex, and the same line keeps the
+    /// focus.
+    private func checkTheFocusInALiveHex(_ client: ProxyClient, server: TestServer, session: SessionHost) async throws {
+        let details = window.details
+        let query = "pieces=30&gap=100&bytes"
+        let drip = Task { try await client.send(server.url(.drip, query)) }
+        let id = try await newest(session) { $0.target.hasSuffix(query) && $0.port == server.port }
+        try await open(id)
+        try await pageWords(.response)
+        let view = try present(details.bodies[.response], "the Response page has no body")
+        try await until("the response's hex as it comes", seconds: 5) {
+            (view.views[.hex] as? HexView).map { $0.shownLines.count > 3 } == true
+                && details.summary?.state.isFinished == false
+        }
+        let hex = try present(view.views[.hex] as? HexView, "the response has no hex")
+        gtk_widget_grab_focus(hex.list)
+        gtk_list_view_scroll_to(cast(hex.list), 2, GTK_LIST_SCROLL_FOCUS, nil)
+        try await until("the hex's third line to have the focus, not the \(focusType)", seconds: 3) {
+            hex.focusedLine == 2
+        }
+        let byte = 2 * hex.perLine
+        let whole = try await drip.value.body.count
+        try await until("the whole body to show", seconds: 10) {
+            view.body?.body.wireSize == whole && (view.views[.hex] as? HexView)?.size == whole
+        }
+        await settle()
+        try require(view.views[.hex] === hex, "as the response ended, its hex was made again")
+        let line = hex.focusedLine.map { $0 * hex.perLine }
+        try require(
+            line == byte,
+            "as the response ended, the hex line with byte \(byte) lost the focus to "
+                + (line.map { "the line with byte \($0)" } ?? "the \(focusType)"))
+        let lines = Int(g_list_model_get_n_items(cast(gtk_list_view_get_model(cast(hex.list)))))
+        let wanted = HexLines.count(size: whole, perLine: hex.perLine)
+        try require(lines == wanted, "the hex of \(whole) bytes has \(lines) lines, not \(wanted)")
+        note("the hex's third line keeps the focus as the response ends, in the same hex of \(whole) bytes")
     }
 
     /// A response that comes a piece at a time, with the keyboard's focus in its body's code, or on

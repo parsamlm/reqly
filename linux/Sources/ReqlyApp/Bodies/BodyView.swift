@@ -169,6 +169,7 @@ final class BodyView {
         }
         waiting = nil
         let place = focusPlace()
+        let old = self.body?.body
         self.body = body
         shown += 1
         let presented = body.body
@@ -178,13 +179,19 @@ final class BodyView {
             Self.chosen[part].flatMap { modes.contains($0) ? $0 : nil }
             ?? mode.flatMap { modes.contains($0) ? $0 : nil } ?? modes.first
         // Code the body still shows in gets the new text in place, once it's laid out: until then
-        // the text before stays, with Show Whole Body, and the keyboard's focus in it.
-        var kept: CodeHolder?
+        // the text before stays, with Show Whole Body, and the keyboard's focus in it. Hex still
+        // read the same way gets the new bytes in the same rows.
+        var kept: Widget?
         if let current = mode, current == next, let holder = views[current] as? CodeHolder, holder.code != nil,
             let code = Self.code(current, of: presented)
         {
-            kept = holder
+            kept = holder.widget
             layOut(code, in: holder, for: current)
+        } else if let current = mode, current == next, let hex = views[current] as? HexView, let old,
+            old.unpackedFrom == presented.unpackedFrom
+        {
+            kept = hex.widget
+            hex.show(presented.content)
         }
         clearViews(keeping: kept)
         gtk_label_set_text(cast(summary), isEmpty ? BodyWords.empty(part) : BodyWords.summary(presented))
@@ -288,17 +295,23 @@ final class BodyView {
         }
     }
 
-    /// Drops the views made for the body before, but the code `kept`, which gets the new body's text
-    /// in place.
-    private func clearViews(keeping kept: CodeHolder? = nil) {
+    /// Drops the views made for the body before, but the code or hex whose widget is `kept`, which
+    /// gets the new body in place.
+    private func clearViews(keeping kept: Widget? = nil) {
         var child = gtk_widget_get_first_child(stack)
         while let widget = child {
             child = gtk_widget_get_next_sibling(widget)
-            if widget != kept?.widget {
+            if widget != kept {
                 gtk_stack_remove(cast(stack), widget)
             }
         }
-        views = views.filter { $0.value === kept }
+        views = views.filter { view in
+            switch view.value {
+            case let code as CodeHolder: code.widget == kept
+            case let hex as HexView: hex.widget == kept
+            default: false
+            }
+        }
         if kept == nil {
             gtk_widget_set_visible(startLine, 0)
         }
