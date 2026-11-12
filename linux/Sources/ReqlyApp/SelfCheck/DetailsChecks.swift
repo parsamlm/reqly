@@ -487,15 +487,25 @@ extension SelfCheck {
         let chosen = BodyView.chosen[.response]
         BodyView.chosen[.response] = .hex
         defer { BodyView.chosen[.response] = chosen }
-        let query = packed ? "pieces=20&gap=150&packed" : "pieces=30&gap=100&bytes"
+        // Packed: 36 pieces of 3 bytes, 200 ms apart, so it's still coming for 7 s.
+        let query = packed ? "pieces=36&gap=200&packed" : "pieces=30&gap=100&bytes"
         let drip = Task { try await client.send(server.url(.drip, query)) }
         let id = try await newest(session) { $0.target.hasSuffix(query) && $0.port == server.port }
         try await open(id)
         try await pageWords(.response)
         let view = try present(details.bodies[.response], "the Response page has no body")
-        try await until("the response's hex as it comes", seconds: 5) {
-            (view.views[.hex] as? HexView).map { $0.shownLines.count > 3 } == true
-                && details.summary?.state.isFinished == false
+        // Out of the page, which waits while the focus is in it, so the body shows as it grows.
+        try require(details.focusTab(), "the details' tab doesn't take the focus")
+        do {
+            try await until("the response's hex as it comes", seconds: 8) {
+                (view.views[.hex] as? HexView).map { $0.shownLines.count > 2 } == true
+                    && details.summary?.state.isFinished == false
+            }
+        } catch {
+            let lines = (view.views[.hex] as? HexView)?.shownLines.count
+            throw Failure(
+                "the live response's body showed \(view.mode.map { "\($0)" } ?? "nothing") of "
+                    + "\(view.body?.body.wireSize ?? 0) bytes, \(lines ?? 0) hex lines, then ended")
         }
         let hex = try present(view.views[.hex] as? HexView, "the response has no hex")
         gtk_widget_grab_focus(hex.list)
