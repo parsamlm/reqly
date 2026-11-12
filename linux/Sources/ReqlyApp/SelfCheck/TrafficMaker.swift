@@ -210,6 +210,10 @@ final class TestServer: Sendable {
                 // Bytes that aren't text, which show as hex alone.
                 answer.headers.append(("Content-Type", "application/octet-stream"))
                 answer.body = (0..<answer.pieces * 1000).map { UInt8($0 % 256) }
+            } else if query["packed"] != nil {
+                // Bytes Reqly can't unpack until the last of them comes.
+                answer.headers += [("Content-Type", "application/json"), ("Content-Encoding", "gzip")]
+                answer.body = packedJSON
             } else {
                 answer.headers.append(("Content-Type", "text/plain"))
                 answer.body = (0..<answer.pieces * 1000).map { line[$0 % line.count] }

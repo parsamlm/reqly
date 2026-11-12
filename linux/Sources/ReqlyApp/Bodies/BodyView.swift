@@ -410,11 +410,12 @@ final class BodyView {
     // MARK: - Keeping the focus
 
     /// Where the keyboard's focus is in the view: on a mode's button, on Show Whole Body, or in the
-    /// view of the mode that shows, with the words in a tree's filter when it's there.
+    /// view of the mode that shows: in a tree's filter, with its words, or on a line, as a hex
+    /// line's first byte or a tree row's node.
     private enum FocusPlace {
         case button(BodyMode)
         case showWhole
-        case view(BodyMode, filter: String?)
+        case view(BodyMode, filter: String?, line: Int?)
     }
 
     private func focusPlace() -> FocusPlace? {
@@ -430,16 +431,43 @@ final class BodyView {
         let filter = (views[mode] as? TreeView).flatMap {
             isIn($0.filter) ? string(gtk_editable_get_text(cast($0.filter))) ?? "" : nil
         }
-        return .view(mode, filter: filter)
+        return .view(mode, filter: filter, line: line(in: views[mode]))
+    }
+
+    /// The line with the keyboard's focus in `view`: a hex line's first byte, or a tree row's node.
+    private func line(in view: AnyObject?) -> Int? {
+        switch view {
+        case let hex as HexView: hex.focusedLine.map { $0 * hex.perLine }
+        case let tree as TreeView: tree.focusedNode
+        default: nil
+        }
+    }
+
+    /// Whether the keyboard's focus is still at `place`, as in a view the new body kept.
+    private func isAt(_ place: FocusPlace) -> Bool {
+        guard let focus = gtk_widget_get_root(widget).flatMap({ gtk_root_get_focus($0) }) else { return false }
+        func isIn(_ root: Widget?) -> Bool {
+            root.map { focus == $0 || gtk_widget_is_ancestor(focus, $0) != 0 } ?? false
+        }
+        switch place {
+        case .button(let mode): return isIn(buttons[mode])
+        case .showWhole: return isIn(showWhole)
+        case .view(let mode, let filter, let line):
+            guard mode == self.mode, isIn(gtk_stack_get_visible_child(cast(stack))) else { return false }
+            if let tree = views[mode] as? TreeView, filter != nil {
+                return isIn(tree.filter)
+            }
+            return line == nil || self.line(in: views[mode]) == line
+        }
     }
 
     /// Gives the keyboard's focus back, when a new body took it from `place`: to the same mode's
     /// button; to Show Whole Body once its code is laid out, and Copy Body till then; to the same
-    /// mode's view, with the tree's filter's words, once it's laid out; or else to the button of
-    /// the mode that shows.
+    /// mode's view, with the tree's filter's words, once it's laid out, on the same line when it
+    /// has it; or else to the button of the mode that shows. A widget GTK chose in the body's view
+    /// as the one with the focus went doesn't keep it.
     private func giveBack(_ place: FocusPlace) {
-        let focus = gtk_widget_get_root(widget).flatMap { gtk_root_get_focus($0) }
-        if let focus, gtk_widget_is_ancestor(focus, widget) != 0 {
+        if isAt(place) {
             return
         }
         let shownButton = mode.flatMap { buttons[$0] }
@@ -450,7 +478,7 @@ final class BodyView {
             if grab(copyButton) {
                 focusesShowWhole = true
             }
-        case .view(let mode, let filter):
+        case .view(let mode, let filter, let line):
             guard mode == self.mode, let made = views[mode] else {
                 grab(shownButton)
                 return
@@ -463,15 +491,27 @@ final class BodyView {
             var tries = 0
             timeout(30) { [weak self] in
                 guard let self, self.shown == shown, self.mode == mode else { return false }
-                let target: Widget? =
-                    switch made {
-                    case let tree as TreeView: filter == nil ? tree.list : tree.filter
-                    case let hex as HexView: hex.list
-                    default: gtk_stack_get_visible_child(cast(stack)).flatMap { DetailsPane.focusables(in: $0).first }
-                    }
+                let target: Widget?
+                var row: Int?
+                switch made {
+                case let tree as TreeView:
+                    target = filter == nil ? tree.list : tree.filter
+                    row = filter == nil ? line.flatMap { tree.position(of: $0) } : nil
+                case let hex as HexView:
+                    target = hex.list
+                    row = line.map { min($0 / hex.perLine, HexLines.count(size: hex.size, perLine: hex.perLine) - 1) }
+                default:
+                    target = gtk_stack_get_visible_child(cast(stack)).flatMap { DetailsPane.focusables(in: $0).first }
+                }
                 tries += 1
-                if let target, gtk_widget_get_mapped(target) != 0, gtk_widget_grab_focus(target) != 0 {
-                    return false
+                if let target, gtk_widget_get_mapped(target) != 0 {
+                    // The line first, so the list gives the focus straight to it.
+                    if let row, row >= 0 {
+                        gtk_list_view_scroll_to(cast(target), UInt32(row), GTK_LIST_SCROLL_FOCUS, nil)
+                    }
+                    if gtk_widget_grab_focus(target) != 0 {
+                        return false
+                    }
                 }
                 if tries >= 10 {
                     grab(shownButton ?? copyButton)

@@ -182,6 +182,22 @@ final class TreeView {
         }
     }
 
+    /// The node whose row has the keyboard's focus, or `nil` while none has it.
+    var focusedNode: Int? {
+        guard let focus = gtk_widget_get_root(list).flatMap({ gtk_root_get_focus($0) }) else { return nil }
+        let item = bound.first { item, _ in
+            guard let row = gtk_list_item_get_child(item).flatMap({ gtk_widget_get_parent($0) }) else { return false }
+            return focus == row || gtk_widget_is_ancestor(focus, row) != 0
+        }
+        return item.flatMap { Self.id(of: $0.value.row) }
+    }
+
+    /// Where `node`'s row is among the rows that show, or `nil` when none shows it, as when a node
+    /// above it is closed.
+    func position(of node: Int) -> Int? {
+        (0..<min(rowCount, 10_000)).first { self.node(at: $0) == node }
+    }
+
     /// Chooses the row at `position`, as a click does.
     func choose(at position: Int) {
         gtk_single_selection_set_selected(selection, UInt32(position))

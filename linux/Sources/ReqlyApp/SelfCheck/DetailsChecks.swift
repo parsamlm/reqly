@@ -473,15 +473,21 @@ extension SelfCheck {
         try await checkAFastGrowingBody(client, server: server, session: session)
         try await checkTheFocusAsABodyEnds(client, server: server, session: session, onTheButton: false)
         try await checkTheFocusAsABodyEnds(client, server: server, session: session, onTheButton: true)
-        try await checkTheFocusInALiveHex(client, server: server, session: session)
+        try await checkTheFocusInALiveHex(client, server: server, session: session, packed: false)
+        try await checkTheFocusInALiveHex(client, server: server, session: session, packed: true)
     }
 
     /// A response of bytes that comes a piece at a time, with the keyboard's focus on its hex's
-    /// third line as it ends: the whole body shows in the same hex, and the same line keeps the
-    /// focus.
-    private func checkTheFocusInALiveHex(_ client: ProxyClient, server: TestServer, session: SessionHost) async throws {
+    /// third line as it ends: the whole body shows, and the line with the same first byte has the
+    /// focus: in the same hex, or, `packed`, in the hex of the body unpacked once it's whole.
+    private func checkTheFocusInALiveHex(
+        _ client: ProxyClient, server: TestServer, session: SessionHost, packed: Bool
+    ) async throws {
         let details = window.details
-        let query = "pieces=30&gap=100&bytes"
+        let chosen = BodyView.chosen[.response]
+        BodyView.chosen[.response] = .hex
+        defer { BodyView.chosen[.response] = chosen }
+        let query = packed ? "pieces=20&gap=150&packed" : "pieces=30&gap=100&bytes"
         let drip = Task { try await client.send(server.url(.drip, query)) }
         let id = try await newest(session) { $0.target.hasSuffix(query) && $0.port == server.port }
         try await open(id)
@@ -500,19 +506,32 @@ extension SelfCheck {
         let byte = 2 * hex.perLine
         let whole = try await drip.value.body.count
         try await until("the whole body to show", seconds: 10) {
-            view.body?.body.wireSize == whole && (view.views[.hex] as? HexView)?.size == whole
+            guard let body = view.body?.body else { return false }
+            return body.wireSize == whole && (!packed || body.unpackedFrom != nil)
+                && (view.views[.hex] as? HexView)?.size == body.content.count
         }
         await settle()
-        try require(view.views[.hex] === hex, "as the response ended, its hex was made again")
-        let line = hex.focusedLine.map { $0 * hex.perLine }
-        try require(
-            line == byte,
-            "as the response ended, the hex line with byte \(byte) lost the focus to "
-                + (line.map { "the line with byte \($0)" } ?? "the \(focusType)"))
-        let lines = Int(g_list_model_get_n_items(cast(gtk_list_view_get_model(cast(hex.list)))))
-        let wanted = HexLines.count(size: whole, perLine: hex.perLine)
-        try require(lines == wanted, "the hex of \(whole) bytes has \(lines) lines, not \(wanted)")
-        note("the hex's third line keeps the focus as the response ends, in the same hex of \(whole) bytes")
+        let after = try present(view.views[.hex] as? HexView, "the whole body shows no hex")
+        let made =
+            packed ? "unpacked, the body's bytes show in the same hex" : "as the response ended, its hex was made again"
+        try require((after === hex) != packed, made)
+        var line: Int?
+        do {
+            try await until("the focus on the hex's line with byte \(byte)", seconds: 2) {
+                line = after.focusedLine.map { $0 * after.perLine }
+                return line == byte
+            }
+        } catch {
+            throw Failure(
+                "as the response ended, the hex line with byte \(byte) lost the focus to "
+                    + (line.map { "the line with byte \($0)" } ?? "the \(focusType)"))
+        }
+        let lines = Int(g_list_model_get_n_items(cast(gtk_list_view_get_model(cast(after.list)))))
+        let wanted = HexLines.count(size: after.size, perLine: after.perLine)
+        try require(lines == wanted, "the hex of \(after.size) bytes has \(lines) lines, not \(wanted)")
+        note(
+            "the hex's third line keeps the focus as the response ends, "
+                + (packed ? "in the hex made for it unpacked" : "in the same hex of \(whole) bytes"))
     }
 
     /// A response that comes a piece at a time, with the keyboard's focus in its body's code, or on
