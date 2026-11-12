@@ -123,6 +123,10 @@ import Testing
         let persian = name(.webp, String(repeating: "ش", count: 150) + ".gif")
         #expect(persian == String(repeating: "ش", count: 97) + ".webp")
         #expect(name(.png, "short.png") == "short.png")
+        // One character of 201 bytes, an e with 100 accents: too long alone, so not ".png", a dot file.
+        let accented = "e" + String(repeating: "\u{0301}", count: 100)
+        #expect(accented.count == 1)
+        #expect(name(.png, accented + ".png") == "image.png")
     }
 
     /// A picture to open goes in Reqly's folder in your runtime folder, which only you can open,

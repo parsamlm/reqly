@@ -127,7 +127,8 @@ enum BodyWords {
     static let longestFileName = 200
 
     /// `stem` with the extension `kept`, the stem cut short at a character's end so the name fits
-    /// ``longestFileName``.
+    /// ``longestFileName``; "image" when its first character alone is too long, as one with many
+    /// accents on it can be, rather than none, which would make the name a dot file's.
     private static func cut(_ stem: Substring, keeping kept: String) -> String {
         let room = longestFileName - kept.utf8.count - 1
         var end = stem.startIndex
@@ -137,7 +138,7 @@ enum BodyWords {
             guard bytes <= room else { break }
             end = stem.index(after: index)
         }
-        return String(stem[..<end]) + "." + kept
+        return (end == stem.startIndex ? "image" : String(stem[..<end])) + "." + kept
     }
 
     /// A format's file extensions, the one a picture is named with first.
