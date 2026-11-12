@@ -170,19 +170,44 @@ final class PreviewView {
 
     // MARK: - Opening and saving
 
-    /// The picture as a file to open, named as its URL names it, in a new folder of its own in
-    /// ``openingFolder(environment:)``, so a picture opened before keeps its file, as a viewer may
-    /// still show it.
+    /// The picture as a file to open, named as its URL names it, in ``openingFolder(environment:)``,
+    /// written away from the window as ``write(_:named:in:)`` says.
     func fileToOpen() async throws -> URL {
         guard let folder = Self.openingFolder() else { throw CocoaError(.fileNoSuchFile) }
-        try FileManager.default.createDirectory(
-            at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        var template = Array(folder.appending(path: "XXXXXX").path.utf8CString)
-        guard let made = mkdtemp(&template) else { throw CocoaError(.fileWriteUnknown) }
-        let own = URL(filePath: String(cString: made), directoryHint: .isDirectory)
-        let file = own.appending(path: BodyWords.fileName(for: format, url: await url()))
-        try data.write(to: file, options: .atomic)
+        let name = BodyWords.fileName(for: format, url: await url())
+        let data = data
+        return try await Task.detached(priority: .userInitiated) { try Self.write(data, named: name, in: folder) }
+            .value
+    }
+
+    /// Writes `data` as `name` in a folder of its own in `folder`, named for its bytes, and gives
+    /// the file: a picture opened again has the same file, rather than one more copy each time, and
+    /// another picture never writes over one a viewer may still show.
+    nonisolated static func write(_ data: Data, named name: String, in folder: URL) throws -> URL {
+        let files = FileManager.default
+        let own = folder.appending(path: folderName(for: data), directoryHint: .isDirectory)
+        for made in [folder, own] {
+            try files.createDirectory(
+                at: made, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
+        let file = own.appending(path: name)
+        // Written once: the folder's name says what's in it.
+        var status = stat()
+        if stat(file.path, &status) != 0 || Int(status.st_size) != data.count {
+            try data.write(to: file, options: .atomic)
+        }
         return file
+    }
+
+    /// A folder's name for a picture's bytes: their FNV-1a hash and their count.
+    nonisolated static func folderName(for data: Data) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        data.withUnsafeBytes { bytes in
+            for byte in bytes {
+                hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3
+            }
+        }
+        return String(hash, radix: 16) + "-" + String(data.count)
     }
 
     /// Takes away the pictures written for you to open in an earlier run, as Reqly starts, so they

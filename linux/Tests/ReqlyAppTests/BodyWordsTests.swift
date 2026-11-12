@@ -157,6 +157,22 @@ import Testing
         try files.removeItem(at: folder)
     }
 
+    /// The same picture, opened again, has the same file rather than another copy; another picture
+    /// with the same name has a file of its own, and the first keeps its bytes.
+    @Test func opensTheSamePictureFromOneFile() throws {
+        let files = FileManager.default
+        let folder = URL(filePath: NSTemporaryDirectory()).appending(path: "reqly-opened-\(UUID().uuidString)")
+        defer { try? files.removeItem(at: folder) }
+        let map = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3])
+        let first = try PreviewView.write(map, named: "image.png", in: folder)
+        let again = try PreviewView.write(map, named: "image.png", in: folder)
+        let other = try PreviewView.write(Data([0x89, 0x50, 0x4E, 0x47, 4, 5, 6]), named: "image.png", in: folder)
+        #expect(first == again)
+        #expect(other != first && other.lastPathComponent == "image.png")
+        #expect(try Data(contentsOf: first) == map)
+        #expect(try files.contentsOfDirectory(atPath: folder.path).count == 2)
+    }
+
     @Test func countsBytesExactly() {
         #expect(BodyWords.bytes(1) == "1 byte")
         #expect(BodyWords.bytes(12_871, locale: Self.english) == "12,871 bytes")
