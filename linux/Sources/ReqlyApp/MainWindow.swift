@@ -85,7 +85,7 @@ final class MainWindow {
     /// looks give the focus back.
     private var focusTurn = 0
     /// Counts your key presses and clicks, which a later look after a fold leaves alone.
-    private var inputs = 0
+    private(set) var inputs = 0
     /// What has had the keyboard's focus since the first focus gave it to the capture switch, as
     /// the session had no requests, until the list first shows some.
     private var firstFocus: Widget?
@@ -691,18 +691,32 @@ final class MainWindow {
         focusTurn += 1
         let pane = [sidebarPane, listPane, details.widget].first { isInside(focus, $0) }
         focusWhatShows(after: 0, tries: 25, keeping: focus, in: pane, fold: (focusTurn, nil))
-        focusWhatShows(after: 400, tries: 1, keeping: focus, in: pane, fold: (focusTurn, inputs))
+        lookLater(after: 400, keeping: focus, in: pane, since: inputs)
     }
 
-    /// A fold's later look, now, as when a fold kept `kept`'s focus in `pane` and you've pressed a
-    /// key since: for the self-check, which can't press one in the frame before the look comes.
-    func lookAfterFold(keeping kept: Widget, in pane: Widget) {
+    /// A fold's later look, now, as when a fold kept `kept`'s focus in `pane` once you'd pressed
+    /// keys and clicked `before` times: for the self-check, which can't press a key in the frame
+    /// before the look comes.
+    func lookAfterFold(keeping kept: Widget, in pane: Widget, since before: Int) {
         focusTurn += 1
-        focusWhatShows(tries: 1, keeping: kept, in: pane, fold: (focusTurn, inputs - 1))
+        lookLater(after: nil, keeping: kept, in: pane, since: before)
+    }
+
+    /// The latest fold's later look, `milliseconds` on, or now: the same for the app and the
+    /// self-check. With one try, a widget you gave the focus that doesn't show yet has 50 ms more.
+    private func lookLater(after milliseconds: UInt32?, keeping kept: Widget, in pane: Widget?, since before: Int) {
+        let tries = 1
+        let fold: Fold = (focusTurn, before)
+        if let milliseconds {
+            focusWhatShows(after: milliseconds, tries: tries, keeping: kept, in: pane, fold: fold)
+        } else {
+            focusWhatShows(tries: tries, keeping: kept, in: pane, fold: fold)
+        }
     }
 
     /// Counts your key presses, but for Shift, Ctrl and the like on their own, and your clicks,
-    /// before the window's widgets have them.
+    /// before the window's widgets have them. GTK runs the window's newest controller first, so
+    /// this one, added last, sees the keys its shortcuts and addActions()' own keys take too.
     private func countInputs() {
         let events = gtk_event_controller_legacy_new()!
         gtk_event_controller_set_propagation_phase(events, GTK_PHASE_CAPTURE)

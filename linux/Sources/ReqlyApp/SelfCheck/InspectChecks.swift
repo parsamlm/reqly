@@ -504,12 +504,13 @@ extension SelfCheck {
         window.details.show(page: .overview)
     }
 
-    /// At 1280 pixels, with a request shown: Ctrl+1 to Ctrl+5 choose the details' pages, and screen
-    /// readers hear each.
+    /// At 1280 pixels, with a request shown: Ctrl+1 to Ctrl+5 choose the details' pages, screen
+    /// readers hear each, and each counts as a key you pressed.
     private func checkThePageKeys(_ ids: [ExchangeID]) async throws {
         let window = window
         try await focusRow(ids[0])
         var chosen: [String] = []
+        let before = window.inputs
         let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 6) {
             // The reader takes a moment to start listening.
             try? await Task.sleep(for: .milliseconds(1500))
@@ -527,6 +528,8 @@ extension SelfCheck {
         note("Ctrl+1 to Ctrl+5: \(chosen.joined(separator: ", ")); heard \(said.joined(separator: ", "))")
         try require(chosen == titles, "Ctrl+1 to Ctrl+5 chose \(chosen), not \(titles)")
         try require(said == titles, "screen readers heard only \(said) of \(titles)")
+        let counted = window.inputs - before
+        try require(counted >= titles.count, "of Ctrl+1 to Ctrl+5, \(counted) counted as pressed")
         window.details.show(page: .overview)
     }
 
@@ -678,8 +681,9 @@ extension SelfCheck {
     /// the fold's later look, 400 ms on, has been too: a row keeps it from 1280 pixels to 1000 and
     /// 700, and so does the search's field from 1000 to 700, from the capture switch, where
     /// libadwaita 1.7 and later give it on the way, as 1.5 does here too; so does the field opened
-    /// with Ctrl+F just before a fold's later look, as its bar shows; and from 700 to 1000, so does
-    /// the sidebar's chosen scope, clicked as the sidebar comes back. What it saw, for the notes.
+    /// with Ctrl+F just before a fold's later look, as its bar shows, with Ctrl+F and Escape counted
+    /// as pressed; and from 700 to 1000, so does the sidebar's chosen scope, clicked as the sidebar
+    /// comes back. What it saw, for the notes.
     private func checkTheFocusThroughFolds(_ ids: [ExchangeID]) async throws -> [String] {
         let window = window
         let search = window.search
@@ -762,14 +766,27 @@ extension SelfCheck {
         seen.append("the search's field keeps it from 1000 px to 700, from the capture switch")
 
         // Ctrl+F just before a fold's later look, which comes as the search's bar opens, a frame
-        // before it shows: the field keeps the focus. No key here can be pressed in that frame, so
-        // the look comes once Ctrl+F's work is done.
+        // before it shows: the field keeps the focus. Ctrl+F counts as a key you pressed, and so
+        // does Escape, though the window's shortcuts and its own keys have them first. No key here
+        // can be pressed in the frame before the look, so the look comes once Ctrl+F's work is
+        // done, as after a fold with the keys pressed since.
+        try await focusRow(ids[0])
+        let unpressed = window.inputs
+        try FakeInput.press("Control_L", "f", in: window.window)
+        try await until("Ctrl+F to open the search, with the focus", seconds: 3) {
+            gtk_widget_get_mapped(search.entry) != 0 && fieldFocused()
+        }
+        let pressed = window.inputs
+        try FakeInput.press("Escape", in: window.window)
+        try await until("Escape to close the search", seconds: 3) { !search.isOpen }
+        let missed = [("Ctrl+F", unpressed, pressed), ("Escape", pressed, window.inputs)].filter { $0.1 == $0.2 }
+        try require(missed.isEmpty, "\(missed.map(\.0).joined(separator: " and ")) didn't count as pressed")
         try await focusRow(ids[0])
         let row = try present(focusWidget, "the row has no focus")
         window.openSearch()
         let showed = gtk_widget_get_mapped(search.entry) != 0
         try require(!showed && fieldFocused(), "Ctrl+F's field \(showed ? "showed at once" : "hasn't the focus")")
-        window.lookAfterFold(keeping: row, in: window.listPane)
+        window.lookAfterFold(keeping: row, in: window.listPane, since: unpressed)
         try await Task.sleep(for: .milliseconds(200))
         try require(fieldFocused(), "with Ctrl+F just before a fold's later look, the \(focusType) has the focus")
         search.close()
