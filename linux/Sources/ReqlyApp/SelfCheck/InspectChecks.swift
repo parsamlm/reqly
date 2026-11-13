@@ -16,12 +16,13 @@ extension SelfCheck {
     // MARK: - The list, the details and the bodies
 
     /// At 1000 pixels, with the details over the list: Enter on a row shows its request in the
-    /// details, Ctrl+3 its response, and the response's body in its view, formatted; Tree, chosen
-    /// with its button, stays for the next request's body, and Escape in its empty filter goes
-    /// back. Add Comment…, from the row's menu, puts
-    /// the keyboard's focus in the comment's field, where Enter saves what you type, and the row
-    /// shows it. Back, then Enter on a request with no comment, the focus is on a widget that
-    /// shows, not in the hidden field. GTK warns of nothing meanwhile.
+    /// details, Ctrl+3 its response, and the response's body in its view, formatted; Alt+Left goes
+    /// back from its code, and right to left, Alt+Right does; Tree, chosen with its button, stays
+    /// for the next request's body, and Escape in its empty filter goes back. Add Comment…, from
+    /// the row's menu, puts the keyboard's focus in the comment's field, where Enter saves what you
+    /// type, and the row shows it. Back, then Enter on a request with no comment, the focus is on a
+    /// widget that shows, not in the hidden field. At 700 pixels, Alt+Left in the sidebar over the
+    /// details leaves them be. GTK warns of nothing meanwhile.
     func checkInspecting() async throws {
         // A body opens in its first mode, whatever the parts before chose, and Tree, chosen here,
         // isn't for the parts after.
@@ -91,6 +92,7 @@ extension SelfCheck {
         }
         await settle()
         note("Alt+Left in the body's code: back to the row")
+        try await checkBackRightToLeft(ids[0])
 
         let tree = try present(modeButton("Tree", of: view), "the body has no Tree button")
         emit(raw(tree), "clicked")
@@ -172,6 +174,92 @@ extension SelfCheck {
                 + (gtk_widget_is_visible(focus) != 0 ? "shows" : "doesn't show"))
         note("Enter on a request with no comment, after the field had the focus: the focus in the \(pane(of: focus))")
         try await session.annotate(ids[1], comment: .remove)
+        try await checkBackUnderTheSidebar(ids[0])
+    }
+
+    /// Right to left, as in Hebrew or Arabic, Alt+Right goes back from the details over the list,
+    /// from a body's code, which would take it to move by words, and from a tab, where libadwaita's
+    /// own Alt+Right does, and Alt+Left goes back from neither. Then the details show the response's
+    /// body over the list again, left to right.
+    private func checkBackRightToLeft(_ id: ExchangeID) async throws {
+        let window = window
+        let details = window.details
+        let code = try present(details.bodies[.response]?.codeView?.view, "the body has no code view")
+        try await rightToLeft {
+            gtk_widget_grab_focus(code)
+            try await until("the body's code to have the focus, right to left", seconds: 3) {
+                self.focusWidget.map { window.isInside($0, code) } == true
+            }
+            try await requireBackRightToLeft(from: "the body's code")
+            try await focusRow(id)
+            try FakeInput.press("Return", in: window.window)
+            try await until("Enter to show the details again, right to left, with a tab focused", seconds: 5) {
+                window.detailsAreOver
+                    && self.focusWidget.map {
+                        window.isInside($0, details.switcher) || window.isInside($0, details.switcherBar)
+                    } == true
+            }
+            await settle()
+            try await requireBackRightToLeft(from: "a tab")
+        }
+        await settle()
+        try await focusRow(id)
+        try FakeInput.press("Return", in: window.window)
+        try await until("Enter to show the response's body again", seconds: 5) {
+            window.detailsAreOver && details.page == .response && details.bodies[.response]?.mode == .formatted
+        }
+        await settle()
+        note("right to left, Alt+Right in the body's code and on a tab: back to the row; Alt+Left: not")
+    }
+
+    /// Runs `body` with the window right to left, then as it was.
+    private func rightToLeft(_ body: () async throws -> Void) async throws {
+        let before = gtk_widget_get_default_direction()
+        gtk_widget_set_default_direction(GTK_TEXT_DIR_RTL)
+        defer { gtk_widget_set_default_direction(before) }
+        await settle()
+        try require(gtk_widget_get_direction(window.window) == GTK_TEXT_DIR_RTL, "the window isn't right to left")
+        try await body()
+    }
+
+    /// Right to left, with the details over the list and `what` focused in them: Alt+Left leaves
+    /// them there, and Alt+Right goes back.
+    private func requireBackRightToLeft(from what: String) async throws {
+        let window = window
+        try FakeInput.press("Alt_L", "Left", in: window.window)
+        await settle()
+        try require(window.detailsAreOver, "right to left, Alt+Left in \(what) went back, from the \(focusType)")
+        try FakeInput.press("Alt_L", "Right", in: window.window)
+        try await until("Alt+Right in \(what) to go back, right to left", seconds: 3) { !window.detailsAreOver }
+        await settle()
+    }
+
+    /// At 700 pixels, with the sidebar shown over the details over the list: Alt+Left in the sidebar
+    /// leaves the details under it, and Escape puts the sidebar away, then goes back.
+    private func checkBackUnderTheSidebar(_ id: ExchangeID) async throws {
+        let window = window
+        try await resize(to: 700)
+        try await focusRow(id)
+        try FakeInput.press("Return", in: window.window)
+        try await until("Enter to show the details over the list at 700 px", seconds: 3) { window.detailsAreOver }
+        await settle()
+        try FakeInput.press("F9", in: window.window)
+        try await until("F9 to show the sidebar over the details, with the focus", seconds: 3) {
+            window.sidebarIsOver && self.focusWidget.map { window.isInside($0, window.sidebarPane) } == true
+        }
+        await settle()
+        try FakeInput.press("Alt_L", "Left", in: window.window)
+        await settle()
+        try require(window.sidebarIsOver, "Alt+Left in the sidebar over the details put it away")
+        try require(window.detailsAreOver, "Alt+Left in the sidebar went back from the details under it")
+        try FakeInput.press("Escape", in: window.window)
+        try await until("Escape to put the sidebar away", seconds: 3) { !window.sidebarIsOver }
+        await settle()
+        try require(window.detailsAreOver, "once Escape put the sidebar away, the details don't show")
+        try FakeInput.press("Escape", in: window.window)
+        try await until("Escape again to go back from the details", seconds: 3) { !window.detailsAreOver }
+        await settle()
+        note("at 700 px, Alt+Left in the sidebar over the details: both stay; Escape: the sidebar goes, then them")
     }
 
     // MARK: - The keyboard

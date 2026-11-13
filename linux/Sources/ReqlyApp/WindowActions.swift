@@ -35,7 +35,8 @@ extension MainWindow {
         }
 
         // Before the widgets in the window, which would take Escape for themselves first, and
-        // Alt+←, which a body's code view takes to move by words, even though you can't edit it.
+        // Alt+← (Alt+→ right to left), which a body's code view takes to move by words, even
+        // though you can't edit it.
         let keys = gtk_event_controller_key_new()!
         gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE)
         connect(keys, "key-pressed") { [weak self] (arguments: Arguments) in
@@ -45,7 +46,7 @@ extension MainWindow {
             let held = arguments.flags(3) & modifiers
             if key == GDK_KEY_Escape, held == 0 {
                 arguments.returns(self.escape())
-            } else if key == GDK_KEY_Left || key == GDK_KEY_KP_Left, held == GDK_ALT_MASK.rawValue {
+            } else if held == GDK_ALT_MASK.rawValue, self.isBack(key) {
                 arguments.returns(self.goBack())
             }
         }
@@ -142,10 +143,19 @@ extension MainWindow {
         return false
     }
 
-    /// Alt+←: back from the details over the list, as libadwaita's own Alt+← goes, unless a dialog
-    /// or a menu shows. Whether it went back.
+    /// Whether `key`, with Alt, goes back: ←, or → in a right-to-left layout, as libadwaita has it.
+    private func isBack(_ key: Int32) -> Bool {
+        if gtk_widget_get_direction(window) == GTK_TEXT_DIR_RTL {
+            return key == GDK_KEY_Right || key == GDK_KEY_KP_Right
+        }
+        return key == GDK_KEY_Left || key == GDK_KEY_KP_Left
+    }
+
+    /// Alt+← (Alt+→ right to left): back from the details over the list, as libadwaita's own goes,
+    /// unless a dialog or a menu shows, or the sidebar over them, which libadwaita's leaves be too.
+    /// Whether it went back.
     func goBack() -> Bool {
-        guard detailsAreOver, visibleDialog(over: window) == nil else { return false }
+        guard detailsAreOver, !sidebarIsOver, visibleDialog(over: window) == nil else { return false }
         if let focus = gtk_root_get_focus(cast(window)), gtk_widget_get_ancestor(focus, gtk_popover_get_type()) != nil {
             return false
         }
