@@ -177,7 +177,8 @@ extension SelfCheck {
 
     /// A row's menu, opened with a click with the right button while the list is scrolled up, away
     /// from the selected row, keeps the keyboard's focus as traffic comes, and the list stays where
-    /// it is.
+    /// it is. Neither half of that may lean on the other: the list doesn't say its row lost the
+    /// focus, and the window's look for a focus that shows, as after a fold, leaves the menu's.
     private func checkTheMenuAsTrafficComes(_ traffic: Traffic) async throws {
         let window = window
         let list = window.list
@@ -202,6 +203,13 @@ extension SelfCheck {
         }
         await settle()
         let value = gtk_adjustment_get_value(adjustment)
+        let onFocusLost = list.onFocusLost
+        var lost = 0
+        list.onFocusLost = {
+            lost += 1
+            onFocusLost?()
+        }
+        defer { list.onFocusLost = onFocusLost }
         for number in 41...45 {
             _ = try await traffic.client.send(traffic.server.url(.ok, "menu=\(number)"))
         }
@@ -211,9 +219,15 @@ extension SelfCheck {
         let focus = "the \(focusType) in the \(isInList ? "list" : "window")"
         let isInMenu = menu.isOpen && focusWidget.map { window.isInside($0, menu.popover) } == true
         let now = gtk_adjustment_get_value(adjustment)
+        window.focusWhatShowsSoon()
+        await settle()
+        let looked = "the \(focusType)"
+        let staysAfterLook = menu.isOpen && focusWidget.map { window.isInside($0, menu.popover) } == true
         menu.close()
         try await until("the menu to close", seconds: 3) { !menu.isOpen }
         try require(isInMenu, "as traffic came, the focus left the open row's menu for \(focus)")
+        try require(lost == 0, "as traffic came, the list said \(lost) times that its row lost the focus to the menu")
+        try require(staysAfterLook, "a look for a focus that shows took it from the open row's menu for \(looked)")
         try require(abs(now - value) < 1, "as traffic came, the list scrolled from \(Int(value)) to \(Int(now)) px")
         note("a row's menu, open as 5 requests came: it keeps the focus, and the list stays where it is")
     }
