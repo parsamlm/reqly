@@ -626,9 +626,9 @@ extension SelfCheck {
     /// The keyboard's focus as the window's breakpoints fold the panes away and back, each time once
     /// the fold's later look, 400 ms on, has been too: a row keeps it from 1280 pixels to 1000 and
     /// 700, and so does the search's field from 1000 to 700, from the capture switch, where
-    /// libadwaita 1.7 and later give it on the way, as 1.5 does here too; and from 700 to 1000, so
-    /// does the sidebar's chosen scope, clicked as the sidebar comes back. What it saw, for the
-    /// notes.
+    /// libadwaita 1.7 and later give it on the way, as 1.5 does here too; so does the field opened
+    /// with Ctrl+F just before a fold's later look, as its bar shows; and from 700 to 1000, so does
+    /// the sidebar's chosen scope, clicked as the sidebar comes back. What it saw, for the notes.
     private func checkTheFocusThroughFolds(_ ids: [ExchangeID]) async throws -> [String] {
         let window = window
         let search = window.search
@@ -702,6 +702,20 @@ extension SelfCheck {
         try await afterTheLook("the search's field, at 700 px", fieldFocused)
         search.close()
         seen.append("the search's field keeps it from 1000 px to 700, from the capture switch")
+
+        // Ctrl+F just before a fold's later look, which comes as the search's bar opens, a frame
+        // before it shows: the field keeps the focus. No key here can be pressed in that frame, so
+        // the look comes once Ctrl+F's work is done.
+        try await focusRow(ids[0])
+        let row = try present(focusWidget, "the row has no focus")
+        window.openSearch()
+        let showed = gtk_widget_get_mapped(search.entry) != 0
+        try require(!showed && fieldFocused(), "Ctrl+F's field \(showed ? "showed at once" : "hasn't the focus")")
+        window.lookAfterFold(keeping: row, in: window.listPane)
+        try await Task.sleep(for: .milliseconds(200))
+        try require(fieldFocused(), "with Ctrl+F just before a fold's later look, the \(focusType) has the focus")
+        search.close()
+        seen.append("so does the field Ctrl+F opened just before a fold's later look")
 
         // A click on the sidebar's chosen scope as the sidebar comes back, before the fold's later
         // look, which leaves the focus where you moved it.

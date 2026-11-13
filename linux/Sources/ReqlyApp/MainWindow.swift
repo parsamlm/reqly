@@ -659,7 +659,14 @@ final class MainWindow {
         focusTurn += 1
         let pane = [sidebarPane, listPane, details.widget].first { isInside(focus, $0) }
         focusWhatShows(after: 0, tries: 25, keeping: focus, in: pane, fold: (focusTurn, nil))
-        focusWhatShows(after: 400, tries: 0, keeping: focus, in: pane, fold: (focusTurn, inputs))
+        focusWhatShows(after: 400, tries: 1, keeping: focus, in: pane, fold: (focusTurn, inputs))
+    }
+
+    /// A fold's later look, now, as when a fold kept `kept`'s focus in `pane` and you've pressed a
+    /// key since: for the self-check, which can't press one in the frame before the look comes.
+    func lookAfterFold(keeping kept: Widget, in pane: Widget) {
+        focusTurn += 1
+        focusWhatShows(tries: 1, keeping: kept, in: pane, fold: (focusTurn, inputs - 1))
     }
 
     /// Counts your key presses, but for Shift, Ctrl and the like on their own, and your clicks,
@@ -712,9 +719,11 @@ final class MainWindow {
     /// toggle for what was in the list's pane. Otherwise a widget that took the focus in the same
     /// pane meanwhile, such as a hex line made again, or the switch as the first focus, keeps it,
     /// and so does a menu that's open. For a `fold`, only its turn's looks count, and once you've
-    /// pressed a key or clicked since `inputs`, only a focus that's lost. As a breakpoint folds a
-    /// pane away, libadwaita 1.5 maps the panes again a moment after, so until either the list's
-    /// pane or the details show, it looks again every 20 ms, `tries` times, and then gives up.
+    /// pressed a key or clicked since `inputs`, only a focus that's lost: a widget you gave it that
+    /// doesn't show yet, as the search's field as Ctrl+F opens its bar, has 50 ms more, `tries`
+    /// times. As a breakpoint folds a pane away, libadwaita 1.5 maps the panes again a moment
+    /// after, so until either the list's pane or the details show, it looks again every 20 ms,
+    /// `tries` times, and then gives up.
     private func focusWhatShows(tries: Int, keeping kept: Widget?, in pane: Widget?, fold: Fold?) {
         guard visibleDialog(over: window) == nil, fold.map({ $0.turn == focusTurn }) ?? true else { return }
         if gtk_widget_get_mapped(listPane) == 0, gtk_widget_get_mapped(details.widget) == 0 {
@@ -728,12 +737,18 @@ final class MainWindow {
         if let focus, gtk_widget_get_ancestor(focus, gtk_popover_get_type()) != nil {
             return
         }
+        let isYours = fold?.inputs.map { $0 != inputs } ?? false
+        if isYours, tries > 0, let focus, gtk_widget_get_mapped(focus) == 0, gtk_widget_is_visible(focus) != 0,
+            gtk_widget_is_sensitive(focus) != 0
+        {
+            focusWhatShows(after: 50, tries: tries - 1, keeping: kept, in: pane, fold: fold)
+            return
+        }
         let isLost =
             focus.map {
                 gtk_widget_get_mapped($0) == 0 || gtk_widget_is_visible($0) == 0 || gtk_widget_is_sensitive($0) == 0
                     || (isInside($0, list.view) && !list.rowHasFocus)
             } ?? true
-        let isYours = fold?.inputs.map { $0 != inputs } ?? false
         let hasLeftPane = !isYours && pane.map { pane in focus.map { !isInside($0, pane) } ?? true } ?? false
         let isOnToggle =
             !isYours
