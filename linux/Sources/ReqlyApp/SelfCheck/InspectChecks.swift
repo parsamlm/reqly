@@ -473,13 +473,18 @@ extension SelfCheck {
         seen.append("a row keeps it from 1280 px to 1000 and 700")
 
         // The search's field, as the sidebar folds away: libadwaita 1.7 and later give the focus to
-        // the capture switch on the way.
+        // the capture switch on the way. The search opens once the unfold's later look has been,
+        // and its bar shows before the fold. Resizing takes about that look's 400 ms, and a field
+        // whose bar hasn't shown yet is a focus that's lost to the look, which then gave the row
+        // the focus back just as the fold to 700 came, sooner than anyone could.
         let search = window.search
         try await resize(to: 1000)
+        try await Task.sleep(for: .milliseconds(500))
         search.open()
         gtk_widget_grab_focus(search.entry)
-        try await until("the search's field to have the focus", seconds: 3) {
-            self.focusWidget.map { window.isInside($0, search.entry) } == true
+        try await until("the search's field to show, with the focus", seconds: 3) {
+            gtk_widget_get_mapped(search.entry) != 0
+                && self.focusWidget.map { window.isInside($0, search.entry) } == true
         }
         moves = []
         try await resize(to: 700)
