@@ -531,20 +531,15 @@ extension SelfCheck {
     }
 
     /// The keyboard's focus as the window's breakpoints, and the details' own, change the panes:
-    /// a row keeps it from 1280 pixels to 1000 and 700, and so does the search's field from 1000 to
-    /// 700; Copy Headers beside the list at 1280 gives it to the list's pane as the details fold
-    /// away under it at 1000; a tab of the details over the list, as the tabs move under the pages
-    /// at 500, gives it to a widget that shows; and a hex line, as the lines go from 16 bytes to 8
-    /// at 800, to the line that has its first byte.
+    /// through the folds, as checkTheFocusThroughFolds() has it; Copy Headers beside the list at
+    /// 1280 pixels gives it to the list's pane as the details fold away under it at 1000; a tab of
+    /// the details over the list, as the tabs move under the pages at 500, gives it to a widget that
+    /// shows; and a hex line, as the lines go from 16 bytes to 8 at 800, to the line that has its
+    /// first byte.
     private func checkTheFocusAsPanesChange(_ ids: [ExchangeID]) async throws {
         let window = window
         let details = window.details
-        let rowFocused = {
-            window.list.rowWidget(of: ids[0]).map { row in self.focusWidget.map { window.isInside($0, row) } } == true
-        }
-        var seen: [String] = []
-        try await resize(to: 1280)
-        try await focusRow(ids[0])
+        var seen = try await checkTheFocusThroughFolds(ids)
         var moves: [String] = []
         let watch = connect(window.window, "notify::focus-widget") { [weak self] in
             guard let self else { return }
@@ -552,35 +547,6 @@ extension SelfCheck {
             moves.append("\(self.focusType) “\(tip)” in the \(self.pane(of: self.focusWidget))")
         }
         defer { g_signal_handler_disconnect(raw(window.window), watch) }
-        for width: Int32 in [1000, 700] {
-            try await resize(to: width)
-            try await until("the row to keep the focus at \(width) px, not the \(focusType): \(moves)", seconds: 3) {
-                rowFocused()
-            }
-        }
-        seen.append("a row keeps it from 1280 px to 1000 and 700")
-
-        // The search's field, as the sidebar folds away: libadwaita 1.7 and later give the focus to
-        // the capture switch on the way. The search opens once the unfold's later look has been,
-        // and its bar shows before the fold. Resizing takes about that look's 400 ms, and a field
-        // whose bar hasn't shown yet is a focus that's lost to the look, which then gave the row
-        // the focus back just as the fold to 700 came, sooner than anyone could.
-        let search = window.search
-        try await resize(to: 1000)
-        try await Task.sleep(for: .milliseconds(500))
-        search.open()
-        gtk_widget_grab_focus(search.entry)
-        try await until("the search's field to show, with the focus", seconds: 3) {
-            gtk_widget_get_mapped(search.entry) != 0
-                && self.focusWidget.map { window.isInside($0, search.entry) } == true
-        }
-        moves = []
-        try await resize(to: 700)
-        try await until("the search's field to keep the focus at 700 px, not the \(focusType): \(moves)", seconds: 3) {
-            self.focusWidget.map { window.isInside($0, search.entry) } == true
-        }
-        search.close()
-        seen.append("the search's field keeps it from 1000 px to 700")
 
         try await resize(to: 1280)
         details.show(page: .response)
@@ -657,7 +623,119 @@ extension SelfCheck {
         note("the focus as the panes change: \(seen.joined(separator: "; "))")
     }
 
-    /// With the keyboard's focus on a row, Ctrl+K clears the list, and the pinned row that's left
+    /// The keyboard's focus as the window's breakpoints fold the panes away and back, each time once
+    /// the fold's later look, 400 ms on, has been too: a row keeps it from 1280 pixels to 1000 and
+    /// 700, and so does the search's field from 1000 to 700, from the capture switch, where
+    /// libadwaita 1.7 and later give it on the way, as 1.5 does here too; and from 700 to 1000, so
+    /// does the sidebar's chosen scope, clicked as the sidebar comes back. What it saw, for the
+    /// notes.
+    private func checkTheFocusThroughFolds(_ ids: [ExchangeID]) async throws -> [String] {
+        let window = window
+        let search = window.search
+        let rowFocused = {
+            window.list.rowWidget(of: ids[0]).map { row in self.focusWidget.map { window.isInside($0, row) } } == true
+        }
+        let fieldFocused = { self.focusWidget.map { window.isInside($0, search.entry) } == true }
+        var seen: [String] = []
+        var moves: [String] = []
+        var folded = 0
+        let watched = [raw(window.outer), raw(window.inner)].map { pane in
+            (pane, connect(pane, "notify::collapsed") { folded = monotonicMicroseconds() })
+        }
+        let watch = connect(window.window, "notify::focus-widget") { [weak self] in
+            guard let self else { return }
+            let tip = self.focusWidget.flatMap { string(gtk_widget_get_tooltip_text($0)) } ?? ""
+            moves.append("\(self.focusType) “\(tip)” in the \(self.pane(of: self.focusWidget))")
+        }
+        defer {
+            g_signal_handler_disconnect(raw(window.window), watch)
+            for (pane, handler) in watched {
+                g_signal_handler_disconnect(pane, handler)
+            }
+        }
+        // A fold's later look comes 400 ms on: `what` still has the focus once it has been.
+        func afterTheLook(_ what: String, _ hasIt: () -> Bool) async throws {
+            let wait = folded + 500_000 - monotonicMicroseconds()
+            if wait > 0 {
+                try await Task.sleep(for: .microseconds(wait))
+            }
+            try require(
+                hasIt(), "once the fold's later look had been, the \(focusType) had the focus, not \(what): \(moves)")
+        }
+
+        try await resize(to: 1280)
+        try await focusRow(ids[0])
+        for width: Int32 in [1000, 700] {
+            try await resize(to: width)
+            try await until("the row to keep the focus at \(width) px, not the \(focusType): \(moves)", seconds: 3) {
+                rowFocused()
+            }
+            try await afterTheLook("the row, at \(width) px", rowFocused)
+        }
+        seen.append("a row keeps it from 1280 px to 1000 and 700")
+
+        // The search opens once the unfold's later look has been, and its bar shows before the fold:
+        // a field whose bar doesn't show yet is a focus that's lost, to the look, which then gave the
+        // row the focus back just as the fold came, sooner than anyone could.
+        try await resize(to: 1000)
+        try await Task.sleep(for: .milliseconds(500))
+        search.open()
+        gtk_widget_grab_focus(search.entry)
+        try await until("the search's field to show, with the focus", seconds: 3) {
+            gtk_widget_get_mapped(search.entry) != 0 && fieldFocused()
+        }
+        moves = []
+        var wentOn = false
+        let onToTheSwitch = connect(window.window, "notify::focus-widget") { [weak self] in
+            guard let self, !wentOn, self.focusWidget == window.sidebarToggle else { return }
+            wentOn = true
+            gtk_widget_grab_focus(window.captureSwitch)
+        }
+        do {
+            defer { g_signal_handler_disconnect(raw(window.window), onToTheSwitch) }
+            try await resize(to: 700)
+        }
+        try require(wentOn, "as the sidebar folded away, the focus didn't go to its toggle: \(moves)")
+        try await until("the search's field to keep the focus at 700 px, not the \(focusType): \(moves)", seconds: 3) {
+            fieldFocused()
+        }
+        try await afterTheLook("the search's field, at 700 px", fieldFocused)
+        search.close()
+        seen.append("the search's field keeps it from 1000 px to 700, from the capture switch")
+
+        // A click on the sidebar's chosen scope as the sidebar comes back, before the fold's later
+        // look, which leaves the focus where you moved it.
+        try await focusRow(ids[0])
+        moves = []
+        let before = folded
+        gtk_window_set_default_size(cast(window.window), 1000, 760)
+        try await until("the sidebar to come back at 1000 px", seconds: 5) { folded != before }
+        let soon = folded + 150_000 - monotonicMicroseconds()
+        if soon > 0 {
+            try await Task.sleep(for: .microseconds(soon))
+        }
+        let scope = try present(chosenScopeRow(), "the sidebar shows no chosen scope")
+        try FakeInput.click(scope)
+        let scopeFocused = { self.focusWidget.map { window.isInside($0, scope) } == true }
+        try await until("the click to give the chosen scope's row the focus: \(moves)", seconds: 3) { scopeFocused() }
+        try await afterTheLook("the chosen scope's row, clicked as the sidebar came back", scopeFocused)
+        await settle()
+        seen.append("a click on the chosen scope as the sidebar comes back at 1000 px keeps it")
+        return seen
+    }
+
+    /// The sidebar's row that shows as chosen.
+    private func chosenScopeRow() -> Widget? {
+        var child = gtk_widget_get_first_child(window.sidebar.view)
+        while let row = child {
+            if gtk_widget_get_state_flags(row).rawValue & GTK_STATE_FLAG_SELECTED.rawValue != 0 {
+                return row
+            }
+            child = gtk_widget_get_next_sibling(row)
+        }
+        return nil
+    }
+
     /// has the focus; with nothing pinned, Clear's button clears it, and the capture switch has the
     /// focus. Tab from the sidebar then still reaches the list's header bar next.
     private func checkTabAfterClear(_ ids: [ExchangeID]) async throws {
