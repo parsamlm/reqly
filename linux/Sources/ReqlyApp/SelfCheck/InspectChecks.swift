@@ -537,8 +537,9 @@ extension SelfCheck {
     /// through the folds, as checkTheFocusThroughFolds() has it; Copy Headers beside the list at
     /// 1280 pixels gives it to the list's pane as the details fold away under it at 1000; a tab of
     /// the details over the list, as the tabs move under the pages at 500, gives it to the tab
-    /// there, and so does one beside the list, as checkTheTabsMovingBeside() has it; and a hex
-    /// line, as the lines go from 16 bytes to 8 at 800, to the line that has its first byte.
+    /// there, and back at 700 to the tab in the header bar, and so does one beside the list, as
+    /// checkTheTabsMovingBeside() has it; and a hex line, as the lines go from 16 bytes to 8 at
+    /// 800, to the line that has its first byte.
     private func checkTheFocusAsPanesChange(_ ids: [ExchangeID]) async throws {
         let window = window
         let details = window.details
@@ -585,6 +586,22 @@ extension SelfCheck {
             "the tab under the pages to have the focus at 500 px, not the \(focusType): \(moves)", seconds: 3,
             isOnTabBelow)
         seen.append("a tab of the details over the list, as the tabs go under the pages: the tab there")
+
+        // And back into the header bar at 700 px, where no pane folds, whose looks would give the
+        // tab the focus too: the sidebar stays folded away, and the details over the list.
+        moves = []
+        try await resize(to: 700)
+        try require(
+            window.detailsAreOver && adw_overlay_split_view_get_collapsed(window.outer) != 0,
+            "at 700 px, the details aren't over the list, or the sidebar doesn't fold away")
+        let isOnTabAbove = {
+            self.focusWidget.map { window.isInside($0, details.switcher) && gtk_widget_get_mapped($0) != 0 } == true
+        }
+        let above = "the tab in the header bar to have the focus at 700 px"
+        try await until("\(above), not the \(focusType): \(moves)", seconds: 3, isOnTabAbove)
+        try await Task.sleep(for: .milliseconds(500))
+        try require(isOnTabAbove(), "500 ms later, the \(focusType) has the focus, not the tab: \(moves)")
+        seen.append("and as they go back into the header bar at 700 px: the tab there")
 
         try await resize(to: 1000)
         let view = try present(details.bodies[.response], "the Response page has no body")
@@ -825,6 +842,7 @@ extension SelfCheck {
         return nil
     }
 
+    /// With the keyboard's focus on a row, Ctrl+K clears the list, and the pinned row that's left
     /// has the focus; with nothing pinned, Clear's button clears it, and the capture switch has the
     /// focus. Tab from the sidebar then still reaches the list's header bar next.
     private func checkTabAfterClear(_ ids: [ExchangeID]) async throws {
