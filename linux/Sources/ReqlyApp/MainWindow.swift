@@ -277,7 +277,7 @@ final class MainWindow {
         }
         connect(inner, "notify::collapsed") { [weak self] in self?.keepFocusThroughFold() }
         for signal in ["apply", "unapply"] {
-            connect(details.narrow, signal) { [weak self] in self?.focusWhatShowsSoon() }
+            connect(details.narrow, signal) { [weak self] in self?.tabsMoved() }
         }
         connect(inner, "notify::show-content") { [weak self] in self?.detailsChanged() }
         connect(raw(search.widget), "notify::search-mode-enabled") { [weak self] in self?.searchChanged() }
@@ -642,6 +642,38 @@ final class MainWindow {
     /// the pane that had it, or hides a tab that had it.
     func focusWhatShowsSoon() {
         focusWhatShows(after: 0, tries: 25, keeping: nil, in: nil)
+    }
+
+    /// The details' tabs moved, under the pages as the details narrowed, or back into their header
+    /// bar. A tab that had the keyboard's focus goes, and GTK gives the focus to the window's first
+    /// widget, such as the sidebar's: the chosen page's tab, where the tabs are now, has it instead,
+    /// once it shows, unless you press a key or click meanwhile. Any other focus that's lost goes to
+    /// the pane that shows.
+    private func tabsMoved() {
+        guard let focus = gtk_root_get_focus(cast(window)),
+            isInside(focus, details.switcher) || isInside(focus, details.switcherBar)
+        else {
+            focusWhatShowsSoon()
+            return
+        }
+        focusTab(tries: 25, since: inputs)
+    }
+
+    /// Gives the details' chosen tab the keyboard's focus once it shows, looking every 20 ms,
+    /// `tries` times more, while you've pressed no key and clicked nowhere since `before`, and no
+    /// dialog shows; or if it never shows, the pane that shows has the focus, when it's lost.
+    private func focusTab(tries: Int, since before: Int) {
+        timeout(20) { [weak self] in
+            guard let self, inputs == before, visibleDialog(over: window) == nil, !details.focusTab() else {
+                return false
+            }
+            if tries > 0 {
+                focusTab(tries: tries - 1, since: before)
+            } else {
+                focusWhatShowsSoon()
+            }
+            return false
+        }
     }
 
     /// A breakpoint folded the sidebar or the details away, or back. libadwaita puts the panes in

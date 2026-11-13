@@ -533,9 +533,9 @@ extension SelfCheck {
     /// The keyboard's focus as the window's breakpoints, and the details' own, change the panes:
     /// through the folds, as checkTheFocusThroughFolds() has it; Copy Headers beside the list at
     /// 1280 pixels gives it to the list's pane as the details fold away under it at 1000; a tab of
-    /// the details over the list, as the tabs move under the pages at 500, gives it to a widget that
-    /// shows; and a hex line, as the lines go from 16 bytes to 8 at 800, to the line that has its
-    /// first byte.
+    /// the details over the list, as the tabs move under the pages at 500, gives it to the tab
+    /// there, and so does one beside the list, as checkTheTabsMovingBeside() has it; and a hex
+    /// line, as the lines go from 16 bytes to 8 at 800, to the line that has its first byte.
     private func checkTheFocusAsPanesChange(_ ids: [ExchangeID]) async throws {
         let window = window
         let details = window.details
@@ -573,11 +573,15 @@ extension SelfCheck {
         try await until("a tab in the header bar to have the focus", seconds: 3) {
             self.focusWidget.map { window.isInside($0, details.headerBar) } == true
         }
+        moves = []
         try await resize(to: 500)
-        try await until("the focus to show as the tabs go under the pages at 500 px", seconds: 3) {
-            self.focusWidget.map { gtk_widget_is_visible($0) != 0 && gtk_widget_get_mapped($0) != 0 } == true
+        let isOnTabBelow = {
+            self.focusWidget.map { window.isInside($0, details.switcherBar) && gtk_widget_get_mapped($0) != 0 } == true
         }
-        seen.append("a tab, as the tabs go under the pages: the \(pane(of: focusWidget))")
+        try await until(
+            "the tab under the pages to have the focus at 500 px, not the \(focusType): \(moves)", seconds: 3,
+            isOnTabBelow)
+        seen.append("a tab of the details over the list, as the tabs go under the pages: the tab there")
 
         try await resize(to: 1000)
         let view = try present(details.bodies[.response], "the Response page has no body")
@@ -619,8 +623,43 @@ extension SelfCheck {
         // Once they've gone back: libadwaita warns of a shadow it draws as they go, with no size.
         try await until("the details to go back", seconds: 3) { !window.detailsAreOver }
         await settle()
+        seen.append(try await checkTheTabsMovingBeside(ids))
+        await settle()
         try await resize(to: 1280)
         note("the focus as the panes change: \(seen.joined(separator: "; "))")
+    }
+
+    /// Beside the list, at 1280 pixels with the sidebar hidden and the text at three quarters, the
+    /// details are wide enough for their tabs in their header bar: with one of them focused, as the
+    /// window narrows to 1000 and the tabs go under the pages, the chosen page's tab there has the
+    /// keyboard's focus. (With the sidebar beside them, the details beside the list have room for
+    /// the tabs above only on a screen wider than the self-check's.) What it saw, for the notes.
+    private func checkTheTabsMovingBeside(_ ids: [ExchangeID]) async throws -> String {
+        let window = window
+        let details = window.details
+        let settings = gtk_settings_get_default()
+        adw_overlay_split_view_set_show_sidebar(window.outer, 0)
+        defer { adw_overlay_split_view_set_show_sidebar(window.outer, 1) }
+        await settle()
+        set(raw(settings), "gtk-xft-dpi", .int(96 * 1024 * 3 / 4))
+        defer { gtk_settings_reset_property(settings, "gtk-xft-dpi") }
+        try await resize(to: 1280)
+        window.list.select(id: ids[0])
+        try await until("the details beside the list, with their tabs in their header bar", seconds: 5) {
+            details.shown == ids[0] && !window.detailsAreOver && gtk_widget_get_mapped(details.switcher) != 0
+        }
+        await settle()
+        try require(details.focusTab(), "the details' tab doesn't take the focus")
+        try await until("a tab in the details' header bar to have the focus", seconds: 3) {
+            self.focusWidget.map { window.isInside($0, details.switcher) } == true
+        }
+        try await resize(to: 1000)
+        try require(!window.detailsAreOver, "at 1000 px, with the text at three quarters, the details are over")
+        let what = "the tab under the pages to have the focus beside the list at 1000 px"
+        try await until("\(what), not the \(focusType) in the \(pane(of: focusWidget))", seconds: 3) {
+            self.focusWidget.map { window.isInside($0, details.switcherBar) && gtk_widget_get_mapped($0) != 0 } == true
+        }
+        return "a tab of the details beside the list, as the tabs go under the pages at 1000 px: the tab there"
     }
 
     /// The keyboard's focus as the window's breakpoints fold the panes away and back, each time once
