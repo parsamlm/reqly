@@ -638,11 +638,18 @@ extension SelfCheck {
         let window = window
         let details = window.details
         let settings = gtk_settings_get_default()
+        // As they were after, the text first, then the sidebar, a frame apart: both in one frame
+        // squeeze the details beside the list, before they fold away under it.
+        var isBack = false
+        defer {
+            if !isBack {
+                gtk_settings_reset_property(settings, "gtk-xft-dpi")
+                adw_overlay_split_view_set_show_sidebar(window.outer, 1)
+            }
+        }
         adw_overlay_split_view_set_show_sidebar(window.outer, 0)
-        defer { adw_overlay_split_view_set_show_sidebar(window.outer, 1) }
         await settle()
         set(raw(settings), "gtk-xft-dpi", .int(96 * 1024 * 3 / 4))
-        defer { gtk_settings_reset_property(settings, "gtk-xft-dpi") }
         try await resize(to: 1280)
         window.list.select(id: ids[0])
         try await until("the details beside the list, with their tabs in their header bar", seconds: 5) {
@@ -659,6 +666,11 @@ extension SelfCheck {
         try await until("\(what), not the \(focusType) in the \(pane(of: focusWidget))", seconds: 3) {
             self.focusWidget.map { window.isInside($0, details.switcherBar) && gtk_widget_get_mapped($0) != 0 } == true
         }
+        isBack = true
+        gtk_settings_reset_property(settings, "gtk-xft-dpi")
+        await settle()
+        adw_overlay_split_view_set_show_sidebar(window.outer, 1)
+        await settle()
         return "a tab of the details beside the list, as the tabs go under the pages at 1000 px: the tab there"
     }
 
@@ -724,17 +736,24 @@ extension SelfCheck {
             gtk_widget_get_mapped(search.entry) != 0 && fieldFocused()
         }
         moves = []
+        // libadwaita 1.7 and later move the focus on from the toggle themselves, and would move it on
+        // again from the switch.
+        let movesOn = !LibraryVersion.adwaita(atLeast: 7)
         var wentOn = false
         let onToTheSwitch = connect(window.window, "notify::focus-widget") { [weak self] in
-            guard let self, !wentOn, self.focusWidget == window.sidebarToggle else { return }
-            wentOn = true
-            gtk_widget_grab_focus(window.captureSwitch)
+            guard let self, !wentOn else { return }
+            if self.focusWidget == window.captureSwitch {
+                wentOn = true
+            } else if movesOn, self.focusWidget == window.sidebarToggle {
+                wentOn = true
+                gtk_widget_grab_focus(window.captureSwitch)
+            }
         }
         do {
             defer { g_signal_handler_disconnect(raw(window.window), onToTheSwitch) }
             try await resize(to: 700)
         }
-        try require(wentOn, "as the sidebar folded away, the focus didn't go to its toggle: \(moves)")
+        try require(wentOn, "as the sidebar folded away, the focus didn't go to the capture switch: \(moves)")
         try await until("the search's field to keep the focus at 700 px, not the \(focusType): \(moves)", seconds: 3) {
             fieldFocused()
         }
