@@ -36,6 +36,7 @@ extension SelfCheck {
             ("a window of the live window's", { try await self.checkSecondaryWindow(window) }),
             ("the banners", { try await self.checkBanners(window) }),
             ("the Messages page", { try await self.checkMessagesPage() }),
+            ("a closed file window", { try await self.checkClosedWindowGoes() }),
         ]
         for (name, step) in steps {
             let (_, lines) = try await standardError { try await step() }
@@ -365,9 +366,24 @@ extension SelfCheck {
         await settle()
     }
 
+    /// A file's window, once closed, goes, with its list, its details and the rest: nothing keeps it.
+    private func checkClosedWindowGoes() async throws {
+        let closed = WeakWindow()
+        app.open([try Self.macSession()])
+        try await until("Mac 1.0.reqly's window") { app.fileWindows.first?.list.total ?? 0 > 0 }
+        closed.window = app.fileWindows.first
+        await settle()
+        if let window = closed.window {
+            app.closeWindow(window)
+        }
+        try await until("the closed window to go", seconds: 10) { closed.window == nil }
+        note("a file's window, closed, goes")
+    }
+
     /// A real GNotification, sent as a release sends one, with no notification server, as in the
     /// self-check's container, and what GLib said about it, if anything: run in a copy of Reqly,
-    /// whose log keeps what GLib says away from the self-check's own output.
+    /// whose log keeps what GLib says away from the self-check's own output. Run by name on a
+    /// desktop, it shows one there.
     func probeNotifications() async throws {
         let (_, lines) = try await standardError {
             let notification = g_notification_new("Reqly's self-check")!
@@ -398,6 +414,12 @@ extension SelfCheck {
 @MainActor
 private final class Counter {
     var count = 0
+}
+
+/// A window, held weakly, to see it go.
+@MainActor
+private final class WeakWindow {
+    weak var window: MainWindow?
 }
 
 /// A window the frame part makes, as Rules, Devices or a composer is: an AdwApplicationWindow,

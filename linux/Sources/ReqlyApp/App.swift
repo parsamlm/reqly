@@ -48,7 +48,7 @@ final class App {
     /// Whether every session has closed.
     private var isClosed = false
     /// The sessions of file windows that closed, until their copies have gone.
-    private var closingFiles: [Task<Void, Never>] = []
+    private var closingFiles: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// The session bus's shared connection, which GApplication uses too, kept for as long as
     /// Reqly runs, with its filter.
     private var sessionBus: OpaquePointer?
@@ -218,7 +218,7 @@ final class App {
             return closing
         }
         let files = fileWindows.map(\.model)
-        let closed = closingFiles
+        let closed = Array(closingFiles.values)
         let task = Task { [model] in
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await model.close() }
@@ -323,7 +323,11 @@ final class App {
             gtk_window_destroy(cast(window.window))
             if !isQuitting {
                 let session = window.model
-                closingFiles.append(Task { await session.close() })
+                let key = ObjectIdentifier(session)
+                closingFiles[key] = Task { [weak self] in
+                    await session.close()
+                    self?.closingFiles[key] = nil
+                }
             }
         }
     }

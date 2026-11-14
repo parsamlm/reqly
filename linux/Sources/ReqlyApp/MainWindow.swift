@@ -150,6 +150,9 @@ final class MainWindow {
     private(set) var about: Widget?
     /// Whether the window has shown, once or more.
     private(set) var hasShown = false
+    /// Whether the window has closed and gone, though this object may live on a moment: the work
+    /// that waited on the main loop then does nothing.
+    private(set) var isClosed = false
     /// What the status line says now.
     private(set) var statusWords: StatusLine?
 
@@ -160,6 +163,9 @@ final class MainWindow {
         self.app = app
         self.model = model
         window = adw_application_window_new(cast(app.application))
+        // Held until the window object goes, as its work waiting on the main loop may still look at
+        // it once it's closed.
+        g_object_ref(raw(window))
         gtk_window_set_title(cast(window), model.fileName ?? "Reqly")
         gtk_window_set_icon_name(cast(window), App.id)
         let size = Self.openingSize(within: Self.workArea())
@@ -421,7 +427,12 @@ final class MainWindow {
             }
             arguments.returns(true)
         }
-        model.observe { [weak self] in self?.update() }
+        connect(window, "destroy") { [weak self] in self?.isClosed = true }
+        model.observe { [weak self] in
+            if self?.isClosed == false {
+                self?.update()
+            }
+        }
         model.listen { [weak self] event in
             switch event {
             case .storageProblem(let problem?): self?.toast(problem)
@@ -449,6 +460,10 @@ final class MainWindow {
         if model.isLive {
             appModel.liveWindowShown()
         }
+    }
+
+    isolated deinit {
+        g_object_unref(raw(window))
     }
 
     /// Whether the window shows: the live window hides once it's closed.
@@ -657,7 +672,7 @@ final class MainWindow {
     /// it's asked for, and an empty list asks you to turn on capture.
     private func giveFirstFocus() {
         idle { [weak self] in
-            guard let self, visibleDialog(over: window) == nil else { return false }
+            guard let self, !isClosed, visibleDialog(over: window) == nil else { return false }
             // As a fold's looks would take it back.
             focusTurn += 1
             focusContent()
@@ -692,7 +707,7 @@ final class MainWindow {
         adw_navigation_split_view_set_show_content(inner, 1)
         announce(window, words)
         idle { [weak self] in
-            guard let self, detailsAreOver else { return false }
+            guard let self, !isClosed, detailsAreOver else { return false }
             if focusesTab, details.focusTab() {
                 return false
             }
@@ -744,7 +759,7 @@ final class MainWindow {
     private func detailsChanged() {
         guard adw_navigation_split_view_get_show_content(inner) == 0 else { return }
         idle { [weak self] in
-            guard let self else { return false }
+            guard let self, !isClosed else { return false }
             let focus = gtk_root_get_focus(cast(window))
             if focus.map({ isInside($0, details.widget) }) ?? true {
                 focusContent()
@@ -798,7 +813,7 @@ final class MainWindow {
     /// themselves, as it shows or just after, on the main menu's button or the row the sidebar's
     /// list had before: the chosen scope's row has it instead, as with libadwaita 1.5.
     private func focusTheChosenScope() {
-        if sidebarIsOver {
+        if !isClosed, sidebarIsOver {
             sidebar.focus()
         }
     }
@@ -810,7 +825,7 @@ final class MainWindow {
     private func leaveDetailsThatDontShow() {
         guard isInHiddenDetails else { return }
         idle { [weak self] in
-            if let self, isInHiddenDetails {
+            if let self, !isClosed, isInHiddenDetails {
                 focusContent()
             }
             return false
@@ -865,6 +880,7 @@ final class MainWindow {
     /// Runs `body` once the list has every change in, looking every 20 ms, `tries` times, and then
     /// runs it anyway.
     private func whenListSettles(tries: Int, _ body: @escaping @MainActor () -> Void) {
+        guard !isClosed else { return }
         if list.isSettled || tries == 0 {
             body()
             return
@@ -922,7 +938,7 @@ final class MainWindow {
     /// dialog shows; or if it never shows, the pane that shows has the focus, when it's lost.
     private func focusTab(tries: Int, since before: Int) {
         timeout(20) { [weak self] in
-            guard let self, inputs == before, visibleDialog(over: window) == nil, !details.focusTab() else {
+            guard let self, !isClosed, inputs == before, visibleDialog(over: window) == nil, !details.focusTab() else {
                 return false
             }
             if tries > 0 {
@@ -1029,7 +1045,7 @@ final class MainWindow {
     /// after, so until either the list's pane or the details show, it looks again every 20 ms,
     /// `tries` times, and then gives up.
     private func focusWhatShows(tries: Int, keeping kept: Widget?, in pane: Widget?, fold: Fold?) {
-        guard visibleDialog(over: window) == nil, fold.map({ $0.turn == focusTurn }) ?? true else { return }
+        guard !isClosed, visibleDialog(over: window) == nil, fold.map({ $0.turn == focusTurn }) ?? true else { return }
         if gtk_widget_get_mapped(listPane) == 0, gtk_widget_get_mapped(details.widget) == 0 {
             if tries > 0 {
                 focusWhatShows(after: 20, tries: tries - 1, keeping: kept, in: pane, fold: fold)
@@ -1091,7 +1107,7 @@ final class MainWindow {
         guard findingTimer == nil, let due = found.due else { return }
         let wait = max(0, due - monotonicMicroseconds()) / 1000
         findingTimer = timeout(UInt32(wait)) { [weak self] in
-            guard let self else { return false }
+            guard let self, !isClosed else { return false }
             findingTimer = nil
             if found.isDue(at: monotonicMicroseconds(), settled: list.isSettled) {
                 sayWhatsFound()
@@ -1116,6 +1132,7 @@ final class MainWindow {
     /// Gives the keyboard's focus to the pane that shows: the details over the list, their chosen
     /// page's tab, or the list's selected row, or while the list is empty, the capture switch.
     func focusContent() {
+        guard !isClosed else { return }
         if detailsAreOver {
             if details.focusTab() || gtk_widget_child_focus(details.widget, GTK_DIR_TAB_FORWARD) != 0 {
                 return
@@ -1205,7 +1222,7 @@ final class MainWindow {
     /// window's shortcuts and Tab doing nothing, and Settings' Escape.
     func keepFocusAfterDialog() {
         idle { [weak self] in
-            guard let self else { return false }
+            guard let self, !isClosed else { return false }
             if let dialog = visibleDialog(over: window) {
                 if !hasFocus(inside: dialog) {
                     // From nothing: the dialog would take a hidden widget libadwaita gave the focus
