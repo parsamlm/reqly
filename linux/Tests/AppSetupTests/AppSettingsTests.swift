@@ -76,6 +76,39 @@ import Testing
         #expect(read.proxyPort == 9191 && !read.sidebarShowsApps && read.sidebarShowsDevices && read.sidebarShowsHosts)
     }
 
+    /// Saving and exporting, devices on the network, Welcome and the folded devices start as on
+    /// Windows, are read with Windows' names, and keep their first values when they can't be read.
+    @Test func remembersSavingDevicesAndWelcome() throws {
+        let folder = try scratchFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "Settings.json")
+        let first = AppSettings()
+        #expect(!first.hidesSecretsInSessions && first.hidesSecretsInHar && first.harIncludesResponseBodies)
+        #expect(!first.allowsNetworkDevices && !first.hasSeenWelcome && first.sidebarFoldedDevices.isEmpty)
+
+        try Data(
+            """
+            {"hidesSecretsInSessions": true, "hidesSecretsInHar": false, "harIncludesResponseBodies": false,
+             "allowsNetworkDevices": true, "hasSeenWelcome": true,
+             "sidebarFoldedDevices": ["device:a", "device:b", "device:a"]}
+            """.utf8
+        ).write(to: file)
+        let read = AppSettings.load(from: file)
+        #expect(read.hidesSecretsInSessions && !read.hidesSecretsInHar && !read.harIncludesResponseBodies)
+        #expect(read.allowsNetworkDevices && read.hasSeenWelcome)
+        #expect(read.sidebarFoldedDevices == ["device:a", "device:b"])
+
+        try Data(#"{"hidesSecretsInHar": "no", "hasSeenWelcome": "yes", "sidebarFoldedDevices": "device:a"}"#.utf8)
+            .write(to: file)
+        #expect(AppSettings.load(from: file) == AppSettings())
+
+        var settings = AppSettings()
+        settings.hasSeenWelcome = true
+        settings.sidebarFoldedDevices = ["device:Pixel"]
+        try settings.save(to: file)
+        #expect(AppSettings.load(from: file) == settings)
+    }
+
     @Test func savesAFileOnlyYouCanRead() throws {
         let folder = try scratchFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
