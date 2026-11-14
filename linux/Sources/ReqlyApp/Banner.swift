@@ -31,7 +31,8 @@ final class Banner {
         self.title = title
         adw_banner_set_title(cast(widget), title)
         adw_banner_set_revealed(cast(widget), 1)
-        announce(widget, title)
+        // From its window, as GTK says nothing from a widget that's only now coming into view.
+        announce(gtk_widget_get_root(widget).map { cast($0) as Widget } ?? widget, title)
     }
 
     /// Hides it. Shown again, it's heard again.
