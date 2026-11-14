@@ -183,7 +183,7 @@ import Testing
     }
 
     /// A saved file's search index is there to be thrown away, so a file whose index is damaged
-    /// opens all the same, with a new one.
+    /// opens all the same, with a new one, wherever SQLite can build a new one.
     @Test func opensAFileWhoseSearchIndexIsDamaged() async throws {
         let root = F.temporaryFolder()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -197,6 +197,20 @@ import Testing
         data[record.lowerBound + 4] = 0xFE
         let damaged = root.appending(path: "Damaged.reqly")
         try data.write(to: damaged)
+
+        // Older SQLite, such as Ubuntu 24.04's 3.45, reads the structure as soon as it uses the
+        // index at all, so it can't build a new one in such a file, which never opened there.
+        // Newer ones read it only to change a setting.
+        let copy = root.appending(path: "Copy.reqly")
+        try data.write(to: copy)
+        let queue = try DatabaseQueue(path: copy.path(percentEncoded: false))
+        let rebuilds =
+            (try? await queue.write { try $0.execute(sql: "INSERT INTO search(search) VALUES('delete-all')") }) != nil
+        try queue.close()
+        guard rebuilds else {
+            await #expect(throws: (any Error).self) { try await TrafficStore.openSession(damaged, in: root) }
+            return
+        }
 
         let opened = try await TrafficStore.openSession(damaged, in: root)
         defer { opened.discard() }
