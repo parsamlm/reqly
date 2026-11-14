@@ -4,11 +4,13 @@ import GtkBinding
 import Presentation
 import ReqlyModel
 
-/// The details pane: the selected request on five pages, Overview, Request, Response, Raw and
-/// Timing, with their tabs in the pane's header bar, beside the details' menu, and "No Request
-/// Selected" while there's none. When the pane is narrow, the tabs move under the pages, as
-/// libadwaita's view switchers do. The window shows ``widget`` beside the list, or over it when the
-/// window is narrow.
+/// The details pane: a request, the one selected in a window's list, or the one a composer sent,
+/// in its session, on five pages, Overview, Request, Response, Raw and Timing, and a sixth,
+/// Messages, for a WebSocket's, with their tabs in the pane's header bar, beside the details' menu,
+/// and "No Request Selected" while there's none. When the pane is narrow, the tabs move under the
+/// pages, as libadwaita's view switchers do. The window shows ``widget`` beside the list, or over
+/// it when the window is narrow. While a breakpoint holds the request in the live session, the
+/// paused editor takes the place of its heading, its tabs and its pages: see ``PausedEditing``.
 ///
 /// Each page is one scroller, holding a clamp and a box, ``pages``, which the page's own file
 /// fills, through ``contents``, and where a body goes as a ``BodyView``. ``heading`` sits under the
@@ -24,15 +26,23 @@ import ReqlyModel
 /// changes, the page with the focus in it waits until the focus leaves it, or the request ends.
 @MainActor
 final class DetailsPane {
-    /// The pages, in their tabs' order, which Ctrl+1 to Ctrl+5 follow.
+    /// The pages, in their tabs' order. Messages is a WebSocket's only.
     enum Page: String, CaseIterable {
-        case overview, request, response, raw, timing
+        case overview, request, response, messages, raw, timing
+
+        /// The pages every request has, in their keys' order.
+        static let always: [Page] = [.overview, .request, .response, .raw, .timing]
+
+        /// Its key, with Ctrl: 1 to 5 for the pages every request has, in their tabs' order, and 6
+        /// for Messages, as on the Mac, whether or not the request has messages.
+        var key: Int { (Self.always + [.messages]).firstIndex(of: self)! + 1 }
 
         var title: String {
             switch self {
             case .overview: "Overview"
             case .request: "Request"
             case .response: "Response"
+            case .messages: "Messages"
             case .raw: "Raw"
             case .timing: "Timing"
             }
@@ -44,6 +54,7 @@ final class DetailsPane {
             case .overview: "dialog-information-symbolic"
             case .request: "go-up-symbolic"
             case .response: "go-down-symbolic"
+            case .messages: "network-transmit-receive-symbolic"
             case .raw: "text-x-generic-symbolic"
             case .timing: "preferences-system-time-symbolic"
             }
@@ -74,6 +85,12 @@ final class DetailsPane {
     let contents: [Page: Widget]
     /// Each page's scroller, named by its title for screen readers.
     let scrollers: [Page: Widget]
+    /// Each page's AdwViewStackPage, by which Messages shows for a WebSocket's request only.
+    private let stackPages: [Page: OpaquePointer]
+    /// The paused editor's slot, which takes the pages' place while a breakpoint holds the request
+    /// shown, and the editor in it.
+    let pausedSlot: Widget
+    private(set) var pausedEditor: (any PausedEditing)?
     /// The request the pages show, or `nil` for none.
     private(set) var shown: ExchangeID?
     /// Its row, as the session's list last gave it, with the latest pin, color and comment.
@@ -145,6 +162,11 @@ final class DetailsPane {
     /// The page a live request changed on while the keyboard's focus was in it, which is built
     /// again once the focus leaves it.
     private var waiting: Page?
+    /// What the pane hears from its session and HTTPS, until it goes, as a composer's does before
+    /// the live session.
+    private var listener: Int?
+    private var observer: Int?
+    private var httpsObserver: Int?
 
     init(model: SessionModel) {
         self.model = model
@@ -153,6 +175,7 @@ final class DetailsPane {
         var pages: [Page: Widget] = [:]
         var contents: [Page: Widget] = [:]
         var scrollers: [Page: Widget] = [:]
+        var stackPages: [Page: OpaquePointer] = [:]
         for page in Page.allCases {
             let box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18)!
             gtk_widget_set_margin_top(box, 18)
@@ -167,7 +190,8 @@ final class DetailsPane {
             let scroller = DetailsBlocks.scroller(named: page.title)
             gtk_scrolled_window_set_child(cast(scroller), clamp)
             gtk_widget_set_vexpand(scroller, 1)
-            adw_view_stack_add_titled_with_icon(stack, scroller, page.rawValue, page.title, page.icon)
+            stackPages[page] = adw_view_stack_add_titled_with_icon(
+                stack, scroller, page.rawValue, page.title, page.icon)
             pages[page] = box
             contents[page] = filled
             scrollers[page] = scroller
@@ -175,6 +199,9 @@ final class DetailsPane {
         self.pages = pages
         self.contents = contents
         self.scrollers = scrollers
+        self.stackPages = stackPages
+        // Messages shows once the request is a WebSocket's.
+        adw_view_stack_page_set_visible(stackPages[.messages], 0)
 
         // libadwaita 1.7's inline switcher is a row of tabs, made for a header bar; the view
         // switcher before it is made for a window's own.
@@ -219,9 +246,12 @@ final class DetailsPane {
         adw_status_page_set_title(cast(none), "No Request Selected")
         adw_status_page_set_description(cast(none), "Select a request to see its details.")
         gtk_widget_add_css_class(none, "compact")
+        pausedSlot = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0)
+        gtk_widget_set_vexpand(pausedSlot, 1)
         content = gtk_stack_new()
         gtk_stack_add_named(cast(content), none, "none")
         gtk_stack_add_named(cast(content), cast(stack), "pages")
+        gtk_stack_add_named(cast(content), pausedSlot, "paused")
 
         switcherBar = adw_view_switcher_bar_new()
         adw_view_switcher_bar_set_stack(cast(switcherBar), stack)
@@ -278,25 +308,61 @@ final class DetailsPane {
         for tabs in [switcher, switcherBar] {
             focusTabOnClick(tabs)
         }
-        model.listen { [weak self] event in
+        listener = model.listen { [weak self] event in
             guard let self, let shown, case .rows(_, _, _, let steps) = event else { return }
             // A live request changes as it goes, and one a filter hides sends no change.
             if steps.contains(where: { Self.step($0, mentions: shown) }) || summary?.state.isFinished == false {
                 read()
             }
         }
-        model.https.observe { [weak self] in self?.httpsChanged() }
+        // The app's changes, such as a request a breakpoint holds or lets go.
+        observer = model.observe { [weak self] in self?.showPaused() }
+        httpsObserver = model.https.observe { [weak self] in self?.httpsChanged() }
+        // Its window gone, it hears nothing more, though the session lives on, as the live one does
+        // after a composer, or a file's while it closes.
+        connect(widget, "destroy") { [weak self] in self?.stopHearing() }
         show(nil)
+    }
+
+    isolated deinit {
+        stopHearing()
+    }
+
+    /// Stops hearing the session's events and changes, and HTTPS's.
+    private func stopHearing() {
+        if let listener {
+            model.stopListening(listener)
+        }
+        if let observer {
+            model.stopObserving(observer)
+        }
+        if let httpsObserver {
+            model.https.stopObserving(httpsObserver)
+        }
+        (listener, observer, httpsObserver) = (nil, nil, nil)
     }
 
     /// The page that shows, or shows once there's a request: the one you chose.
     var page: Page { chosen }
 
+    /// Chooses `page`, which shows for each request that has it.
     func show(page: Page) {
         chosen = page
+        showChosenPage()
+    }
+
+    /// Whether the request shown has `page`: Messages is a WebSocket's only.
+    func has(_ page: Page) -> Bool {
+        page != .messages || summary?.isWebSocket == true
+    }
+
+    /// Messages' tab shows while the request is a WebSocket's, and the page you chose shows when
+    /// the request has it, or else Overview, as on the Mac, while it stays chosen for the next.
+    private func showChosenPage() {
         isChoosing = true
-        adw_view_stack_set_visible_child_name(stack, chosen.rawValue)
-        isChoosing = false
+        defer { isChoosing = false }
+        adw_view_stack_page_set_visible(stackPages[.messages], cBool(has(.messages)))
+        adw_view_stack_set_visible_child_name(stack, (has(chosen) ? chosen : .overview).rawValue)
     }
 
     /// Whether `page` shows what it holds for the request shown, once its details are read.
@@ -341,15 +407,48 @@ final class DetailsPane {
             g_object_unref(raw(widget))
         }
         gtk_widget_set_visible(commentSection, 0)
-        let pagesView: Widget = cast(stack)
-        gtk_stack_set_visible_child(cast(content), id == nil ? none : pagesView)
-        adw_header_bar_set_show_title(cast(headerBar), cBool(id != nil))
-        gtk_widget_set_visible(switcherBar, cBool(id != nil))
         gtk_widget_set_visible(heading, 0)
         gtk_widget_set_sensitive(menuButton, cBool(id != nil))
+        showChosenPage()
+        showPaused()
         updateActions()
         if id != nil {
             read()
+        }
+    }
+
+    // MARK: - The paused editor
+
+    /// Whether the paused editor shows in the pages' place.
+    var showsPausedEditor: Bool { pausedEditor != nil }
+
+    /// While a breakpoint holds the request shown, in the live session, its paused editor takes the
+    /// place of the heading, the tabs and the pages, as on the Mac, and goes once the request goes
+    /// on. A focus that was in the pages goes to the editor. Otherwise the pages show, or "No
+    /// Request Selected".
+    private func showPaused() {
+        let isHeld = shown.map { id in model.isLive && model.app.paused.contains { $0.id == id } } ?? false
+        if !isHeld, let editor = pausedEditor {
+            pausedEditor = nil
+            gtk_box_remove(cast(pausedSlot), editor.widget)
+        }
+        var made = false
+        if isHeld, pausedEditor == nil, let id = shown, let editor = makePausedEditor(for: id) {
+            pausedEditor = editor
+            gtk_box_append(cast(pausedSlot), editor.widget)
+            made = true
+        }
+        let focus = gtk_widget_get_root(widget).flatMap { gtk_root_get_focus($0) }
+        let hadFocus = focus.map { gtk_widget_is_ancestor($0, content) != 0 } ?? false
+        let pagesView: Widget = cast(stack)
+        let showing: Widget = pausedEditor != nil ? pausedSlot : shown == nil ? none : pagesView
+        gtk_stack_set_visible_child(cast(content), showing)
+        let showsPages = shown != nil && pausedEditor == nil
+        adw_header_bar_set_show_title(cast(headerBar), cBool(showsPages))
+        gtk_widget_set_visible(switcherBar, cBool(showsPages))
+        gtk_widget_set_visible(heading, cBool(showsPages && details != nil && summary != nil))
+        if made, hadFocus, let editor = pausedEditor {
+            gtk_widget_child_focus(editor.widget, GTK_DIR_TAB_FORWARD)
         }
     }
 
@@ -397,7 +496,8 @@ final class DetailsPane {
         headingView.show(
             DetailsHeading(summary, reason: details.exchange.response?.reason, grpc: details.grpc),
             annotation: summary.annotation)
-        gtk_widget_set_visible(heading, 1)
+        gtk_widget_set_visible(heading, cBool(pausedEditor == nil))
+        showChosenPage()
         showComment()
         if focusesComment {
             focusesComment = false
@@ -460,6 +560,7 @@ final class DetailsPane {
         case .overview: rebuild(page, showing: overviewContent(details), buildOverview, waitsForFocus)
         case .request: rebuild(page, showing: messageContent(details, .request), buildMessage, waitsForFocus)
         case .response: rebuild(page, showing: messageContent(details, .response), buildMessage, waitsForFocus)
+        case .messages: rebuild(page, showing: messagesContent(details), buildMessages, waitsForFocus)
         case .raw: rebuild(page, showing: rawContent(details), buildRaw, waitsForFocus)
         case .timing: rebuild(page, showing: timingContent(details), buildTiming, waitsForFocus)
         }

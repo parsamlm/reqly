@@ -67,7 +67,7 @@ enum ShortcutList {
             items: [
                 Item(title: "Copy URL", keys: "<Shift><Control>c"),
                 Item(title: "Copy as cURL", keys: "<Control><Alt>c"),
-            ] + DetailsPane.Page.allCases.enumerated().map { Item(title: $1.title, keys: "<Control>\($0 + 1)") }),
+            ] + (DetailsPane.Page.always + [.messages]).map { Item(title: $0.title, keys: "<Control>\($0.key)") }),
         Section(
             title: "Rules and Devices",
             items: [

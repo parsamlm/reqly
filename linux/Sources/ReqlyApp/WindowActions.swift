@@ -5,7 +5,8 @@ import ReqlyModel
 extension MainWindow {
     /// The window's actions, `win.<name>`, each with its keyboard shortcut, as GNOME's apps have
     /// them, and the Mac's where GNOME has none: F9 shows and hides the sidebar; Ctrl+F searches;
-    /// Ctrl+1 to Ctrl+5 choose the details' pages, `win.page::overview` to `win.page::timing`;
+    /// Ctrl+1 to Ctrl+5 choose the details' pages, `win.page::overview` to `win.page::timing`, and
+    /// Ctrl+6 a WebSocket's Messages;
     /// Ctrl+K clears the traffic, but for pinned requests; Ctrl+R starts or stops capturing. Ctrl+S
     /// saves the window's session and Shift+Ctrl+E exports it as HAR; Shift+Ctrl+C and Ctrl+Alt+C
     /// copy the request shown's URL and a cURL command; Ctrl+W closes a file's window, but not the
@@ -51,8 +52,8 @@ extension MainWindow {
         g_action_map_add_action(cast(window), cast(pageAction))
         g_object_unref(raw(pageAction))
         self.pageAction = pageAction
-        for (index, page) in DetailsPane.Page.allCases.enumerated() {
-            withCStrings(["<Control>\(index + 1)"]) {
+        for page in DetailsPane.Page.allCases {
+            withCStrings(["<Control>\(page.key)"]) {
                 gtk_application_set_accels_for_action(cast(app.application), "win.page::\(page.rawValue)", $0)
             }
         }
@@ -120,11 +121,12 @@ extension MainWindow {
         gtk_switch_set_active(cast(captureSwitch), cBool(gtk_switch_get_active(cast(captureSwitch)) == 0))
     }
 
-    /// Ctrl+1 to Ctrl+5: the details' page, which screen readers then say, since only the tabs
+    /// Ctrl+1 to Ctrl+6: the details' page, which screen readers then say, since only the tabs
     /// show it. Folded away under the list, the details come over it, and only the page is said.
-    /// With no request, as on the Mac, they do nothing: the action is off.
+    /// With no request, as on the Mac, they do nothing: the action is off. Nor does Ctrl+6 for a
+    /// request that isn't a WebSocket's, which has no Messages.
     func choose(_ page: DetailsPane.Page) {
-        guard visibleDialog(over: window) == nil, details.shown != nil else { return }
+        guard visibleDialog(over: window) == nil, details.shown != nil, details.has(page) else { return }
         details.show(page: page)
         if !openDetails(saying: page.title) {
             announce(window, page.title)

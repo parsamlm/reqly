@@ -28,8 +28,9 @@ final class SessionModel {
     /// The latest `exportProgress` event: how many of the requests a HAR export has written.
     private(set) var exportProgress: (done: Int, total: Int)?
 
-    private var observers: [@MainActor () -> Void] = []
-    private var listeners: [@MainActor (Event) -> Void] = []
+    private var observers: [(id: Int, body: @MainActor () -> Void)] = []
+    private var listeners: [(id: Int, body: @MainActor (Event) -> Void)] = []
+    private var lastID = 0
     /// The events that came before the window listened, until ``startEvents()``.
     private var waiting: [Event]? = []
     private var opening: Task<Void, Never>?
@@ -76,20 +77,37 @@ final class SessionModel {
 
     // MARK: - Changes and events
 
-    /// Runs `body` after each change to the session's state, or to the app's.
-    func observe(_ body: @escaping @MainActor () -> Void) {
-        observers.append(body)
+    /// Runs `body` after each change to the session's state, or to the app's, until
+    /// ``stopObserving(_:)`` with what it returns, as a pane that goes before its session does, such
+    /// as a composer's details.
+    @discardableResult
+    func observe(_ body: @escaping @MainActor () -> Void) -> Int {
+        lastID += 1
+        observers.append((lastID, body))
+        return lastID
     }
 
-    /// Hands `body` each of the session's events, in order, once the window has started them.
-    func listen(_ body: @escaping @MainActor (Event) -> Void) {
-        listeners.append(body)
+    func stopObserving(_ observer: Int) {
+        observers.removeAll { $0.id == observer }
+    }
+
+    /// Hands `body` each of the session's events, in order, once the window has started them, until
+    /// ``stopListening(_:)`` with what it returns.
+    @discardableResult
+    func listen(_ body: @escaping @MainActor (Event) -> Void) -> Int {
+        lastID += 1
+        listeners.append((lastID, body))
+        return lastID
+    }
+
+    func stopListening(_ listener: Int) {
+        listeners.removeAll { $0.id == listener }
     }
 
     /// Tells the observers that the state changed.
     func changed() {
         for observer in observers {
-            observer()
+            observer.body()
         }
     }
 
@@ -117,7 +135,7 @@ final class SessionModel {
 
     private func deliver(_ event: Event) {
         for listener in listeners {
-            listener(event)
+            listener.body(event)
         }
     }
 

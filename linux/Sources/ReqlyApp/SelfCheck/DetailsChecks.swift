@@ -1071,7 +1071,7 @@ extension SelfCheck {
     // MARK: - Pictures
 
     /// Pictures of `pages` in light and dark, as they show now.
-    private func takePictures(_ name: String, pages: [DetailsPane.Page] = DetailsPane.Page.allCases) async throws {
+    private func takePictures(_ name: String, pages: [DetailsPane.Page] = DetailsPane.Page.always) async throws {
         let manager = adw_style_manager_get_default()
         let scheme = adw_style_manager_get_color_scheme(manager)
         defer { adw_style_manager_set_color_scheme(manager, scheme) }

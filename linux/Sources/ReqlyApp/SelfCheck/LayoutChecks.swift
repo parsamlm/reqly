@@ -10,7 +10,7 @@ extension SelfCheck {
         [
             ("win.toggle-sidebar", "F9"), ("win.search", "<Control>f"), ("win.clear", "<Control>k"),
             ("win.toggle-capture", "<Control>r"),
-        ] + DetailsPane.Page.allCases.enumerated().map { ("win.page::\($1.rawValue)", "<Control>\($0 + 1)") }
+        ] + DetailsPane.Page.allCases.map { ("win.page::\($0.rawValue)", "<Control>\($0.key)") }
 
     /// The window's panes at 1280, 1000 and 700 pixels wide, and at 1280 with the text at 1.25, as
     /// the window's breakpoints have them: the details beside the list or over it, the sidebar
