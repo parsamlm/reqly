@@ -87,6 +87,7 @@ let package = Package(
                 "LinuxDesktop", "LinuxTrust", "LinuxApps",
                 .product(name: "CoreInterface", package: "core-interface"),
                 .product(name: "CertificateAuthority", package: "core"),
+                .product(name: "DeviceBridge", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
             ]
         ),

@@ -85,6 +85,18 @@ import Testing
         #expect(throws: Options.UsageError.self) { try Options(["--trust-helper", "packaging/reqly-trust"]) }
     }
 
+    /// The self-check's emulators part runs a stand-in for adb, by its full path, so no real adb
+    /// runs, and the stand-in makes a test run, whose sessions find it in their system's parts.
+    @Test func takesAStandInForAdb() throws {
+        let options = try Options(["--adb-stand-in", "/t/adb"])
+        #expect(options.adbStandIn == "/t/adb" && options.isTestRun)
+        #expect(options.systemParts.findAdb()?.executable.path == "/t/adb")
+        #expect(try Options([]).adbStandIn == nil)
+        #expect(throws: Options.UsageError("--adb-stand-in takes the program's full path, starting with /, not adb.")) {
+            try Options(["--adb-stand-in", "adb"])
+        }
+    }
+
     /// The self-check's logout part has a copy of Reqly close slowly. The delay alone doesn't make
     /// a test run, and only a test run waits.
     @Test func takesACloseDelay() throws {

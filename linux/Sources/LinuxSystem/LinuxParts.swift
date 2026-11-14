@@ -1,5 +1,6 @@
 import CertificateAuthority
 import CoreInterface
+import DeviceBridge
 import Foundation
 import LinuxApps
 import LinuxDesktop
@@ -18,13 +19,14 @@ extension SystemParts {
 
     /// Linux's parts, with the root helper that trusts the certificate in the computer's list at
     /// `trustHelper`, such as a development build's copy, instead of the installed one. pkexec runs
-    /// it as root, so keep it where only root can change it, as `sudo install` puts it.
+    /// it as root, so keep it where only root can change it, as `sudo install` puts it. With `adb`,
+    /// a test run's stand-in for adb runs in place of the one the core finds.
     ///
     /// The certificate store keeps the key in your keyring, and in the file the session's
     /// `rootFile` names only when there's no keyring to use; the certificate's other files go
     /// beside that file, so name one in ``LinuxFolders/data``, as ``LinuxFolders/rootFile`` does.
     /// The secrets work the same way: in your keyring, or in their file, which only you can read.
-    public static func linux(trustHelper: String? = nil) -> SystemParts {
+    public static func linux(trustHelper: String? = nil, adb: String? = nil) -> SystemParts {
         SystemParts(
             rootStore: { file in linuxRootStore(file: file, trustHelper: trustHelper) },
             proxySwitch: { restoreFile, standIn in
@@ -41,6 +43,7 @@ extension SystemParts {
                 NetworkAddresses.current().map { SystemParts.Address(interface: $0.interface, address: $0.address) }
             },
             hardwareAddress: { NetworkNeighbors.hardwareAddress(of: $0) },
+            findAdb: { adb.map { AndroidDebugBridge(executable: URL(filePath: $0)) } ?? AndroidDebugBridge.find() },
             lowestPort: { lowestPort() })
     }
 
