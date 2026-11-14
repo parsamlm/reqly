@@ -11,9 +11,20 @@ if (-not $env:GITHUB_ENV -or -not $env:GITHUB_PATH) { throw 'This is for GitHub 
 $temp = Join-Path $env:RUNNER_TEMP 'reqly-tools'
 New-Item -ItemType Directory -Force $temp | Out-Null
 
+# Three tries, so one dropped connection doesn't fail the job. The hash is checked after.
 function Download([string]$url, [string]$file) {
-    "Downloading $url"
-    Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing
+    foreach ($try in 1..3) {
+        "Downloading $url"
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing
+            return
+        }
+        catch {
+            if ($try -eq 3) { throw }
+            "That failed: $($_.Exception.Message) Trying again in $(10 * $try) seconds."
+            Start-Sleep -Seconds (10 * $try)
+        }
+    }
 }
 
 function Check([string]$file, [string]$sha256, [string]$what) {
