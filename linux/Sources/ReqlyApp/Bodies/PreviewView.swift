@@ -275,48 +275,10 @@ final class PreviewView {
     /// Asks where to save the picture, then saves it there.
     private func saveImage() {
         Task { [weak self] in
-            guard let self else { return }
+            guard let self, let window = gtk_widget_get_root(widget).map({ cast($0) as Widget }) else { return }
             let name = BodyWords.fileName(for: format, url: await url())
-            let dialog = gtk_file_dialog_new()!
-            gtk_file_dialog_set_title(dialog, "Save Image")
-            gtk_file_dialog_set_initial_name(dialog, name)
-            let (callback, context) = whenReady { [weak self] source, result in
-                defer { g_object_unref(raw(source)) }
-                guard let file = gtk_file_dialog_save_finish(cast(source), result, nil) else {
-                    Self.closeWhatTheDialogLeft()
-                    return
-                }
-                defer { g_object_unref(raw(file)) }
-                guard let path = takeString(g_file_get_path(file)) else { return }
-                self?.save(to: URL(filePath: path))
-            }
-            gtk_file_dialog_save(dialog, cast(gtk_widget_get_root(widget)), nil, callback, context)
-        }
-    }
-
-    /// GTK 4.14's Save dialog, closed while it still reads its folder, as with a quick Escape,
-    /// says it couldn't, "The folder contents could not be displayed", in a window of its own with
-    /// no window under it, which keeps the keyboard and the mouse from Reqly's until it's closed.
-    /// For a second after the dialog closes, such a window is closed: a modal GtkMessageDialog
-    /// with no parent, which Reqly never makes.
-    private static func closeWhatTheDialogLeft() {
-        var checks = 0
-        timeout(50) {
-            checks += 1
-            let windows = gtk_window_get_toplevels()
-            let left = (0..<g_list_model_get_n_items(windows)).compactMap { index -> Widget? in
-                guard let item = g_list_model_get_item(windows, index) else { return nil }
-                g_object_unref(item)
-                let window: Widget = cast(item)
-                let isLeft =
-                    typeName(item) == "GtkMessageDialog" && gtk_window_get_modal(cast(window)) != 0
-                    && gtk_window_get_transient_for(cast(window)) == nil && gtk_widget_get_mapped(window) != 0
-                return isLeft ? window : nil
-            }
-            for window in left {
-                gtk_window_destroy(cast(window))
-            }
-            return checks < 20
+            guard let file = await FileDialogs.save(title: "Save Image", over: window, name: name) else { return }
+            save(to: file)
         }
     }
 
