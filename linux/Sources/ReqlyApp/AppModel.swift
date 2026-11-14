@@ -153,8 +153,9 @@ final class AppModel {
     }
 
     /// One of the live session's events: the app keeps what breakpoints hold and who waits, at
-    /// once, and the live window hears each event once it listens.
-    private func handle(_ event: Event) {
+    /// once, and the live window hears each event once it listens. The self-check hands it
+    /// made-up events too, such as a device that waits.
+    func handle(_ event: Event) {
         switch event {
         case .paused(let id, let edit):
             if let index = paused.firstIndex(where: { $0.id == id }) {

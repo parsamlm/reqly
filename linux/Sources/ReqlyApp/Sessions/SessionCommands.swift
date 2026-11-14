@@ -27,9 +27,11 @@ extension MainWindow {
     /// Copy Response Body: the response's body, as text, an image, or hex.
     func copyResponseBody(of id: ExchangeID) {}
 
-    /// Resend: the request again, through the live session.
+    /// Resend: the request again, through the live session, with the live window shown, from
+    /// whichever window's session the request is in.
     func resend(_ id: ExchangeID) {}
 
-    /// Edit and Resend…: a composer on the request.
+    /// Edit and Resend…: a composer on the request, which sends through the live session, with the
+    /// live window shown.
     func editAndResend(_ id: ExchangeID) {}
 }

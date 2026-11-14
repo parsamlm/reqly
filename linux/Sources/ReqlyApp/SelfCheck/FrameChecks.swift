@@ -14,7 +14,8 @@ extension SelfCheck {
     /// off, and the button says so; Keyboard Shortcuts opens; the new actions wait behind a dialog;
     /// Shift+Ctrl+D runs Devices, not GTK's Inspector; a file's window has no capture switch or
     /// Rules button, the Request menu's entries in its rows' menu, and Show Live Traffic; Ctrl+W
-    /// closes it, but not the live window. GTK warns of nothing meanwhile.
+    /// closes it, but not the live window; the new events reach the app's model. GTK warns of
+    /// nothing meanwhile.
     func checkFrame() async throws {
         let window = window
         _ = try await session()
@@ -25,6 +26,7 @@ extension SelfCheck {
             ("behind a dialog", { try await self.checkBehindADialog(window) }),
             ("Shift+Ctrl+D", { try await self.checkDevicesKey(window) }),
             ("a file's window", { try await self.checkFileWindow(window) }),
+            ("the new events", { try await self.checkNewEvents() }),
         ]
         for (name, step) in steps {
             let (_, lines) = try await standardError { try await step() }
@@ -178,6 +180,36 @@ extension SelfCheck {
         try require(window.isShowing && !app.isQuitting, "closing the file's window closed the live one")
         note("Ctrl+W: the live window stays; the file's window closes")
         await settle()
+    }
+
+    /// The events Step 5 adds reach the app's model, made up here: a device that waits, until the
+    /// devices read again say it doesn't; a request resumed that the model didn't hold; and how far
+    /// a file window's export got, which its session keeps, though its window listens later.
+    private func checkNewEvents() async throws {
+        let devices = try present(model.devices, "the live session has no devices")
+        model.handle(.deviceWaiting(id: "made-up", address: "192.0.2.1", waiting: 1))
+        try require(
+            model.waitingDevice == AppModel.WaitingDevice(id: "made-up", address: "192.0.2.1", waiting: 1),
+            "the waiting device is \(String(describing: model.waitingDevice))")
+        var answered = devices
+        answered.waiting = []
+        model.devicesChanged(answered)
+        try require(model.waitingDevice == nil, "the device still waits once the devices say none does")
+        model.handle(.resumed(id: ExchangeID(rawValue: 999_999)))
+        try require(model.paused.isEmpty, "\(model.paused.count) requests are held")
+        let file = SessionModel(app: model, file: try Self.macSession())
+        var heard: [Int] = []
+        file.listen { event in
+            if case .exportProgress(let done, _) = event {
+                heard.append(done)
+            }
+        }
+        file.receive(.exportProgress(done: 25, total: 40))
+        try require(
+            file.exportProgress?.done == 25 && heard.isEmpty, "the export's progress didn't wait for its window")
+        file.startEvents()
+        try require(heard == [25], "once its window listened, it heard \(heard)")
+        note("a device waited, then didn't; an unknown request resumed; an export's progress waited for its window")
     }
 
     /// Every toplevel window GTK has, shown or not.

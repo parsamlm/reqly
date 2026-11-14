@@ -8,7 +8,8 @@ extension MainWindow {
     func showRules() {}
 
     /// Add Rule ▸ `kind`, on `summary`'s request: a new rule of that kind that matches it, in the
-    /// live session, from whichever window's session the request is in.
+    /// live session, with the live window shown, from whichever window's session the request is
+    /// in.
     func addRule(_ kind: RuleKind, for summary: ExchangeSummary) {}
 }
 
