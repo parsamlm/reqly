@@ -180,6 +180,18 @@ extension SelfCheck {
                 "the rows' menu has no \(command.actionName)")
         }
         note("Mac 1.0.reqly's window: \(file.list.total) requests, \(status) in its status line")
+        // Decrypting is the live session's: a file's encrypted connection offers it in neither menu.
+        let session = try present(file.model.session, "the file's session isn't open")
+        let summaries = await session.rows(await session.rowIDs().ids)
+        let tunnel = try present(summaries.first { $0.kind == .tunnel }, "Mac 1.0.reqly has no encrypted connection")
+        file.list.select(id: tunnel.id)
+        try await until("the encrypted connection's details") { file.details.details?.exchange.id == tunnel.id }
+        await settle()
+        let decrypts = g_action_group_get_action_enabled(cast(file.details.actions), "decrypt") != 0
+        try require(!decrypts, "the details' menu offers to decrypt \(tunnel.host) in a file's window")
+        try require(file.list.menu.decrypts?(tunnel.host) == nil, "the row's menu offers to decrypt \(tunnel.host)")
+        note("\(tunnel.host)'s encrypted connection: no Decrypt in the details' menu or the row's")
+        file.list.select(id: nil)
         await settle()
 
         try FakeInput.press("Control_L", "w", in: window.window)

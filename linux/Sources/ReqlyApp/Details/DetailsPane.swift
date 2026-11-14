@@ -117,7 +117,7 @@ final class DetailsPane {
     private let content: Widget
     private let none: Widget
     /// The details' actions, `details.<name>`, for the heading's buttons and the menu.
-    private let actions: OpaquePointer
+    let actions: OpaquePointer
     private let colorAction: OpaquePointer
     /// The Color button's menu, and the details' menu's Color submenu: None and the seven colors.
     private let colors: OpaquePointer
@@ -865,15 +865,16 @@ final class DetailsPane {
         }
     }
 
-    /// The actions on while there's a request, and Decrypt while this session decrypts and the
-    /// request is HTTPS; and the menu's entries as they fit the request: Pin or Unpin Request,
+    /// The actions on while there's a request, and Decrypt while the request is HTTPS, in the live
+    /// session, whose hosts Reqly decrypts; and the menu's entries as they fit the request: Pin or Unpin Request,
     /// Color, Add or Edit Comment…, then Decrypt or Stop Decrypting its host.
     private func updateActions() {
         let annotation = summary?.annotation ?? Annotation()
         let host = details?.exchange.request.host ?? ""
         // HTTPS is all there is to decrypt, as in the row's menu.
         let isHTTPS = details?.exchange.request.scheme == "https"
-        let decrypts = host.isEmpty || !isHTTPS ? nil : model.https.decrypts(host)
+        // A saved session's hosts are the live session's to decrypt, as in the row's menu.
+        let decrypts = host.isEmpty || !isHTTPS || model.isSaved ? nil : model.https.decrypts(host)
         // The menu reads an underscore as the next letter's shortcut.
         let shownHost = host.replacingOccurrences(of: "_", with: "__")
         let hasRequest = shown != nil && summary != nil
@@ -931,7 +932,8 @@ final class DetailsPane {
     }
 
     private func toggleDecrypting() {
-        guard let host = details?.exchange.request.host, let decrypts = model.https.decrypts(host) else { return }
+        guard !model.isSaved, let host = details?.exchange.request.host, let decrypts = model.https.decrypts(host)
+        else { return }
         decrypt(!decrypts, host)
     }
 
