@@ -8,9 +8,9 @@ using System.Text;
 namespace Reqly.Smoke;
 
 /// <summary>
-/// A server for the self-check's speed part, on this PC's loopback address only. It keeps each
-/// connection open for the next request, as most servers do, and answers <c>/small</c> with a
-/// little JSON and <c>/bytes?n=N</c> with N bytes. Given a certificate, it speaks HTTPS.
+/// A server for the self-check's speed and follow parts, on this PC's loopback address only. It
+/// keeps each connection open for the next request, as most servers do, and answers <c>/small</c>
+/// with a little JSON and <c>/bytes?n=N</c> with N bytes. Given a certificate, it speaks HTTPS.
 /// </summary>
 public sealed class SpeedServer : IDisposable
 {

@@ -72,6 +72,11 @@ public sealed class AppOptions
     public string? TrustRoots { get; private set; }
     /// <summary>For test runs: light or dark, whatever Windows uses, for pictures of both.</summary>
     public string? Theme { get; private set; }
+    /// <summary>
+    /// For test runs: the most requests the session keeps, in place of 100,000, as the Mac's
+    /// -sessionLimit does, so the self-check reaches the limit with a few hundred.
+    /// </summary>
+    public int? SessionLimit { get; private set; }
 
     /// <summary>Saved sessions and HAR files to open, such as when you open one from File Explorer.</summary>
     public List<string> FilesToOpen { get; } = [];
@@ -121,6 +126,7 @@ public sealed class AppOptions
                 case "--smoke-session": options.SmokeSession = value; break;
                 case "--trust-roots": options.TrustRoots = value; break;
                 case "--theme": options.Theme = value; break;
+                case "--session-limit": options.SessionLimit = int.TryParse(value, out var limit) && limit > 0 ? limit : null; break;
                 default: index -= 1; break;
             }
         }

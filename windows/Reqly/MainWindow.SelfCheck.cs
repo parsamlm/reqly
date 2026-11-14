@@ -66,6 +66,11 @@ public sealed partial class MainWindow
             {
                 await CheckCrashReportAsync(path);
             }
+            // Only when asked for by name, with --session-limit: it fills the session to its limit.
+            if (options.SmokeParts?.Contains("follow") == true)
+            {
+                await CheckFollowingAsync(path);
+            }
             // Only when asked for by name, in a release build: it sends thousands of requests.
             if (options.SmokeParts?.Contains("speed") == true)
             {
@@ -371,6 +376,180 @@ public sealed partial class MainWindow
             await Task.Delay(1000);
             Log($"second request: {(int)response.StatusCode}; rows {list?.Rows.Count} of {list?.Total}");
         }
+    }
+
+    /// <summary>
+    /// The self-check's follow part, with <c>--smoke-parts follow</c> and <c>--session-limit</c>,
+    /// such as 300. Past the session's limit, the oldest request goes as each new one comes, so the
+    /// list's count stays the same. Scrolled to its end, the list should still bring each new row
+    /// into view, after single requests and after bursts of 16 at once; scrolled up, it should stay
+    /// where it is.
+    /// </summary>
+    private async Task CheckFollowingAsync(string path)
+    {
+        if (capturingPort is not int port || list is null || options.SessionLimit is not int limit)
+        {
+            Log("follow: not checked, since this run isn't capturing with --session-limit");
+            return;
+        }
+        using var server = new Smoke.SpeedServer();
+        using var client = Client(port);
+        var url = $"http://127.0.0.1:{server.Port}/small";
+
+        // Past the limit, with every request answered, since only finished ones go.
+        var fill = limit + 20;
+        var start = list.Inserted;
+        var answered = 0;
+        for (var sent = 0; sent < fill; sent += 16)
+        {
+            answered += await SendAtOnceAsync(client, $"{url}?fill={sent}", Math.Min(16, fill - sent));
+        }
+        await WaitForAsync(() => list is { IsIdle: true } && list.Inserted - start >= fill);
+        if (list.Rows.Count > 0)
+        {
+            List.ScrollIntoView(list.Rows[^1]);
+        }
+        await Task.Delay(800);
+        Log($"follow: sent {fill}, {answered} answered · total {list.Total} of {limit}, {list.Rows.Count} rows · {(IsAtEnd() ? "at the end" : "not at the end")}");
+
+        // One at a time, with gaps, then 16 at once. Each time, as many old rows go as new ones come.
+        var first = list.Inserted;
+        var checks = 0;
+        var inView = 0;
+        for (var number = 1; number <= 40; number++)
+        {
+            var before = list.Inserted;
+            var answers = await SendAtOnceAsync(client, $"{url}?single={number}", 1);
+            if (await CheckNewestRowAsync($"request {number} of 40", before, 1, answers))
+            {
+                inView++;
+            }
+            checks++;
+            await Task.Delay(200);
+        }
+        for (var burst = 1; burst <= 4; burst++)
+        {
+            var before = list.Inserted;
+            var answers = await SendAtOnceAsync(client, $"{url}?burst={burst}", 16);
+            if (await CheckNewestRowAsync($"burst {burst} of 4", before, 16, answers))
+            {
+                inView++;
+            }
+            checks++;
+            await Task.Delay(200);
+        }
+        Log($"follow: total {list.Total}, inserted +{list.Inserted - first}, newest in view after {inView} of {checks}");
+        await SaveScreenshotAsync(Root, path + ".follow.png");
+        await CheckScrolledUpAsync(path, client, url);
+    }
+
+    /// <summary>
+    /// Waits until `rows` rows have come since `before` and the list has taken in every event, then
+    /// a moment more for it to lay them out, and logs whether its newest row shows and the list is
+    /// at its end. Returns whether both hold.
+    /// </summary>
+    private async Task<bool> CheckNewestRowAsync(string name, long before, int rows, int answered)
+    {
+        await WaitForAsync(() => list is { IsIdle: true } && list.Inserted - before >= rows, 10);
+        // Bringing a row into view moves the list at its next layout.
+        await Task.Delay(300);
+        await WaitForAsync(() => list is { IsIdle: true }, 5);
+        var newest = list?.Rows.LastOrDefault();
+        var shows = newest is not null && IsInView(newest);
+        var atEnd = IsAtEnd();
+        Log($"follow: {name}: {answered} of {rows} answered, +{(list?.Inserted ?? 0) - before} rows, total {list?.Total} · " +
+            $"newest {newest?.Rest} {(shows ? "in view" : "out of view")} · {(atEnd ? "at the end" : "not at the end")}");
+        return shows && atEnd;
+    }
+
+    /// <summary>
+    /// The follow part's control: scrolled up, halfway, the list stays where it is as rows come at
+    /// the end and go at the top, and the newest stays out of view. Then it goes back to its end,
+    /// as the fill left it, and should follow again.
+    /// </summary>
+    private async Task CheckScrolledUpAsync(string path, HttpClient client, string url)
+    {
+        if ((listScroller ??= FindScroller(List)) is not { } scroller || list is null)
+        {
+            Log("follow: scrolled up: not checked, since the list has no scroller");
+            return;
+        }
+        scroller.ChangeView(null, scroller.ScrollableHeight / 2, null, disableAnimation: true);
+        await Task.Delay(800);
+        var top = list.Rows.FirstOrDefault(IsInView);
+        var place = top is null ? null : PlaceInList(top);
+        var before = list.Inserted;
+        for (var number = 1; number <= 5; number++)
+        {
+            await SendAtOnceAsync(client, $"{url}?scrolled-up={number}", 1);
+            await Task.Delay(300);
+        }
+        await SendAtOnceAsync(client, $"{url}?scrolled-up-burst", 16);
+        await WaitForAsync(() => list is { IsIdle: true } && list.Inserted - before >= 21, 10);
+        await Task.Delay(300);
+        string stayed;
+        if (top is null || place is not { } then)
+        {
+            stayed = "wasn't found";
+        }
+        else if (list.Row(top.ID) is null || PlaceInList(top) is not { } now)
+        {
+            stayed = "went out of view";
+        }
+        else
+        {
+            stayed = Math.Abs(now.Top - then.Top) < 1 ? "stayed where it was" : $"moved {now.Top - then.Top:F0} px";
+        }
+        var newest = list.Rows.LastOrDefault();
+        var shows = newest is not null && IsInView(newest);
+        Log($"follow: scrolled up: +{list.Inserted - before} rows · the top row {stayed} · newest {(shows ? "in view" : "out of view")} · " +
+            $"{(IsAtEnd() ? "at the end" : "not at the end")}");
+        await SaveScreenshotAsync(Root, path + ".follow-scrolled-up.png");
+
+        // Back at the end, so the parts after this one see a list that follows. One more request
+        // checks that it does, outside the 44 checks CheckFollowingAsync counts.
+        if (list.Rows.Count > 0)
+        {
+            List.ScrollIntoView(list.Rows[^1]);
+        }
+        await Task.Delay(800);
+        var last = list.Inserted;
+        var answered = await SendAtOnceAsync(client, $"{url}?back-at-the-end", 1);
+        await CheckNewestRowAsync("back at the end", last, 1, answered);
+    }
+
+    /// <summary>Where a row is laid out, from the top of what the list shows, or nothing while it isn't laid out.</summary>
+    private (double Top, double Bottom)? PlaceInList(Traffic.RequestRow row)
+    {
+        listScroller ??= FindScroller(List);
+        if (listScroller is null || List.ContainerFromItem(row) is not FrameworkElement item)
+        {
+            return null;
+        }
+        var bounds = item.TransformToVisual(listScroller).TransformBounds(new Windows.Foundation.Rect(0, 0, item.ActualWidth, item.ActualHeight));
+        return (bounds.Top, bounds.Bottom);
+    }
+
+    /// <summary>Whether a row shows whole: laid out, and inside what the list's scroller shows.</summary>
+    private bool IsInView(Traffic.RequestRow row) =>
+        PlaceInList(row) is { } place && listScroller is { } scroller && place.Top >= -1 && place.Bottom <= scroller.ViewportHeight + 1;
+
+    /// <summary>Sends `count` GETs through `client` at once, and returns how many were answered with a success.</summary>
+    private static async Task<int> SendAtOnceAsync(HttpClient client, string url, int count)
+    {
+        var answers = await Task.WhenAll(Enumerable.Range(0, count).Select(async _ =>
+        {
+            try
+            {
+                using var response = await client.GetAsync(url);
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
+            {
+                return false;
+            }
+        }));
+        return answers.Count(answer => answer);
     }
 
     /// <summary>
