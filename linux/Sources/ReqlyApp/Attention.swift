@@ -100,6 +100,20 @@ protocol ShowsAttention: AnyObject {
     func shows(_ attention: Attention) -> Bool
 }
 
+extension MainWindow: ShowsAttention {
+    /// Whether the live window shows `attention` itself: its banners do, under the list's header
+    /// bar, while the list's pane shows, and so does the paused editor, while the details show the
+    /// request held. A narrow window's details over the list hide the banners.
+    func shows(_ attention: Attention) -> Bool {
+        if case .paused(let id, _, _) = attention.subject, details.shown == id,
+            gtk_widget_get_mapped(details.widget) != 0
+        {
+            return true
+        }
+        return gtk_widget_get_mapped(listPane) != 0
+    }
+}
+
 extension App {
     /// Follows what needs you in the app's model, as breakpoints hold requests and devices ask:
     /// each new one gets your attention, once, and its notification goes once it's answered, or
@@ -139,8 +153,8 @@ extension App {
     @discardableResult
     func getAttention(_ attention: Attention, activeWindow: Widget?) -> AttentionWay {
         let showsIt = activeWindow.map { active -> Bool in
-            if active == liveWindow?.window {
-                return true
+            if let liveWindow, active == liveWindow.window {
+                return liveWindow.shows(attention)
             }
             let secondary = secondaries.first { $0.window == active }
             return (secondary as? ShowsAttention)?.shows(attention) ?? false
@@ -152,7 +166,7 @@ extension App {
         case .toast:
             guard let active = activeWindow else { break }
             let show: @MainActor () -> Void = { [weak self] in self?.show(attention) }
-            if let window = fileWindows.first(where: { $0.window == active }) {
+            if let window = ([liveWindow].compactMap { $0 } + fileWindows).first(where: { $0.window == active }) {
                 window.toast(attention.title, button: attention.button, isUrgent: true, onButton: show)
             } else {
                 DetailsBlocks.toast(

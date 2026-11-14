@@ -326,6 +326,31 @@ extension SelfCheck {
         try require(app.notified.contains(attention), "the notification isn't kept to go once it's answered")
         let live = app.getAttention(attention, activeWindow: window.window)
         try require(live == .nothing, "with the live window active, the way was \(live)")
+        // Narrow, with the details over the list, the live window's banners don't show: a toast.
+        var width: Int32 = 0
+        var height: Int32 = 0
+        gtk_window_get_default_size(cast(window.window), &width, &height)
+        gtk_window_set_default_size(cast(window.window), 700, height)
+        try await until("the details to fold under the list") {
+            adw_navigation_split_view_get_collapsed(window.inner) != 0
+        }
+        await settle()
+        adw_navigation_split_view_set_show_content(window.inner, 1)
+        try await until("the details to show over the list") { gtk_widget_get_mapped(window.listPane) == 0 }
+        await settle()
+        let over = app.getAttention(attention, activeWindow: window.window)
+        try require(over == .toast, "with the live window's details over its list, the way was \(over)")
+        try require(
+            DetailsBlocks.lastToastWords == attention.title,
+            "the live window's toast says \(DetailsBlocks.lastToastWords ?? "nothing"), not \(attention.title)")
+        await settle()
+        adw_navigation_split_view_set_show_content(window.inner, 0)
+        try await until("the list to show again") { gtk_widget_get_mapped(window.listPane) != 0 }
+        await settle()
+        let back = app.getAttention(attention, activeWindow: window.window)
+        try require(back == .nothing, "with the live window's list back, the way was \(back)")
+        gtk_window_set_default_size(cast(window.window), width, height)
+        await settle()
         app.open([try Self.macSession()])
         try await until("Mac 1.0.reqly's window") { app.fileWindows.first?.list.total ?? 0 > 0 }
         let file = try present(app.fileWindows.first, "there's no file window")
@@ -334,7 +359,9 @@ extension SelfCheck {
         try require(
             DetailsBlocks.lastToastWords == attention.title,
             "the toast says \(DetailsBlocks.lastToastWords ?? "nothing"), not \(attention.title)")
-        note("attention: no window active, the log's “\(logged)”; the live window, nothing; a file's, a toast")
+        note(
+            "attention: no window active, the log's “\(logged)”; the live window, nothing, or a toast with its "
+                + "details over its list; a file's, a toast")
         await settle()
         app.closeWindow(file)
         try await until("the file's window to close") { app.fileWindows.isEmpty }
