@@ -10,6 +10,11 @@ extension SelfCheck {
         Part(name: "frame", seconds: 90) { try await $0.checkFrame() }
     ]
 
+    /// A real notification, in a copy of Reqly the frame part starts: see ``probeNotifications()``.
+    static let notificationProbeParts: [Part] = [
+        Part(name: "notification-probe", seconds: 20) { try await $0.probeNotifications() }
+    ]
+
     /// The shortcuts have their actions; the Rules button and Shift+Ctrl+B turn Breakpoints on and
     /// off, and the button says so; Keyboard Shortcuts opens; the new actions wait behind a dialog;
     /// Shift+Ctrl+D runs Devices, not GTK's Inspector; a file's window has no capture switch or
@@ -27,6 +32,7 @@ extension SelfCheck {
             ("Shift+Ctrl+D", { try await self.checkDevicesKey(window) }),
             ("a file's window", { try await self.checkFileWindow(window) }),
             ("the new events", { try await self.checkNewEvents() }),
+            ("getting your attention", { try await self.checkAttention(window) }),
         ]
         for (name, step) in steps {
             let (_, lines) = try await standardError { try await step() }
@@ -210,6 +216,58 @@ extension SelfCheck {
         file.startEvents()
         try require(heard == [25], "once its window listened, it heard \(heard)")
         note("a device waited, then didn't; an unknown request resumed; an export's progress waited for its window")
+    }
+
+    /// Getting your attention, as a breakpoint holds a request: with no Reqly window active, a
+    /// notification, which a test run writes to its log, as GLib warns of a real one with no
+    /// notification server, as a copy of Reqly finds; with the live window active, nothing more, as
+    /// it shows the request itself; with a file's window active, a toast there, with Show.
+    private func checkAttention(_ window: MainWindow) async throws {
+        let probe = try await runInCopy(["notification-probe"], options: [], seconds: 45)
+        for line in probe where !line.hasSuffix("parts passed") {
+            note("in a copy: \(line.trimmingCharacters(in: .whitespaces))")
+        }
+        let attention = Attention(
+            .paused(ExchangeID(rawValue: 999_998), breakpoint: "API", message: "GET http://127.0.0.1/ok"))
+        defer { app.notified.removeAll { $0 == attention } }
+        let (way, lines) = try await standardError { app.getAttention(attention, activeWindow: nil) }
+        try require(way == .notification, "with no Reqly window active, the way was \(way)")
+        let logged = "Reqly: notification: \(attention.title). \(attention.body)"
+        try require(lines.contains(logged), "with no Reqly window active, Reqly wrote \(lines), not “\(logged)”")
+        try require(app.notified.contains(attention), "the notification isn't kept to go once it's answered")
+        let live = app.getAttention(attention, activeWindow: window.window)
+        try require(live == .nothing, "with the live window active, the way was \(live)")
+        app.open([try Self.macSession()])
+        try await until("Mac 1.0.reqly's window") { app.fileWindows.first?.list.total ?? 0 > 0 }
+        let file = try present(app.fileWindows.first, "there's no file window")
+        let inFile = app.getAttention(attention, activeWindow: file.window)
+        try require(inFile == .toast, "with a file's window active, the way was \(inFile)")
+        try require(
+            DetailsBlocks.lastToastWords == attention.title,
+            "the toast says \(DetailsBlocks.lastToastWords ?? "nothing"), not \(attention.title)")
+        note("attention: no window active, the log's “\(logged)”; the live window, nothing; a file's, a toast")
+        await settle()
+        app.closeWindow(file)
+        try await until("the file's window to close") { app.fileWindows.isEmpty }
+        await settle()
+    }
+
+    /// A real GNotification, sent as a release sends one, with no notification server, as in the
+    /// self-check's container, and what GLib said about it, if anything: run in a copy of Reqly,
+    /// whose log keeps what GLib says away from the self-check's own output.
+    func probeNotifications() async throws {
+        let (_, lines) = try await standardError {
+            let notification = g_notification_new("Reqly's self-check")!
+            g_application_send_notification(cast(app.application), "self-check", notification)
+            g_object_unref(raw(notification))
+            try? await Task.sleep(for: .milliseconds(1500))
+            g_application_withdraw_notification(cast(app.application), "self-check")
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        let glib = lines.filter { $0.contains("GLib") }
+        note(
+            "a GNotification with no notification server: GLib said "
+                + (glib.isEmpty ? "nothing" : glib.joined(separator: " | ")))
     }
 
     /// Every toplevel window GTK has, shown or not.

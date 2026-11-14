@@ -57,6 +57,10 @@ final class App {
     /// What `run` returns when GApplication itself has nothing to report: 1 once the self-check
     /// fails.
     var exitStatus: Int32 = 0
+    /// What has had your attention, by its notification's ID, while it still needs you, and the
+    /// notifications sent for it, or a test run's log lines in their place: see ``Attention``.
+    var attended: Set<String> = []
+    var notified: [Attention] = []
 
     init(options: Options) {
         self.options = options
@@ -130,6 +134,7 @@ final class App {
         // GtkSourceView's types and translations, once, before any code view.
         gtk_source_init()
         addActions()
+        followAttention()
         // Ctrl+C in its terminal ends Reqly with SIGINT, closing the terminal with SIGHUP, and
         // some desktops' logout with SIGTERM. Each quits as the menu does, so your proxy settings
         // go back.
