@@ -33,6 +33,9 @@ extension SelfCheck {
             ("a file's window", { try await self.checkFileWindow(window) }),
             ("the new events", { try await self.checkNewEvents() }),
             ("getting your attention", { try await self.checkAttention(window) }),
+            ("a window of the live window's", { try await self.checkSecondaryWindow(window) }),
+            ("the banners", { try await self.checkBanners(window) }),
+            ("the Messages page", { try await self.checkMessagesPage() }),
         ]
         for (name, step) in steps {
             let (_, lines) = try await standardError { try await step() }
@@ -252,6 +255,116 @@ extension SelfCheck {
         await settle()
     }
 
+    /// A window that belongs to the live window, as Rules, Devices and composers do: over it, found
+    /// by its type, closed by Ctrl+W, but not while a dialog shows over it, and closed as the live
+    /// window hides.
+    private func checkSecondaryWindow(_ window: MainWindow) async throws {
+        func open() async throws -> FrameTestWindow {
+            let made = FrameTestWindow(app: app)
+            app.addSecondary(made)
+            gtk_window_present(cast(made.window))
+            try await until("the window to show") { gtk_widget_get_mapped(made.window) != 0 }
+            await settle(made.window)
+            return made
+        }
+        let first = try await open()
+        try require(secondaries(FrameTestWindow.self).count == 1, "the live window's windows don't have it")
+        try require(
+            gtk_window_get_transient_for(cast(first.window)) == window.window, "the window isn't over the live window")
+        let dialog = adw_alert_dialog_new("A Question", nil)!
+        adw_alert_dialog_add_response(cast(dialog), "close", "Close")
+        adw_dialog_present(cast(dialog), first.window)
+        await settle(first.window)
+        try FakeInput.press("Control_L", "w", in: first.window)
+        await settle(first.window)
+        try require(secondaries(FrameTestWindow.self).count == 1, "Ctrl+W closed the window behind its dialog")
+        adw_dialog_close(cast(dialog))
+        await settle(first.window)
+        try FakeInput.press("Control_L", "w", in: first.window)
+        try await until("Ctrl+W to close the window") { self.secondaries(FrameTestWindow.self).isEmpty }
+        note("a window of the live window's: over it, Ctrl+W waits behind its dialog, then closes it")
+        // A file's window shows meanwhile, so hiding the live window doesn't quit.
+        app.open([try Self.macSession()])
+        try await until("Mac 1.0.reqly's window") { app.fileWindows.first?.list.total ?? 0 > 0 }
+        let file = try present(app.fileWindows.first, "there's no file window")
+        _ = try await open()
+        app.closeWindow(window)
+        try await until("the live window to hide, and its window with it") {
+            !window.isShowing && self.secondaries(FrameTestWindow.self).isEmpty
+        }
+        try require(!app.isQuitting, "hiding the live window quit Reqly")
+        app.presentLive()
+        try await until("the live window to show again") { window.isShowing }
+        app.closeWindow(file)
+        try await until("the file's window to close") { app.fileWindows.isEmpty }
+        await settle()
+        note("hiding the live window closes its windows")
+    }
+
+    /// The live window's banners say their words to screen readers once, as they show, and again
+    /// only once they change, or show again.
+    private func checkBanners(_ window: MainWindow) async throws {
+        let banner = window.pausedBanner
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 4) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            banner.show("Request paused by breakpoint “API”", button: "Show")
+            banner.show("Request paused by breakpoint “API”", button: "Show")
+            banner.show("Request paused by breakpoint “Forecast”", button: "Show")
+            banner.hide()
+            banner.show("Request paused by breakpoint “Forecast”")
+            try? await Task.sleep(for: .milliseconds(1000))
+        }
+        banner.hide()
+        let said = heard.compactMap(\.detail)
+        let expected = [
+            "Request paused by breakpoint “API”", "Request paused by breakpoint “Forecast”",
+            "Request paused by breakpoint “Forecast”",
+        ]
+        try require(said == expected, "the banner was heard saying \(said)")
+        note("a banner: heard once as it shows, again as its words change, and as it shows again")
+        await settle()
+    }
+
+    /// The details' Messages page, in Mac 1.0.reqly's window: its tab shows for the WebSocket only,
+    /// Ctrl+6 chooses it, and for another request Overview shows, while Messages stays chosen.
+    private func checkMessagesPage() async throws {
+        app.open([try Self.macSession()])
+        try await until("Mac 1.0.reqly's window") { app.fileWindows.first?.list.total ?? 0 > 0 }
+        let file = try present(app.fileWindows.first, "there's no file window")
+        defer {
+            app.closeWindow(file)
+        }
+        let session = try present(file.model.session, "the file's session isn't open")
+        let summaries = await session.rows(await session.rowIDs().ids)
+        let webSocket = try present(summaries.first { $0.isWebSocket }, "Mac 1.0.reqly has no WebSocket")
+        let other = try present(summaries.first { !$0.isWebSocket }, "Mac 1.0.reqly has only a WebSocket")
+        let details = file.details
+        file.list.select(id: webSocket.id)
+        try await until("the WebSocket's details") { details.summary?.id == webSocket.id }
+        try require(details.has(.messages), "the WebSocket has no Messages page")
+        try FakeInput.press("Control_L", "6", in: file.window)
+        try await until("Ctrl+6 to show Messages") {
+            string(adw_view_stack_get_visible_child_name(details.stack)) == "messages"
+        }
+        file.list.select(id: other.id)
+        try await until("the other request's details") { details.summary?.id == other.id }
+        let shown = string(adw_view_stack_get_visible_child_name(details.stack)) ?? ""
+        try require(
+            !details.has(.messages) && shown == "overview" && details.page == .messages,
+            "for a request with no messages, \(shown) shows, with \(details.page.title) chosen")
+        file.list.select(id: webSocket.id)
+        try await until("Messages again, for the WebSocket") {
+            details.summary?.id == webSocket.id
+                && string(adw_view_stack_get_visible_child_name(details.stack)) == "messages"
+        }
+        details.show(page: .overview)
+        note(
+            "Messages: a tab for \(webSocket.path) only, Ctrl+6 chooses it; for \(other.path), Overview shows, "
+                + "Messages still chosen")
+        await settle()
+    }
+
     /// A real GNotification, sent as a release sends one, with no notification server, as in the
     /// self-check's container, and what GLib said about it, if anything: run in a copy of Reqly,
     /// whose log keeps what GLib says away from the self-check's own output.
@@ -285,4 +398,20 @@ extension SelfCheck {
 @MainActor
 private final class Counter {
     var count = 0
+}
+
+/// A window the frame part makes, as Rules, Devices or a composer is: an AdwApplicationWindow,
+/// in a toast overlay, that belongs to the live window.
+@MainActor
+private final class FrameTestWindow: SecondaryWindow {
+    let window: Widget
+
+    init(app: App) {
+        window = adw_application_window_new(cast(app.application))
+        gtk_window_set_title(cast(window), "A Window of the Live Window's")
+        gtk_window_set_default_size(cast(window), 480, 320)
+        let overlay = adw_toast_overlay_new()!
+        adw_toast_overlay_set_child(cast(overlay), adw_status_page_new())
+        adw_application_window_set_content(cast(window), overlay)
+    }
 }
