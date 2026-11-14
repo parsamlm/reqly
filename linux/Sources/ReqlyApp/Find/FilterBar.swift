@@ -94,6 +94,8 @@ final class FilterBar {
 
         filtersButton = gtk_menu_button_new()
         gtk_menu_button_set_label(cast(filtersButton), "Filters")
+        // Its own name, or GTK makes one from the open popover's words too.
+        setAccessibleLabel(filtersButton, "Filters")
         gtk_widget_set_tooltip_text(filtersButton, "Filter by app, host, method or content type")
         gtk_box_append(cast(bar), filtersButton)
 

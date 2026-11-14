@@ -632,6 +632,11 @@ extension SelfCheck {
         try FakeInput.click(filters.filtersButton)
         try await until("Filters to open", seconds: 3) { gtk_widget_get_mapped(filters.popover) != 0 }
         await settle()
+        // Orca hears the button by its own name while its popover is open, not by the popover's
+        // words, which GTK otherwise makes the name from (the VM round heard them on GTK 4.22).
+        let heard = try await AccessibilityTree.read().nodes
+            .filter { $0.role == "toggle button" && $0.name.hasPrefix("Filters") }.map(\.name)
+        try require(heard == ["Filters"], "with its popover open, the Filters button is heard as \(heard)")
         let json = try present(filters.contentChecks[.json], "there's no JSON")
         let images = try present(filters.contentChecks[.image], "there's no Images")
         gtk_check_button_set_active(cast(json), 1)
