@@ -195,6 +195,30 @@ import Testing
         #expect(result == .now)
     }
 
+    /// Scrolled to its top when Clear empties it, the list follows the rows that come next, as the
+    /// Mac's does: while its status page shows, GTK doesn't lay the list out, so its scroller keeps
+    /// the place it had, but an empty list shows its end.
+    @Test func followsIntoAListEmptiedWhileScrolledUp() {
+        var following = Following()
+        // 10,000 rows of 21 px, in a page of 549, scrolled to the top: Clear takes them out.
+        #expect(!Following.showsEnd(rows: 10_000, value: 0, page: 549, upper: 210_000))
+        following.begin(showsEnd: false)
+        _ = following.end(inserted: 0, isDone: true, isResetting: false, now: 0)
+        // More than a page of rows into it, the scroller where it was.
+        let follows = following.begin(showsEnd: Following.showsEnd(rows: 0, value: 0, page: 549, upper: 210_000))
+        #expect(follows)
+        let result = following.end(inserted: 400, isDone: true, isResetting: false, now: 1_000_000)
+        #expect(result == .now)
+    }
+
+    @Test func showsItsEndWithinAFewPixels() {
+        // Rows that fit in its page.
+        #expect(Following.showsEnd(rows: 20, value: 0, page: 549, upper: 420))
+        // Its last row 48 px below the edge at most, as GTK 4.18 and later leave it.
+        #expect(Following.showsEnd(rows: 10_000, value: 209_403, page: 549, upper: 210_000))
+        #expect(!Following.showsEnd(rows: 10_000, value: 209_402, page: 549, upper: 210_000))
+    }
+
     // MARK: - Going to the end
 
     /// As on GitHub's arm64 runner: asked for the newest row again just as the list was at its

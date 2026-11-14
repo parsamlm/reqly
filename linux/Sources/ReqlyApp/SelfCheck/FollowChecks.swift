@@ -9,10 +9,12 @@ extension SelfCheck {
     /// after each single request and each burst, and a list scrolled up doesn't move, until it's
     /// back at its end. A burst of 10,000 requests all arrive; a filter that leaves every other
     /// one, and takes them back, shows within seconds with the list at its end; and every row of
-    /// the session coming again, as a search ends, goes in before the newest row shows, once. A
-    /// burst into an empty list is followed to its newest row too. Then, in a copy of Reqly
-    /// whose session keeps 300 requests, the list goes on following past that limit, where as many
-    /// rows go as new ones come. In that copy, this part checks only that.
+    /// the session coming again, as a search that left none ends, goes in before the newest row
+    /// shows, once. A burst into an empty list is followed to its newest row too. An empty list
+    /// shows its end, so it follows those though it was scrolled to its top before the search, or
+    /// before Clear emptied it. Then, in a copy of Reqly whose session keeps 300 requests, the list
+    /// goes on following past that limit, where as many rows go as new ones come. In that copy,
+    /// this part checks only that.
     func checkFollowing() async throws {
         if let limit = app.options.sessionLimit {
             try await checkFollowingPastTheLimit(limit)
@@ -84,7 +86,12 @@ extension SelfCheck {
         follower.said = []
         try await checkFilteringEveryOtherRow(watch)
 
-        // Every row again: a search that leaves none, then the search ending.
+        // Every row again: a search that leaves none, then the search ending. Scrolled to its top
+        // before, the list follows them: empty, it shows its end, as on the Mac, though GTK keeps
+        // the place it had while the no-matches page shows instead.
+        gtk_adjustment_set_value(adjustment, 0)
+        await settle()
+        try require(!list.showsEnd(), "scrolled to its top, the list shows its end")
         let resets = ResetsSeen()
         model.listen { event in
             guard resets.isListening, case .rows(_, _, _, let steps) = event else { return }
@@ -107,7 +114,8 @@ extension SelfCheck {
         let back = (monotonicMicroseconds() - searched) / 1000
         let resetWaits = watch.waits(from: searched)
         note(
-            "a search ended: every row, \(Format.count(rows)), came back as \(resets.sizes.count) reset of "
+            "a search that left none ended, the list scrolled to its top before: every row, \(Format.count(rows)), "
+                + "came back as \(resets.sizes.count) reset of "
                 + "\(resets.sizes.map { Format.count($0) }.joined(separator: ", ")) rows, all in \(back) ms, the newest "
                 + "showing after \(list.reveals - revealsBefore) reveal; the window's thread: \(resetWaits)")
         try require(!resets.sizes.isEmpty, "the search's end came as steps, not every row")
@@ -152,10 +160,20 @@ extension SelfCheck {
 
     /// Requests into an empty list, as when capturing starts, twice: 1,000 on two connections,
     /// as an app sends them, then a burst of 4,000. The list follows them to the newest row, though
-    /// when it first shows rows, GTK has yet to go to the row it was asked to.
+    /// when it first shows rows, GTK has yet to go to the row it was asked to. The second time, the
+    /// list was scrolled to its top before Clear emptied it: an empty list shows its end, as on the
+    /// Mac, though GTK keeps the place the list had while its status page shows instead.
     private func checkABurstIntoAnEmptyList(_ follower: inout Follower) async throws {
+        let list = window.list
+        let adjustment = try present(gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
         follower.said = []
-        for _ in 1...2 {
+        for isScrolledUp in [false, true] {
+            if isScrolledUp {
+                gtk_adjustment_set_value(adjustment, 0)
+                await settle()
+                try require(!list.showsEnd(), "scrolled to its top, the list shows its end")
+                follower.said.append("then scrolled to its top before Clear")
+            }
             try await emptyTheList()
             try await follower.send(1_000, seconds: 30, connections: 2)
             try await follower.send(4_000, seconds: 30)

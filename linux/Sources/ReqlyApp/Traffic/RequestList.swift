@@ -658,14 +658,12 @@ final class RequestList {
         adw_status_page_set_description(cast(empty), description)
     }
 
-    /// Whether the list shows its last row, or nearly: then it follows new traffic. GTK 4.18 and
-    /// later leave the last row just below the edge when scrolling to it.
+    /// Whether the list shows its last row, or nearly: then it follows new traffic.
     func showsEnd() -> Bool {
         guard let adjustment = gtk_scrolled_window_get_vadjustment(cast(scroller)) else { return true }
-        let value = gtk_adjustment_get_value(adjustment)
-        let page = gtk_adjustment_get_page_size(adjustment)
-        let upper = gtk_adjustment_get_upper(adjustment)
-        return upper <= page || value + page >= upper - 48
+        return Following.showsEnd(
+            rows: count, value: gtk_adjustment_get_value(adjustment), page: gtk_adjustment_get_page_size(adjustment),
+            upper: gtk_adjustment_get_upper(adjustment))
     }
 
     /// IDs as the C strings a GtkStringList takes, written into one buffer.

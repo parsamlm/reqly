@@ -94,6 +94,15 @@ struct Following {
     /// When the newest row last showed, in monotonic microseconds.
     private var revealedAt: Int?
 
+    /// Whether a list of `rows` rows shows its last row, or nearly, from its scroller's place:
+    /// rows that fit in its page, or a last row 48 px below the edge at most, as GTK 4.18 and later
+    /// leave it when scrolling to it. An empty list shows its end, as on the Mac. GTK doesn't lay
+    /// out a list that a status page shows in place of, so after Clear, or a search or a filter
+    /// that left no rows, its scroller keeps the place the list had before.
+    static func showsEnd(rows: Int, value: Double, page: Double, upper: Double) -> Bool {
+        rows == 0 || upper <= page || value + page >= upper - 48
+    }
+
     /// Before a change: whether the list follows it. `showsEnd` is whether its last row shows now.
     @discardableResult
     mutating func begin(showsEnd: Bool) -> Bool {
