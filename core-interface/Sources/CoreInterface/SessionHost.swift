@@ -577,9 +577,19 @@ public actor SessionHost {
         }
     }
 
+    /// The rows the list shows that a HAR file can hold, in order, and how many it shows that it
+    /// can't: encrypted connections, whose requests can't be read. Export as HAR counts them, and
+    /// passes `readable` to ``exportHAR(to:ids:includesResponseBodies:hidesSecrets:creatorVersion:)``,
+    /// so its progress counts what it writes.
+    public func exportRows() -> (readable: [ExchangeID], encrypted: Int) {
+        let readable = list.rows.filter { list.summary($0)?.kind == .http }
+        return (readable, list.rows.count - readable.count)
+    }
+
     /// Writes exchanges to a HAR file, these or with none the list as it shows, in order, and
     /// says how many it wrote. It sends `exportProgress` events as it goes. Encrypted connections
-    /// are left out, since their requests can't be read.
+    /// are left out, since their requests can't be read. Cancelling its task stops it, and the
+    /// half-written file is deleted, as it is when writing fails.
     public func exportHAR(
         to url: URL, ids: [ExchangeID]? = nil, includesResponseBodies: Bool = true, hidesSecrets: Bool = true,
         creatorVersion: String
@@ -592,6 +602,7 @@ public actor SessionHost {
         do {
             let writer = try HARWriter(url: url, options: options, creatorVersion: creatorVersion)
             for (done, id) in ids.enumerated() {
+                try Task.checkCancellation()
                 if let exchange = await capture.exchange(id), exchange.kind == .http {
                     let messages = exchange.messageCount > 0 ? await capture.messages(of: id) : []
                     try writer.append(exchange, messages: messages)
@@ -602,6 +613,9 @@ public actor SessionHost {
                 }
             }
             try writer.finish()
+        } catch is CancellationError {
+            try? FileManager.default.removeItem(at: url)
+            throw Problem(.failed, "The export was cancelled.")
         } catch {
             try? FileManager.default.removeItem(at: url)
             throw Problem(.failed, "Reqly couldn't export: \(error.localizedDescription)")

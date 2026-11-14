@@ -1,6 +1,7 @@
 import CoreInterface
 import DeviceBridge
 import Foundation
+import Presentation
 import ReqlyModel
 import Testing
 
@@ -12,6 +13,36 @@ import Testing
         try await SessionHost.open(
             OpenOptions(sessionsFolder: folder.appending(path: "Sessions").path, findsApps: false), system: system,
             events: { _ in })
+    }
+
+    /// The sessions the core's tests open, saved by Reqly for Mac 1.0, on Windows and on Linux.
+    static let samples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appending(path: "core/Tests/TrafficStoreTests/Sessions")
+
+    /// Opens a saved session from the core's tests, and waits until its list shows its rows.
+    static func openSample(
+        _ name: String, in folder: URL, events: @escaping @Sendable (Event) -> Void = { _ in }
+    ) async throws -> SessionHost {
+        let options = OpenOptions(
+            sessionsFolder: folder.appending(path: "Sessions").path,
+            file: samples.appending(path: name).path(percentEncoded: false))
+        let host = try await SessionHost.open(options, system: .standIns, events: events)
+        _ = try await rows(of: host) { !$0.isEmpty }
+        return host
+    }
+
+    /// Waits up to five seconds for the list's rows to be as `wanted` says, and gives them.
+    static func rows(of host: SessionHost, _ wanted: ([ExchangeID]) -> Bool) async throws -> [ExchangeID] {
+        for _ in 0..<500 {
+            let ids = await host.rowIDs().ids
+            if wanted(ids) {
+                return ids
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("The rows never were as wanted: \(await host.rowIDs().ids)")
+        return []
     }
 
     static func openConnections(_ host: SessionHost, in folder: URL) async -> ConnectionsState {
@@ -87,6 +118,49 @@ import Testing
         // Even one that's off.
         let taken = await host.checkProxyPort("8081")
         #expect(taken.port == nil && taken.problem == "A reverse proxy listens on port 8081. Choose another port.")
+        await host.close()
+    }
+
+    /// What Export as HAR counts and writes: the rows that show, without encrypted connections.
+    @Test func exportsTheRowsThatShowAndStopsWhenCancelled() async throws {
+        let folder = SessionAPITests.folder()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let events = SessionEvents()
+        let host = try await Self.openSample("Mac 1.0.reqly", in: folder, events: events.record)
+        // The sample's sixth exchange is an encrypted connection.
+        let tunnel = ExchangeID(rawValue: 6)
+        let all = try await Self.rows(of: host) { $0.count == 16 }
+        var rows = await host.exportRows()
+        #expect(rows.readable == all.filter { $0 != tunnel } && rows.encrypted == 1)
+        // Only the rows that show.
+        var posts = TrafficFilter()
+        posts.method = "POST"
+        await host.setFilter(posts)
+        let shown = try await Self.rows(of: host) { $0.count < 16 }
+        rows = await host.exportRows()
+        #expect(!shown.isEmpty && rows.readable == shown && rows.encrypted == 0)
+        await host.setFilter(TrafficFilter())
+        _ = try await Self.rows(of: host) { $0.count == 16 }
+        rows = await host.exportRows()
+
+        // Its progress counts the rows it's given.
+        let file = folder.appending(path: "Weatherly.har")
+        #expect(try await host.exportHAR(to: file, ids: rows.readable, creatorVersion: "5.0") == 15)
+        #expect(FileManager.default.fileExists(atPath: file.path(percentEncoded: false)))
+        let progress = await events.wait { event -> Int? in
+            if case .exportProgress(0, let total) = event { total } else { nil }
+        }
+        #expect(progress == 15)
+
+        // Cancelled, it stops and deletes the file it began.
+        let cancelled = folder.appending(path: "Cancelled.har")
+        let export = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await host.exportHAR(to: cancelled, ids: rows.readable, creatorVersion: "5.0")
+        }
+        await #expect(throws: Problem(.failed, "The export was cancelled.")) { try await export.value }
+        #expect(!FileManager.default.fileExists(atPath: cancelled.path(percentEncoded: false)))
         await host.close()
     }
 
