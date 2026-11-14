@@ -50,7 +50,7 @@ linux/scripts/app.sh self-check --smoke-parts speed     # the speed part, which 
 linux/scripts/app.sh --pictures pictures self-check     # keeping its pictures in ./pictures
 ```
 
-Where Docker is, it runs in a container of its own, as an ordinary account, with no network but its own 127.0.0.1. CI runs it after the tests, as the image's ordinary account too, since one part takes a folder's write permission away, which root ignores.
+Where Docker is, it runs in a container of its own, as an ordinary account, with no network but its own 127.0.0.1. CI runs it after the tests, as the image's ordinary account too, since one part takes a folder's write permission away, which root ignores. It also builds the release program, as below, and runs its whole self-check on Debian 13 and Ubuntu 26.04, with GTK 4.18 and libadwaita 1.7, and GTK 4.22 and libadwaita 1.9.
 
 ### On a desktop
 
