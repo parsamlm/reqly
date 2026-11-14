@@ -92,10 +92,18 @@ extension SelfCheck {
         try await until("the Rules button to say so") { name() == "Rules, Breakpoints on" }
         let icon = string(gtk_menu_button_get_icon_name(cast(window.rulesButton))) ?? ""
         try require(icon == RulesMenu.onIcon, "the Rules button's icon is \(icon)")
-        note("Breakpoints' switch: on, the button named \(name()), with \(icon)")
+        // The status line says so too, with the note's sentence for screen readers.
+        let status = { window.statusWords ?? StatusLine(status: "") }
+        let words = "Breakpoints on"
+        try await until("the status line to say so") { status().text.hasSuffix(" · \(words)") }
+        try require(
+            status().description.contains("Breakpoints are on"),
+            "the status line's sentences are “\(status().description)”")
+        note("Breakpoints' switch: on, the button named \(name()), with \(icon); the status line: “\(status().text)”")
         try FakeInput.press("Shift_L", "Control_L", "b", in: window.window)
         try await until("Shift+Ctrl+B to turn Breakpoints off") { !breakpointsOn() }
         try await until("the Rules button to say so") { name() == "Rules" }
+        try await until("the status line to say so") { !status().text.contains(words) }
         note("Shift+Ctrl+B: off again, the button named \(name())")
     }
 

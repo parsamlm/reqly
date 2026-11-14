@@ -32,6 +32,38 @@ import Testing
                 + "connect.")
     }
 
+    /// The rules' notes: the kinds that act on requests, in the Rules menu's order, said as their
+    /// names need, then Slow Network, with its profile and what it slows.
+    @Test func saysWhichRuleKindsAreOn() {
+        #expect(RulesNotes.notes(kindsOn: [], network: NetworkConditions()).isEmpty)
+        #expect(
+            RulesNotes.notes(kindsOn: [.breakpoint], network: NetworkConditions()) == [
+                StatusNote(
+                    text: "Breakpoints on",
+                    sentence: "Breakpoints are on, so their rules act on the requests they match.")
+            ])
+        #expect(
+            RulesNotes.notes(kindsOn: [.mapLocal], network: NetworkConditions()).map(\.sentence) == [
+                "Map Local is on, so its rules act on the requests they match."
+            ])
+        let lte = NetworkConditions(profile: .lte, hosts: ["api.weatherly.dev", " "])
+        let several = RulesNotes.notes(kindsOn: [.block, .breakpoint, .slowNetwork, .rewrite], network: lte)
+        #expect(several.map(\.text) == ["Breakpoints, Rewrite and Block on", "Slow Network: LTE"])
+        #expect(
+            several[0].sentence
+                == "Breakpoints, Rewrite and Block are on, so their rules act on the requests they match.")
+        #expect(several[1].sentence == "Slow Network slows traffic to api.weatherly.dev, with the LTE profile.")
+        let two = NetworkConditions(profile: .threeG, hosts: ["api.weatherly.dev", "maps.weatherly.dev"])
+        #expect(
+            RulesNotes.notes(kindsOn: [.slowNetwork], network: two).map(\.sentence) == [
+                "Slow Network slows traffic to 2 hosts, with the 3G profile."
+            ])
+        #expect(
+            RulesNotes.notes(kindsOn: [.slowNetwork], network: NetworkConditions()).map(\.sentence) == [
+                "Slow Network slows all traffic, with the 3G profile."
+            ])
+    }
+
     /// What needs you: a held request names its breakpoint, and says what waits; a device says
     /// where it is; each has the button that shows it, and an ID of its own.
     @Test func saysWhatNeedsYou() {

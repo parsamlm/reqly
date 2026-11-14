@@ -27,6 +27,6 @@ struct StatusLine: Equatable, Sendable {
 
 extension AppModel {
     /// The live window's status notes, in order: the upstream proxy's and the reverse proxies',
-    /// then the devices'.
-    var statusNotes: [StatusNote] { connectionsNotes + devicesNotes }
+    /// the devices', as on the Mac, then the rule kinds that are on.
+    var statusNotes: [StatusNote] { connectionsNotes + devicesNotes + rulesNotes }
 }
