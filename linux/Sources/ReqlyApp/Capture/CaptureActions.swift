@@ -54,14 +54,34 @@ extension AppModel {
 }
 
 extension MainWindow {
+    /// A click on the capture switch gives it the keyboard's focus, which GTK leaves where it was
+    /// on some desktops, such as KDE's and Cinnamon's, so Space and Tab go on from the switch.
+    func focusCaptureSwitchOnClick() {
+        let captureSwitch = captureSwitch
+        let click = gtk_gesture_click_new()!
+        gtk_event_controller_set_propagation_phase(cast(click), GTK_PHASE_CAPTURE)
+        connect(click, "pressed") {
+            if gtk_widget_get_sensitive(captureSwitch) != 0 {
+                gtk_widget_grab_focus(captureSwitch)
+            }
+        }
+        gtk_widget_add_controller(captureSwitch, cast(click))
+    }
+
     /// You turned the capture switch on or off, with the pointer or the keyboard. The switch
     /// can't be used while capturing starts or stops, and has the keyboard's focus again after.
     func captureSwitched(on: Bool) {
         let hadFocus = gtk_widget_is_focus(captureSwitch) != 0
+        let says = saysCapturing
+        saysCapturing = false
         Task {
             await model.setCapturing(on)
             if hadFocus, gtk_widget_get_sensitive(captureSwitch) != 0 {
                 gtk_widget_grab_focus(captureSwitch)
+            }
+            // Ctrl+R, away from the switch, which screen readers would have said.
+            if says, gtk_widget_is_focus(captureSwitch) == 0 {
+                announce(window, model.statusText)
             }
         }
     }

@@ -47,4 +47,43 @@ enum Styles {
         follow()
         connect(manager, "notify::dark", follow)
     }
+
+    /// The font libadwaita's `monospace` style class gives `widget`'s text: from libadwaita 1.7,
+    /// the family and size of the desktop's monospace font, as its CSS takes them; before, the
+    /// widget's own font in a monospace family. Free it with `pango_font_description_free`.
+    static func monospaceFont(for widget: Widget) -> OpaquePointer {
+        let own = pango_context_get_font_description(gtk_widget_get_pango_context(widget))
+        let font = pango_font_description_copy(own)!
+        typealias Name = @convention(c) (UnsafeMutableRawPointer?) -> UnsafePointer<CChar>?
+        guard LibraryVersion.adwaita(atLeast: 7),
+            let name = Newer.lookup("adw_style_manager_get_monospace_font_name", as: Name.self),
+            let words = name(raw(adw_style_manager_get_default())),
+            let desktop = pango_font_description_from_string(words)
+        else {
+            pango_font_description_set_family(font, "monospace")
+            return font
+        }
+        defer { pango_font_description_free(desktop) }
+        if let family = pango_font_description_get_family(desktop) {
+            pango_font_description_set_family(font, family)
+        } else {
+            pango_font_description_set_family(font, "monospace")
+        }
+        let size = pango_font_description_get_size(desktop)
+        if size > 0, pango_font_description_get_size_is_absolute(desktop) != 0 {
+            pango_font_description_set_absolute_size(font, Double(size))
+        } else if size > 0 {
+            pango_font_description_set_size(font, size)
+        }
+        return font
+    }
+
+    /// Runs `body` as the desktop's monospace font changes, which libadwaita's `monospace` style
+    /// class follows from 1.7, while `object` is alive.
+    static func whenMonospaceFontChanges(
+        whileAlive object: UnsafeMutableRawPointer?, _ body: @escaping @MainActor () -> Void
+    ) {
+        guard LibraryVersion.adwaita(atLeast: 7) else { return }
+        connect(raw(adw_style_manager_get_default()), "notify::monospace-font-name", whileAlive: object, body)
+    }
 }

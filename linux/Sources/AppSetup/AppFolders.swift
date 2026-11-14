@@ -71,14 +71,15 @@ public struct AppFolders: Sendable {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sessionsFolder.path)
     }
 
-    /// What the live session opens with: these files, and the stand-ins `options` names. It finds
+    /// What the session opens with: these files, and the stand-ins `options` names. It finds
     /// which app sent each request. Only a real run gets your certificate store, through the root
-    /// file; a test run decrypts with its stand-in, or not at all.
+    /// file; a test run decrypts with its stand-in, or not at all. A test run may open a saved
+    /// session instead of a live one, and keep fewer requests.
     public func openOptions(_ options: Options) -> OpenOptions {
         OpenOptions(
-            sessionsFolder: sessionsFolder.path, setsSystemProxy: options.setsSystemProxy,
+            sessionsFolder: sessionsFolder.path, file: options.smokeSession, setsSystemProxy: options.setsSystemProxy,
             proxyRestoreFile: proxyRestoreFile.path, proxySettingsStandIn: options.proxySettingsStandIn,
             findsApps: true, rootFile: options.usesYourCertificates ? rootFile.path : nil,
-            rootStandIn: options.rootStandIn)
+            rootStandIn: options.rootStandIn, sessionLimit: options.sessionLimit)
     }
 }

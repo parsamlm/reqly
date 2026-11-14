@@ -1,6 +1,7 @@
 import AppSetup
 import CGio
 import CGtk
+import CGtkSource
 import Foundation
 import GtkBinding
 import LinuxDesktop
@@ -98,6 +99,10 @@ final class App {
     private func startUp() {
         Styles.install(theme: options.theme)
         Icons.install()
+        Icons.installAppIcon()
+        PreviewView.clearOpened()
+        // GtkSourceView's types and translations, once, before any code view.
+        gtk_source_init()
         addActions()
         // Ctrl+C in its terminal ends Reqly with SIGINT, closing the terminal with SIGHUP, and
         // some desktops' logout with SIGTERM. Each quits as the menu does, so your proxy settings

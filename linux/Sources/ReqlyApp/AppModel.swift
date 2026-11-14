@@ -17,7 +17,7 @@ final class AppModel {
     let options: Options
     let folders: AppFolders
     private(set) var settings: AppSettings
-    /// The live session, once it's open.
+    /// The session, once it's open: a live one, or the saved one a test run opens.
     private(set) var session: SessionHost?
     /// HTTPS decryption: Reqly's certificate, and the hosts to decrypt.
     private(set) lazy var https = HTTPSModel(app: self)
@@ -38,6 +38,11 @@ final class AppModel {
     /// Whether Open Terminal has opened a terminal in this run, whose shell points at Reqly
     /// whether it captures or not.
     var openedTerminal = false {
+        didSet { changed() }
+    }
+    /// Whether the session is still opening, or capturing still starting after it, when you asked
+    /// for that as Reqly opens.
+    private(set) var isOpening = true {
         didSet { changed() }
     }
 
@@ -107,6 +112,7 @@ final class AppModel {
     }
 
     private func openSession() async {
+        defer { isOpening = false }
         // Settings a Reqly that quit unexpectedly left pointing at itself go back first, as on
         // Windows.
         await desktopProxy.restoreLeftBehind()

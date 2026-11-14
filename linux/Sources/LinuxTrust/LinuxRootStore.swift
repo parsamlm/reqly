@@ -137,7 +137,7 @@ public struct LinuxRootStore: RootStore {
     /// when no place trusts the certificate afterwards: `cancelled` when you closed the password
     /// dialog. ``places(for:)`` shows how each place went.
     public func trust(_ root: RootIdentity) throws {
-        let waiting = places(for: root).filter { $0.status == .notTrusted }.map(\.kind)
+        let waiting = places(for: root).filter(\.canTrust).map(\.kind)
         let problems = trust(root, in: Set(waiting))
         guard !isTrusted(root) else { return }
         if problems.values.contains(where: \.isDeclined) { throw CertificateStoreError.cancelled }
@@ -215,6 +215,8 @@ public struct LinuxRootStore: RootStore {
             computerStatus = .unavailable("This computer keeps no list of certificates at \(computerBundle).")
         } else if let reason = helper.unavailableReason {
             computerStatus = .unavailable(reason)
+        } else if computerTrustsAnotherCertificate(than: der) {
+            computerStatus = .trustsOldCertificate
         } else {
             computerStatus = .notTrusted
         }
@@ -223,6 +225,17 @@ public struct LinuxRootStore: RootStore {
             TrustPlace(kind: .firefox, status: firefoxStatus, locations: profiles),
             TrustPlace(kind: .computer, status: computerStatus, locations: [URL(filePath: computerBundle)]),
         ]
+    }
+
+    /// Whether the computer's list trusts a certificate the helper added for your account other
+    /// than `der`: an old one, whose key has gone, as when a new setup made a new certificate and
+    /// you closed the administrator's password dialog. Adding the new one puts it in its place.
+    private func computerTrustsAnotherCertificate(than der: [UInt8]?) -> Bool {
+        let file = ComputerList.certificateFile(uid: helper.uid)
+        guard let text = try? String(contentsOfFile: file, encoding: .utf8),
+            let added = PEM.certificates(in: text).first, added != der
+        else { return false }
+        return ComputerList.contains(added, bundle: computerBundle)
     }
 
     /// Adds the certificate to the places of `kinds` only, as Settings › HTTPS's Trust… does,

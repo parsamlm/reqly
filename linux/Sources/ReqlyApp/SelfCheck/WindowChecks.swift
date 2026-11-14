@@ -6,6 +6,7 @@ extension SelfCheck {
     /// The window's own parts, which the features build on.
     static let windowParts: [Part] = [
         Part(name: "window") { try await $0.checkWindow() },
+        Part(name: "layout", seconds: 90) { try await $0.checkLayout() },
         Part(name: "settings") { try await $0.checkSettings() },
         Part(name: "about") { try await $0.checkAbout() },
         Part(name: "events") { try await $0.checkEvents() },
@@ -18,25 +19,27 @@ extension SelfCheck {
         "set-up-https", "open-terminal", "copy-terminal-setup", "settings", "about", "quit",
     ]
 
-    /// The window shows its header bar, with the capture switch and the main menu, whose every
-    /// entry has its action, and the status line.
+    /// The window shows the list's header bar, with the capture switch, and the sidebar's, with
+    /// the main menu, whose every entry has its action, and the status line.
     func checkWindow() async throws {
         let window = window
         try await until("the window to show") { gtk_widget_get_mapped(window.window) != 0 }
-        try require(gtk_widget_get_mapped(window.headerBar) != 0, "the header bar doesn't show")
-        note("header bar: \(typeName(raw(window.headerBar)))")
+        try require(gtk_widget_get_mapped(window.listHeader) != 0, "the list's header bar doesn't show")
+        note("list's header bar: \(typeName(raw(window.listHeader)))")
 
         let captureSwitch = window.captureSwitch
         try require(
             typeName(raw(captureSwitch)) == "GtkSwitch", "the capture switch is a \(typeName(raw(captureSwitch)))")
         try require(
-            gtk_widget_is_ancestor(captureSwitch, window.headerBar) != 0, "the capture switch isn't in the header bar")
+            gtk_widget_is_ancestor(captureSwitch, window.listHeader) != 0,
+            "the capture switch isn't in the list's header bar")
         try require(gtk_widget_get_mapped(captureSwitch) != 0, "the capture switch doesn't show")
         let isOn = gtk_switch_get_active(cast(captureSwitch)) != 0
-        note("capture switch: in the header bar, \(isOn ? "on" : "off")")
+        note("capture switch: in the list's header bar, \(isOn ? "on" : "off")")
 
         try require(
-            gtk_widget_is_ancestor(window.menuButton, window.headerBar) != 0, "the main menu isn't in the header bar")
+            gtk_widget_is_ancestor(window.menuButton, window.sidebarHeader) != 0,
+            "the main menu isn't in the sidebar's header bar")
         let entries = menuEntries(window.menu)
         for entry in entries {
             let name = entry.action.hasPrefix("app.") ? String(entry.action.dropFirst(4)) : entry.action
@@ -132,7 +135,8 @@ extension SelfCheck {
     }
 
     /// Reqly's own symbolic icons stand in where the icon theme has none, as Debian Cinnamon's
-    /// `gnome` theme hasn't: with only hicolor, every one is found, not drawn as a broken image.
+    /// `gnome` theme hasn't: with only hicolor, every one is found, not drawn as a broken image,
+    /// and drawn in the text's color, as symbolic icons are.
     func checkSymbolicIcons() async throws {
         let theme = try present(gtk_icon_theme_get_for_display(gdk_display_get_default()), "there's no icon theme")
         let settings = try present(gtk_settings_get_default(), "there are no GTK settings")
@@ -143,6 +147,14 @@ extension SelfCheck {
         note("icon theme: hicolor, instead of \(before.isEmpty ? "the default" : before)")
         note("found: \(Icons.symbolic.map(\.name).filter { !missing.contains($0) }.joined(separator: ", "))")
         try require(missing.isEmpty, "with only hicolor, there's no \(missing.joined(separator: ", "))")
+        let plain = Icons.symbolic.map(\.name).filter { name in
+            let icon = gtk_icon_theme_lookup_icon(
+                theme, name, nil, 16, 1, GTK_TEXT_DIR_LTR, GtkIconLookupFlags(rawValue: 0))
+            defer { g_object_unref(raw(icon)) }
+            return gtk_icon_paintable_is_symbolic(icon) == 0
+        }
+        try require(plain.isEmpty, "with only hicolor, \(plain.joined(separator: ", ")) aren't in the text's color")
+        note("each in the text's color, as a symbolic icon")
     }
 
     /// A dialog opened from the main menu's entry, from the keyboard, leaves the window's focus
@@ -179,6 +191,11 @@ extension SelfCheck {
         defer { g_object_unref(raw(method)) }
         let width = gtk_column_view_column_get_fixed_width(method)
         let layout = gtk_widget_create_pango_layout(window.list.view, "CONNECT")
+        // In a monospace font, as the cell shows it.
+        let font = pango_font_description_copy(pango_context_get_font_description(pango_layout_get_context(layout)))
+        pango_font_description_set_family(font, "monospace")
+        pango_layout_set_font_description(layout, font)
+        pango_font_description_free(font)
         var needed: Int32 = 0
         pango_layout_get_pixel_size(layout, &needed, nil)
         g_object_unref(raw(layout))

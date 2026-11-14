@@ -1,7 +1,9 @@
 import Foundation
+import GRDB
 import ReqlyModel
 import Testing
-import TrafficStore
+
+@testable import TrafficStore
 
 /// Builds exchanges for the tests, and stores in temporary folders.
 struct Fixtures {
@@ -252,6 +254,97 @@ struct Fixtures {
         #expect(try await store.exchange(F.id(2)) == nil)
         #expect(try F.bodyFiles(of: store).isEmpty)
         #expect(try await store.search("weatherly") == [F.id(1), F.id(4), F.id(5)])
+    }
+
+    /// Burst after burst at the limit, and after the session is opened again, the session holds
+    /// exactly the newest exchanges, and search finds each of them and none of the ones that went.
+    @Test func staysAtTheLimitBurstAfterBurst() async throws {
+        let folder = F.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let limits = TrafficStore.Limits(exchanges: 40)
+        func exchange(_ id: UInt64) -> Exchange {
+            F.exchange(id, requestHeaders: ["X-Token": "tok-\(String(format: "%05d", id))-end"])
+        }
+        func token(_ id: UInt64) -> String { "tok-\(String(format: "%05d", id))-" }
+        var next: UInt64 = 1
+        var kept: [UInt64] = []
+
+        func check(_ store: TrafficStore, removed: [ExchangeID], before: [UInt64]) async throws {
+            let ids = kept.map(F.id)
+            #expect(try await store.summaries().map(\.id) == ids)
+            #expect(removed == before.filter { !kept.contains($0) }.map(F.id))
+            #expect(try await store.search("weatherly") == Set(ids))
+            for id in before where !kept.contains(id) {
+                #expect(try await store.search(token(id)).isEmpty, "exchange \(id) went, but search finds it")
+            }
+            for id in kept.suffix(3) + kept.prefix(3) {
+                #expect(try await store.search(token(id)) == [F.id(id)])
+            }
+        }
+
+        func burst(_ store: TrafficStore, _ size: Int) async throws {
+            let ids = (next..<next + UInt64(size)).map { $0 }
+            next += UInt64(size)
+            let before = kept + ids
+            kept = Array(before.suffix(limits.exchanges))
+            let removed = try await store.write(ids.map(exchange))
+            try await check(store, removed: removed, before: before)
+        }
+
+        do {
+            let store = try TrafficStore(directory: folder, limits: limits)
+            for size in [1, 25, 14, 1, 7, 40, 3, 90, 1, 16, 100, 2] {
+                try await burst(store, size)
+            }
+            // Saving an exchange again adds nothing.
+            #expect(try await store.write([exchange(kept[0]), exchange(kept[5])]).isEmpty)
+            #expect(try await store.summaries().count == limits.exchanges)
+        }
+        // The session, opened again, counts what it holds.
+        let reopened = try TrafficStore(directory: folder, limits: limits)
+        for size in [1, 39, 41, 5] {
+            try await burst(reopened, size)
+        }
+    }
+
+    @Test func staysAtTheLimitAfterAClearThatKeepsPinnedExchanges() async throws {
+        let store = try F.store(TrafficStore.Limits(exchanges: 5))
+        defer { store.discard() }
+        try await store.write((1...5).map { F.exchange($0) })
+        try await store.annotate(F.id(2), with: Annotation(isPinned: true))
+        try await store.removeUnpinned()
+
+        #expect(try await store.write((6...10).map { F.exchange($0) }) == [F.id(6)])
+        #expect(try await store.summaries().map(\.id) == [2, 7, 8, 9, 10].map(F.id))
+        #expect(try await store.write([F.exchange(11)]) == [F.id(7)])
+        #expect(try await store.search("weatherly") == Set([2, 8, 9, 10, 11].map(F.id)))
+    }
+
+    /// SQLite rolls a save back by itself, as it does when the disk is full or the commit fails,
+    /// and GRDB tells no one. A comment saved next mustn't make the session count that save.
+    @Test func staysAtTheLimitAfterSQLiteRollsASaveBack() async throws {
+        let store = try F.store(TrafficStore.Limits(exchanges: 5))
+        defer { store.discard() }
+        try await store.write((1...3).map { F.exchange($0) })
+        // Rolls the whole save back from inside SQLite as it drops an exchange.
+        try await store.database.write { db in
+            try db.execute(
+                sql: """
+                    CREATE TEMP TRIGGER rollBack AFTER DELETE ON main.exchange
+                    BEGIN SELECT RAISE(ROLLBACK, 'disk full'); END
+                    """)
+        }
+        await #expect(throws: DatabaseError.self) { try await store.write((4...8).map { F.exchange($0) }) }
+        try await store.database.write { try $0.execute(sql: "DROP TRIGGER temp.rollBack") }
+        #expect(try await store.summaries().map(\.id) == [1, 2, 3].map(F.id))
+
+        try await store.annotate(F.id(2), with: Annotation(comment: "look"))
+        var removed = try await store.write([F.exchange(9)])
+        #expect(removed == [])
+        #expect(try await store.summaries().map(\.id) == [1, 2, 3, 9].map(F.id))
+        removed = try await store.write((10...12).map { F.exchange($0) })
+        #expect(removed == [F.id(1), F.id(2)])
+        #expect(try await store.summaries().map(\.id) == [3, 9, 10, 11, 12].map(F.id))
     }
 
     @Test func keepsAnnotationsWhenTrafficIsSavedAgain() async throws {

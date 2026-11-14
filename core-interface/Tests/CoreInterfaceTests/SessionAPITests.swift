@@ -459,6 +459,125 @@ final class SessionEvents: Sendable {
         #expect(try JSONDecoder().decode(OpenOptions.self, from: plain).sessionLimit == nil)
     }
 
+    /// What the details pane shows besides the exchange's own fields, worked out once for both
+    /// apps.
+    @Test func worksOutWhatTheDetailsShow() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var exchange = Exchange(
+            id: ExchangeID(rawValue: 4), connectionID: ConnectionID(rawValue: 1), kind: .http,
+            request: RequestHead(
+                method: "POST", scheme: "https", host: "api.weatherly.dev", port: 443,
+                target: "/v1/forecast?city=T%C3%A9hran&=&days",
+                headers: ["Cookie": "session=abc; theme=dark", "Content-Type": "application/grpc"]),
+            started: start)
+        exchange.response = ResponseHead(
+            status: 200, reason: "OK",
+            headers: Headers([
+                HeaderField(
+                    name: "Set-Cookie",
+                    value: "session=new; Path=/; Secure; HttpOnly; Expires=Wed, 21 Oct 2026 07:28:00 GMT"),
+                HeaderField(name: "Set-Cookie", value: "lang=fa; Expires=soon; SameSite=Lax"),
+            ]))
+        exchange.responseTrailers = ["grpc-status": "5", "grpc-message": "No%20such%20city"]
+        exchange.timing.connectStarted = start + 0.01
+        exchange.timing.resolved = start + 0.02
+        exchange.timing.connected = start + 0.03
+        exchange.timing.secured = start + 0.05
+        exchange.timing.requestSent = start + 0.06
+        exchange.timing.responseStarted = start + 0.1
+        exchange.timing.ended = start + 0.2
+        exchange.state = .completed
+        exchange.device = Device(id: "a", kind: .simulator, name: "iPhone 17 Pro")
+        exchange.appliedRules = [
+            AppliedRule(name: "Hold", kind: .breakpoint, detail: "Held the request."),
+            AppliedRule(name: "Hold", kind: .breakpoint, detail: "Held the response."),
+        ]
+
+        let details = ExchangeDetails(exchange)
+        #expect(details.exchange == exchange)
+        #expect(
+            details.query == [
+                .init(name: "city", value: "Téhran"), .init(name: "", value: ""), .init(name: "days", value: ""),
+            ])
+        #expect(details.failure == nil && details.pausedPart == nil)
+        #expect(details.decryption == .decrypted)
+        #expect(details.isWebSocket == false)
+        #expect(details.grpc?.code == 5 && details.grpc?.name == "NOT_FOUND" && details.grpc?.title == "Not found")
+        #expect(details.grpc?.message == "No such city")
+        #expect(
+            details.phases.map(\.step) == [
+                .queued, .dnsLookup, .connecting, .tlsHandshake, .requestSent, .waiting, .downloading,
+            ])
+        #expect(details.phases.first?.start == start && details.phases.last?.end == start + 0.2)
+        #expect(details.connectStarted == start + 0.01)
+        #expect(
+            details.appliedRules == [
+                AppliedRule(name: "Hold", kind: .breakpoint, detail: "Held the request. Held the response.")
+            ])
+        #expect(details.deviceName == "iPhone 17 Pro · Simulator")
+        #expect(details.requestCookies == [.init(name: "session", value: "abc"), .init(name: "theme", value: "dark")])
+        #expect(
+            details.responseCookies == [
+                .init(
+                    name: "session", value: "new", expires: Date(timeIntervalSince1970: 1_792_567_680),
+                    attributes: ["Path /", "Secure", "HttpOnly"]),
+                .init(name: "lang", value: "fa", expiresText: "soon", attributes: ["SameSite Lax"]),
+            ])
+
+        // A failure in plain words, a breakpoint's part, and a switch to WebSocket.
+        var failed = exchange
+        failed.state = .failed(.timedOut)
+        #expect(ExchangeDetails(failed).failure == "The server stopped answering, so Reqly gave up on the response.")
+        var held = exchange
+        held.state = .paused(.response)
+        #expect(ExchangeDetails(held).pausedPart == .response)
+        var switched = exchange
+        switched.response?.status = 101
+        #expect(ExchangeDetails(switched).isWebSocket)
+        switched.response?.status = 200
+        switched.messageCount = 3
+        #expect(ExchangeDetails(switched).isWebSocket)
+
+        // Plain HTTP has no query to decode, and what Reqly sent itself wasn't decrypted.
+        var plain = exchange
+        plain.request.target = "/v1/forecast"
+        plain.request.scheme = "http"
+        #expect(ExchangeDetails(plain).query.isEmpty && ExchangeDetails(plain).decryption == .plain)
+        var sent = exchange
+        sent.sentByReqly = true
+        #expect(ExchangeDetails(sent).decryption == .plain)
+
+        // An encrypted connection passing through, and one whose app refused Reqly's certificate.
+        var tunnel = Exchange(
+            id: ExchangeID(rawValue: 5), connectionID: ConnectionID(rawValue: 2), kind: .tunnel,
+            request: RequestHead(
+                method: "CONNECT", scheme: "https", host: "cdn.weatherly.dev", port: 443,
+                target: "cdn.weatherly.dev:443"),
+            started: start)
+        tunnel.state = .open
+        let open = ExchangeDetails(tunnel)
+        #expect(open.decryption == .encryptedTunnel && open.query.isEmpty && open.requestCookies.isEmpty)
+        #expect(open.responseCookies.isEmpty && open.grpc == nil && open.deviceName == nil && open.phases.isEmpty)
+        tunnel.state = .failed(.certificateRejected)
+        #expect(ExchangeDetails(tunnel).decryption == .certificateRejected)
+    }
+
+    @Test func givesDetailsThroughSwift() async throws {
+        let (folder, file) = try await Saved.file()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let host = try await SessionHost.open(
+            OpenOptions(sessionsFolder: folder.appending(path: "Sessions").path, file: file.path), system: .standIns,
+            events: { _ in })
+        let details = try await host.details(ExchangeID(rawValue: 1))
+        #expect(details.exchange.request.target == "/v2/forecast?city=Tehran")
+        #expect(details.query == [.init(name: "city", value: "Tehran")])
+        #expect(details.decryption == .decrypted && details.failure == nil)
+        await #expect(throws: Problem(.notFound, "The session has no exchange 7.")) {
+            try await host.details(ExchangeID(rawValue: 7))
+        }
+        await host.close()
+    }
+
     /// What an app's model would be, holding the session that hands it events.
     final class Model: Sendable {
         let events = SessionEvents()

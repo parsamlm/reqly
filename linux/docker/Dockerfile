@@ -13,9 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # What the app's self-check runs on, headless (linux/scripts/self-check.sh): a virtual X screen,
-# the accessibility bus GTK looks for, GNOME's fonts and icons, and Mesa's software drawing.
+# the accessibility bus GTK looks for, GNOME's fonts and icons, and Mesa's software drawing; and
+# what it reads the window with: pyatspi for what a screen reader hears, and ImageMagick's import
+# for pictures of the whole screen.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgtk-4-bin xvfb xauth at-spi2-core libglib2.0-bin \
         fonts-cantarell fonts-dejavu-core adwaita-icon-theme librsvg2-common \
-        libgl1-mesa-dri libegl1 x11-utils \
+        libgl1-mesa-dri libegl1 x11-utils python3-pyatspi imagemagick \
     && rm -rf /var/lib/apt/lists/*

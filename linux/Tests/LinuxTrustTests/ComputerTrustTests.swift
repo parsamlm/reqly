@@ -276,6 +276,38 @@ struct ComputerTrustTests {
         }
     }
 
+    /// After the key has gone, a new setup whose password dialog is closed leaves the old
+    /// certificate in the computer's list, which says so, as Old Certificate, rather than Not
+    /// Trusted. Setting up again, or Trust…, puts the new one in its place.
+    @Test func showsTheOldCertificateLeftInTheComputersList() throws {
+        try withStore { store, keyring, home in
+            let old = try Fixtures.root(minute: 35)
+            try store.save(old)
+            try store.trust(old)
+            #expect(ComputerList.contains(try old.certificateDER))
+            keyring.secret.withLock { $0 = nil }
+            #expect(store.places(for: nil).last?.status == .trustsOldCertificate)
+
+            // Set Up HTTPS makes a new one, and you close the password dialog.
+            let new = try Fixtures.root(minute: 36)
+            try store.save(new)
+            let pkexec = home.appending(path: "bin/pkexec")
+            try Fixtures.script("#!/bin/sh\nexit 126\n", at: pkexec)
+            #expect(throws: CertificateStoreError.cancelled) { try store.trust(new) }
+            let computer = try #require(store.places(for: new).last)
+            #expect(computer.status == .trustsOldCertificate && computer.statusName == "Old Certificate")
+            #expect(computer.canTrust)
+            #expect(!store.isTrusted(new))
+
+            // Setting up again, with the password, puts the new one in the old one's place.
+            try Fixtures.script("#!/bin/sh\nexport PKEXEC_UID=4244\nexec /bin/sh \"$@\"\n", at: pkexec)
+            try store.trust(new)
+            #expect(store.places(for: new).last?.status == .trusted)
+            #expect(ComputerList.contains(try new.certificateDER))
+            #expect(!ComputerList.contains(try old.certificateDER))
+        }
+    }
+
     /// With no certutil and no password, nothing trusts the root, and trusting it says so.
     @Test func withoutCertutilOrThePasswordNothingTrustsIt() throws {
         try withStore(pkexec: "exit 126") { store, _, home in
