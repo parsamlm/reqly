@@ -63,6 +63,24 @@ jobs:
           xcodebuild build -project mac/Reqly.xcodeproj -scheme Reqly -configuration Debug
           CODE_SIGNING_ALLOWED=NO
 
+  # The Mac app optimized, as release.yml builds it, with the same Xcode, for Apple silicon and
+  # Intel: the Debug build above is for the runner's own chip alone. On a job of its own, so it
+  # runs beside build-and-test, and the run takes no longer.
+  mac-release-build:
+    name: Mac app's release build
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Use the newest Xcode on the runner
+        run: sudo xcode-select --switch "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+
+      - name: Build the app for release
+        run: >
+          xcodebuild build -project mac/Reqly.xcodeproj -scheme Reqly -configuration Release
+          -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO
+
   # The core: the engine, certificates, rules, scripts, storage and file formats, which the
   # Windows and Linux apps share. The Mac-only modules are in mac/ReqlyMacKit, so they stay
   # out. On x64 and arm64, with the Swift that Reqly for Linux is built with.
