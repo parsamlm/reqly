@@ -212,6 +212,11 @@ public struct RequestDraft: Sendable, Equatable {
         self.body = body
     }
 
+    /// The body as text to edit, when it's UTF-8, or `nil` for a body that's sent as it is.
+    public var bodyText: String? {
+        String(data: body, encoding: .utf8)
+    }
+
     /// Reqly sets these itself when it sends the request, from the URL and the body, and leaves
     /// out the ones meant for a proxy.
     static let framingHeaders: Set<String> = [

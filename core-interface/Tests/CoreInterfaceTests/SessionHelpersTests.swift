@@ -206,6 +206,14 @@ import Testing
         #expect(LocalFileTypes.contentType(forFile: "answer") == "application/octet-stream")
     }
 
+    /// The composer's body: text when it's UTF-8, and otherwise sent as it is.
+    @Test func givesADraftsBodyAsText() {
+        #expect(RequestDraft(url: "api.weatherly.dev", body: Data("sunny\r\n".utf8)).bodyText == "sunny\r\n")
+        #expect(RequestDraft(url: "api.weatherly.dev", body: Data("شهر تهران".utf8)).bodyText == "شهر تهران")
+        #expect(RequestDraft(url: "api.weatherly.dev").bodyText == "")
+        #expect(RequestDraft(url: "api.weatherly.dev", body: Data([0x89, 0x50, 0x4E, 0x47, 0xFF])).bodyText == nil)
+    }
+
     #if !os(Windows)
         /// The adb the system's parts find is the one that runs: here a stand-in that knows one
         /// emulator, which sends its traffic through Reqly.
