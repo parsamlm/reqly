@@ -36,8 +36,8 @@ final class App {
     /// The windows of the files opened, in the order they opened.
     private(set) var fileWindows: [MainWindow] = []
     /// Windows that belong to the live window, such as Rules, Devices and composers, which close as
-    /// it hides.
-    private(set) var secondaryWindows: [Widget] = []
+    /// it hides: see ``addSecondary(_:over:)``.
+    private(set) var secondaries: [any SecondaryWindow] = []
     /// Each file window's file, to find the window that shows a file again.
     private var fileWindowFiles: [ObjectIdentifier: OpaquePointer] = [:]
     private var selfCheck: SelfCheck?
@@ -328,25 +328,22 @@ final class App {
     /// launch without files, brings it back.
     private func hideLive() {
         guard let liveWindow, liveWindow.isShowing else { return }
-        for secondary in secondaryWindows {
-            gtk_window_destroy(cast(secondary))
+        for secondary in secondaries {
+            gtk_window_destroy(cast(secondary.window))
         }
-        secondaryWindows = []
+        secondaries = []
         gtk_widget_set_visible(liveWindow.window, 0)
         if !isQuitting {
             model.liveWindowHidden()
         }
     }
 
-    /// Keeps `window`, such as Rules, Devices or a composer, over the live window, without
-    /// blocking it, until the live window hides, which closes it, or it closes itself.
-    func addSecondary(_ window: Widget) {
-        if let liveWindow {
-            gtk_window_set_transient_for(cast(window), cast(liveWindow.window))
-        }
-        secondaryWindows.append(window)
+    /// Keeps `secondary` until its window goes, as it closes, or as the live window hides.
+    func keepSecondary(_ secondary: any SecondaryWindow) {
+        let window = secondary.window
+        secondaries.append(secondary)
         connect(window, "destroy") { [weak self] in
-            self?.secondaryWindows.removeAll { $0 == window }
+            self?.secondaries.removeAll { $0.window == window }
         }
     }
 
