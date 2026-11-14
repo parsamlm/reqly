@@ -79,11 +79,16 @@ public final class TrafficStore: Sendable {
         database = try DatabasePool(path: directory.appending(path: "traffic.sqlite").path(percentEncoded: false))
         try Schema.migrator.migrate(database)
         // SQLite keeps the setting in the database, so a session saved as a file takes it along.
-        // It changes only when SQLite merges, so any Reqly opens the file as before.
-        try database.write { db in
-            try db.execute(
-                sql: "INSERT INTO search(search, rank) VALUES ('deletemerge', ?)", arguments: [Self.searchDeleteMerge])
-        }
+        // It changes only when SQLite merges, so any Reqly opens the file as before. Setting it
+        // reads the search index, which a saved file's damage may have left unreadable, and it
+        // only tunes merging, so the session opens without it: building the index sets it.
+        try? database.write { try Self.setSearchMerging(in: $0) }
+    }
+
+    /// Has the search index merge a level as `searchDeleteMerge` says.
+    static func setSearchMerging(in db: Database) throws {
+        try db.execute(
+            sql: "INSERT INTO search(search, rank) VALUES ('deletemerge', ?)", arguments: [searchDeleteMerge])
     }
 
     // MARK: - Writing

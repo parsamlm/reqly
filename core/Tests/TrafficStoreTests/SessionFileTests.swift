@@ -181,4 +181,30 @@ import Testing
         defer { try? saved.close() }
         #expect(try await saved.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
     }
+
+    /// A saved file's search index is there to be thrown away, so a file whose index is damaged
+    /// opens all the same, with a new one.
+    @Test func opensAFileWhoseSearchIndexIsDamaged() async throws {
+        let root = F.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var data = try Data(contentsOf: SessionCompatibilityTests.sessions.appending(path: "Mac 1.0.reqly"))
+        // The empty index's structure record, which SQLite calls corrupt as it reads it with
+        // another byte in its marker.
+        let structure = Data([0, 0, 0, 0, 0xFF, 0, 0, 1, 0, 0, 0])
+        let record = try #require(data.range(of: structure))
+        #expect(data.range(of: structure, in: record.upperBound..<data.endIndex) == nil)
+        data[record.lowerBound + 4] = 0xFE
+        let damaged = root.appending(path: "Damaged.reqly")
+        try data.write(to: damaged)
+
+        let opened = try await TrafficStore.openSession(damaged, in: root)
+        defer { opened.discard() }
+        let saved = try await SessionSample.store(in: root)
+        defer { saved.discard() }
+        #expect(try await opened.summaries() == saved.summaries())
+        #expect(try await opened.search("Lisbon").contains(SessionSample.id(1)))
+        let setting = "SELECT v FROM search_config WHERE k = 'deletemerge'"
+        #expect(try await opened.database.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
+    }
 }
