@@ -67,6 +67,29 @@ import Testing
         await host.close()
     }
 
+    /// Settings' port, as the Mac checks it: from 1024 to 65535, and no reverse proxy's.
+    @Test func checksTheProxyPortAgainstTheReverseProxies() async throws {
+        let folder = SessionAPITests.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let host = try await Self.open(folder)
+        _ = await Self.openConnections(host, in: folder)
+        let fine = await host.checkProxyPort(" 9090 ")
+        #expect(fine.port == 9090 && fine.problem == nil)
+        for text in ["80", "1023", "65536", "", "port"] {
+            let refused = await host.checkProxyPort(text)
+            #expect(refused.port == nil && refused.problem == "Enter a port from 1024 to 65535.", "\(text)")
+        }
+        var draft = await host.newReverseProxy(proxyPort: 9090)
+        draft.serverURL = "staging.weatherly.dev"
+        draft.port = "8081"
+        draft.isOn = false
+        _ = try await host.saveReverseProxy(draft, proxyPort: 9090)
+        // Even one that's off.
+        let taken = await host.checkProxyPort("8081")
+        #expect(taken.port == nil && taken.problem == "A reverse proxy listens on port 8081. Choose another port.")
+        await host.close()
+    }
+
     #if !os(Windows)
         /// The adb the system's parts find is the one that runs: here a stand-in that knows one
         /// emulator, which sends its traffic through Reqly.

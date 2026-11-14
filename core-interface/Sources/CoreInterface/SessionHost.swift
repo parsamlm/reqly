@@ -859,6 +859,18 @@ public actor SessionHost {
         return connectionsState
     }
 
+    /// Whether Reqly can capture on a port, as typed in Settings: a number from 1024 to 65535
+    /// that no reverse proxy uses. Gives the port, or what's wrong with it, as the Mac says it.
+    public func checkProxyPort(_ text: String) -> (port: Int?, problem: String?) {
+        guard let number = Int(text.trimmingCharacters(in: .whitespaces)), (1024...65535).contains(number) else {
+            return (nil, "Enter a port from 1024 to 65535.")
+        }
+        if connectionsBook.contents.reverseProxies.contains(where: { $0.localPort == number }) {
+            return (nil, "A reverse proxy listens on port \(String(number)). Choose another port.")
+        }
+        return (number, nil)
+    }
+
     /// A new reverse proxy to edit, on a port none uses yet.
     public func newReverseProxy(proxyPort: Int) -> ReverseProxyDraft {
         let proxies = connectionsBook.contents.reverseProxies
