@@ -8,6 +8,10 @@ import Foundation
     import WinSDK
 #endif
 
+#if os(Linux)
+    import Synchronization
+#endif
+
 /// Runs a command-line tool, such as `adb` or Xcode's `simctl`, and collects what it prints.
 public enum Tool {
     public struct Failure: Error, LocalizedError {
@@ -51,6 +55,22 @@ public enum Tool {
             async let complaints = tool.readErrors()
             let (text, errorText) = await (printed, complaints)
             return (await tool.status(), text, errorText)
+        }
+    #elseif os(Linux)
+        /// Runs the tool until it ends, or for `timeout`, and returns its status and what it printed
+        /// to its output and errors before it ended.
+        private static func launch(
+            _ executable: URL, _ arguments: [String], environment: [String: String], timeout: Duration
+        ) async throws -> (status: Int32, output: String, errors: String) {
+            let tool = try LinuxTool(executable, arguments, environment: environment)
+            let deadline = Task {
+                try await Task.sleep(for: timeout)
+                tool.stop()
+            }
+            defer { deadline.cancel() }
+            let ended = await tool.finish()
+            let text = String(decoding: ended.output, as: UTF8.self)
+            return (ended.status, text, String(decoding: ended.errors, as: UTF8.self))
         }
     #else
         /// Runs the tool until it ends, or for `timeout`, and returns its status and what it printed
@@ -112,18 +132,234 @@ public enum Tool {
 
             func stop() {
                 guard process.isRunning else { return }
-                #if os(Linux)
-                    // A tool started from a thread that blocks signals, as the cooperative pool's do
-                    // on Linux, starts with them blocked too, so it would never get SIGTERM.
-                    // SIGKILL can't be blocked.
-                    kill(process.processIdentifier, SIGKILL)
-                #else
-                    process.terminate()
-                #endif
+                process.terminate()
             }
         }
     #endif
 }
+
+#if os(Linux)
+    /// A tool started on Linux with nothing of Reqly's but its two pipes, input from /dev/null, and
+    /// every signal as a new program has it. Foundation's `Process` would hand it a socket of its
+    /// own, and report the end only once every copy of that socket closed, so a program the tool
+    /// leaves running, as adb leaves its server, would hold up the call until it quit. Here, the
+    /// call ends with the tool: a thread of its own waits for the tool's end, another reads both
+    /// pipes as they fill, and once the tool has ended, what's left in them is read without
+    /// waiting, since a program it left running may keep them open. Neither thread is one of
+    /// Swift's, which a wait would hold up.
+    final class LinuxTool: @unchecked Sendable {
+        private struct State {
+            var hasEnded = false
+            var status: Int32 = -1
+        }
+
+        // The descriptors are this object's own: the pipes' ends are read and closed by `finish`,
+        // the end's pipe closes when it goes.
+        private let pid: pid_t
+        private let output: Int32
+        private let errors: Int32
+        /// Turns readable once the tool has ended.
+        private let ended: (read: Int32, write: Int32)
+        private let state = Mutex(State())
+
+        init(_ executable: URL, _ arguments: [String], environment: [String: String]) throws {
+            let name = executable.lastPathComponent
+            func failure(_ error: Int32) -> Tool.Failure {
+                let reason = String(cString: strerror(error))
+                return Tool.Failure(tool: name, message: "Linux couldn't start \(name) (\(reason)).")
+            }
+            var pipes: [(read: Int32, write: Int32)] = []
+            for _ in 0..<3 {
+                guard let pipe = Self.makePipe() else {
+                    let error = errno
+                    for pipe in pipes {
+                        close(pipe.read)
+                        close(pipe.write)
+                    }
+                    throw failure(error)
+                }
+                pipes.append(pipe)
+            }
+            let path = executable.path(percentEncoded: false)
+            let variables = ProcessInfo.processInfo.environment.merging(environment) { $1 }
+            var pid: pid_t = 0
+            let error = Self.spawn(
+                path, [path] + arguments, variables.map { "\($0.key)=\($0.value)" }, output: pipes[0].write,
+                errors: pipes[1].write, into: &pid)
+            // The tool's ends close here once it has its own copies, so the pipes end when it does.
+            close(pipes[0].write)
+            close(pipes[1].write)
+            guard error == 0 else {
+                close(pipes[0].read)
+                close(pipes[1].read)
+                close(pipes[2].read)
+                close(pipes[2].write)
+                throw failure(error)
+            }
+            self.pid = pid
+            output = pipes[0].read
+            errors = pipes[1].read
+            ended = pipes[2]
+        }
+
+        deinit {
+            close(ended.read)
+            close(ended.write)
+        }
+
+        /// Waits for the tool to end, and gives its status, as its exit code or 128 and the signal
+        /// that ended it, and what it printed to its output and errors until then.
+        func finish() async -> (status: Int32, output: Data, errors: Data) {
+            await withCheckedContinuation { continuation in
+                Thread.detachNewThread { self.waitForEnd() }
+                Thread.detachNewThread {
+                    let (output, errors) = self.collect()
+                    continuation.resume(returning: (self.state.withLock { $0.status }, output, errors))
+                }
+            }
+        }
+
+        /// Ends the tool, unless it has ended. SIGKILL ends it even if it ignores other signals.
+        func stop() {
+            state.withLock { state in
+                if !state.hasEnded {
+                    kill(pid, SIGKILL)
+                }
+            }
+        }
+
+        /// Waits for the tool to end, then reaps it and keeps its status. It's reaped only while
+        /// `state` is locked, so `stop` never signals another process given the same ID later.
+        private func waitForEnd() {
+            var info = siginfo_t()
+            while waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT) < 0 && errno == EINTR {}
+            state.withLock { state in
+                var status: Int32 = 0
+                var reaped = waitpid(pid, &status, 0)
+                while reaped < 0 && errno == EINTR {
+                    reaped = waitpid(pid, &status, 0)
+                }
+                state.hasEnded = true
+                // A status is a signal's number in its low 7 bits, or 0 and the exit code above.
+                if reaped == pid {
+                    state.status = status & 0x7F == 0 ? (status >> 8) & 0xFF : 128 + (status & 0x7F)
+                }
+            }
+            var byte: UInt8 = 1
+            _ = write(ended.write, &byte, 1)
+        }
+
+        /// Reads both pipes until the tool ends, then what's left in them, and closes them.
+        private func collect() -> (output: Data, errors: Data) {
+            var open = [output, errors]
+            var collected = [Data(), Data()]
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            var hasEnded = false
+            while !hasEnded {
+                // poll leaves out a pipe that's closed, whose place holds -1.
+                var polled = (open + [ended.read]).map { pollfd(fd: $0, events: Int16(POLLIN), revents: 0) }
+                guard poll(&polled, nfds_t(polled.count), -1) >= 0 || errno == EINTR else { break }
+                for index in open.indices where open[index] >= 0 && polled[index].revents != 0 {
+                    let count = read(open[index], &buffer, buffer.count)
+                    if count > 0 {
+                        collected[index].append(contentsOf: buffer[..<count])
+                    } else if count == 0 || errno != EINTR {
+                        close(open[index])
+                        open[index] = -1
+                    }
+                }
+                hasEnded = polled[2].revents != 0
+            }
+            if !hasEnded {
+                // poll failed, which it shouldn't: wait for the end all the same.
+                var byte: UInt8 = 0
+                while read(ended.read, &byte, 1) < 0 && errno == EINTR {}
+            }
+            // Everything the tool wrote before it ended is in the pipes by now.
+            for index in open.indices where open[index] >= 0 {
+                _ = fcntl(open[index], F_SETFL, fcntl(open[index], F_GETFL) | O_NONBLOCK)
+                while true {
+                    let count = read(open[index], &buffer, buffer.count)
+                    if count > 0 {
+                        collected[index].append(contentsOf: buffer[..<count])
+                    } else if count == 0 || errno != EINTR {
+                        break
+                    }
+                }
+                close(open[index])
+            }
+            return (collected[0], collected[1])
+        }
+
+        /// A pipe whose ends close on exec, so no other program Reqly starts gets them, and are
+        /// above standard error, so the tool's own can take their places. Swift's Glibc has no
+        /// pipe2, so the ends are moved to such copies at once. Every program Reqly starts closes
+        /// what it would inherit above standard error anyway.
+        private static func makePipe() -> (read: Int32, write: Int32)? {
+            var ends: [Int32] = [-1, -1]
+            guard pipe(&ends) == 0 else { return nil }
+            let moved = ends.map { fcntl($0, F_DUPFD_CLOEXEC, 3) }
+            let error = errno
+            for end in ends {
+                close(end)
+            }
+            guard moved[0] >= 0, moved[1] >= 0 else {
+                for end in moved where end >= 0 {
+                    close(end)
+                }
+                errno = error
+                return nil
+            }
+            return (moved[0], moved[1])
+        }
+
+        /// Starts the program with its output and errors to the descriptors given, input from
+        /// /dev/null, every other descriptor closed, no signal blocked and every signal's action
+        /// the default one, as Reqly may block or ignore some. Returns 0, or an errno.
+        private static func spawn(
+            _ path: String, _ arguments: [String], _ environment: [String], output: Int32, errors: Int32,
+            into pid: inout pid_t
+        ) -> Int32 {
+            var actions = posix_spawn_file_actions_t()
+            var attributes = posix_spawnattr_t()
+            guard posix_spawn_file_actions_init(&actions) == 0 else { return ENOMEM }
+            defer { posix_spawn_file_actions_destroy(&actions) }
+            guard posix_spawnattr_init(&attributes) == 0 else { return ENOMEM }
+            defer { posix_spawnattr_destroy(&attributes) }
+            var error = posix_spawn_file_actions_adddup2(&actions, output, 1)
+            if error == 0 {
+                error = posix_spawn_file_actions_adddup2(&actions, errors, 2)
+            }
+            if error == 0 {
+                error = posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+            }
+            if error == 0 {
+                error = posix_spawn_file_actions_addclosefrom_np(&actions, 3)
+            }
+            var none = sigset_t()
+            var all = sigset_t()
+            sigemptyset(&none)
+            sigfillset(&all)
+            if error == 0 {
+                error = posix_spawnattr_setsigmask(&attributes, &none)
+            }
+            if error == 0 {
+                error = posix_spawnattr_setsigdefault(&attributes, &all)
+            }
+            if error == 0 {
+                error = posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
+            }
+            guard error == 0 else { return error }
+            let argv = arguments.map { strdup($0) } + [nil]
+            let envp = environment.map { strdup($0) } + [nil]
+            defer {
+                argv.forEach { free($0) }
+                envp.forEach { free($0) }
+            }
+            return posix_spawn(&pid, path, &actions, &attributes, argv, envp)
+        }
+    }
+#endif
 
 #if os(Windows)
     /// A tool started on Windows with nothing to inherit but its input and its two pipes. Windows

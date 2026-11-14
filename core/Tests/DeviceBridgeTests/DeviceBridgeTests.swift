@@ -5,6 +5,8 @@ import Testing
 
 #if os(Windows)
     import WinSDK
+#elseif canImport(Glibc)
+    import Glibc
 #endif
 
 @Suite struct DeviceBridgeTests {
@@ -193,6 +195,143 @@ import Testing
                 try await Tool.run(URL(filePath: "/bin/sleep"), ["10"], timeout: .milliseconds(200))
             }
             #expect(ContinuousClock.now - start < .seconds(5))
+        }
+    #endif
+
+    #if os(Linux)
+        /// adb starts its server and leaves it running, with whatever adb got from Reqly. A tool's
+        /// call ends with the tool all the same, with what it printed, and what it leaves running
+        /// has none of Reqly's descriptors and no signal blocked.
+        @Test func endsWithTheToolThoughWhatItLeftKeepsItsPipes() async throws {
+            // Reqly ignores SIGPIPE, which a tool shouldn't.
+            signal(SIGPIPE, SIG_IGN)
+            // Its output and errors stay open in the child for 30 seconds. The shell reads its
+            // own signals with its builtins, since it blocks them all for a moment as it starts a
+            // program.
+            let printed = try await Self.runLeavingAChild(
+                #"echo printed; echo complained >&2; sleep 30 & echo $! > "$1/child"; "#
+                    + #"while read -r name value; do case $name in SigBlk:|SigIgn:) "#
+                    + #"printf '%s\t%s\n' "$name" "$value";; esac; done < /proc/$$/status"#)
+            let lines = printed.split(separator: "\n")
+            #expect(lines.first == "printed" && lines.count == 3)
+            #expect(lines.dropFirst().first == "SigBlk:\t0000000000000000")
+            // Signals 1 to 31 aren't ignored. glibc's posix_spawn ignores its own two, 32 and 33, in
+            // every program it starts.
+            let ignored = lines.last.flatMap { UInt64($0.dropFirst("SigIgn:\t".count), radix: 16) }
+            #expect(ignored.map { $0 & 0x7FFF_FFFF } == 0, "\(printed)")
+            // A tool that fails says why, from its errors.
+            do {
+                _ = try await Self.runLeavingAChild(#"echo nope >&2; sleep 30 & echo $! > "$1/child"; exit 3"#)
+                Issue.record("The tool's failure wasn't thrown")
+            } catch let failure as Tool.Failure {
+                #expect(failure.tool == "sh" && failure.message == "nope")
+            }
+        }
+
+        @Test func aToolGetsNoneOfReqlysDescriptors() async throws {
+            // The tool has only its input, output and errors, though this process has a socket
+            // open that its programs could inherit. The child it leaves holds a descriptor above 2,
+            // a file the tool opened, and none of the tool's pipes.
+            let printed = try await Self.runLeavingAChild(
+                #"ls /proc/$$/fd; exec 5> "$1/held"; sleep 30 < /dev/null > /dev/null 2>&1 & "#
+                    + #"echo $! > "$1/child""#)
+            #expect(printed == "0\n1\n2\n")
+        }
+
+        @Test func readsALotFromBothPipes() async throws {
+            // More than a pipe holds, on each, so both are read as they fill.
+            let printed = try await Tool.run(
+                URL(filePath: "/bin/sh"), ["-c", "head -c 300000 /dev/zero | tr '\\0' a; head -c 300000 /dev/zero >&2"])
+            #expect(printed.count == 300_000 && printed.allSatisfy { $0 == "a" })
+            do {
+                _ = try await Tool.run(URL(filePath: "/nonexistent/adb"), [])
+                Issue.record("A tool that isn't there ran")
+            } catch let failure as Tool.Failure {
+                #expect(failure.message == "Linux couldn't start adb (No such file or directory).")
+            }
+        }
+
+        /// Each tool waits on threads of its own, so tools that run for a while never hold up
+        /// Swift's tasks, which share as many threads as the computer has cores.
+        @Test func waitsOffSwiftsThreads() async throws {
+            let count = max(ProcessInfo.processInfo.activeProcessorCount, 4) * 3
+            let start = ContinuousClock.now
+            let printed = try await withThrowingTaskGroup(of: String.self) { group in
+                for _ in 0..<count {
+                    group.addTask { try await Tool.run(URL(filePath: "/bin/sh"), ["-c", "sleep 1; echo done"]) }
+                }
+                return try await group.reduce(into: [String]()) { $0.append($1) }
+            }
+            #expect(printed == Array(repeating: "done\n", count: count))
+            #expect(ContinuousClock.now - start < .seconds(2.5))
+        }
+
+        /// Runs `script` in a shell through Tool while a listening socket is open, as Reqly's
+        /// proxy's is, and gives what it printed. The script writes the ID of a program it leaves
+        /// running to `$1/child`. The call has to end within 2 seconds, the child must have no
+        /// signal blocked, and the port must be free again once the socket closes, so the child
+        /// never got it.
+        static func runLeavingAChild(_ script: String) async throws -> String {
+            let folder = URL.temporaryDirectory.appending(path: "ReqlyTests-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let listening = try #require(listen(port: 0))
+            var isListening = true
+            defer {
+                if isListening {
+                    close(listening.socket)
+                }
+            }
+            let start = ContinuousClock.now
+            let printed: Result<String, any Error>
+            do {
+                printed = .success(try await Tool.run(URL(filePath: "/bin/sh"), ["-c", script, "sh", folder.path]))
+            } catch {
+                printed = .failure(error)
+            }
+            #expect(ContinuousClock.now - start < .seconds(2))
+            let written = try? String(contentsOf: folder.appending(path: "child"), encoding: .utf8)
+            let child = try #require(written.flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) })
+            defer { kill(child, SIGKILL) }
+            let status = try String(contentsOfFile: "/proc/\(child)/status", encoding: .utf8)
+            #expect(status.contains("SigBlk:\t0000000000000000\n"))
+            close(listening.socket)
+            isListening = false
+            // Another test's tool may be starting meanwhile, and a new program has every descriptor
+            // until its first steps close them, so the port may take a moment to come free.
+            var again = listen(port: listening.port)
+            for _ in 0..<100 where again == nil {
+                try await Task.sleep(for: .milliseconds(10))
+                again = listen(port: listening.port)
+            }
+            #expect(again != nil, "The port is still taken")
+            if let again {
+                close(again.socket)
+            }
+            return try printed.get()
+        }
+
+        /// Listens on `port` on 127.0.0.1, or on a free one for 0, as Reqly's proxy does: without
+        /// close-on-exec, as SwiftNIO opens its sockets on Linux. Gives the socket and its port.
+        static func listen(port: UInt16) -> (socket: Int32, port: UInt16)? {
+            let socket = Glibc.socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+            guard socket >= 0 else { return nil }
+            var address = sockaddr_in()
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_addr.s_addr = in_addr_t(0x7F00_0001).bigEndian
+            address.sin_port = port.bigEndian
+            var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let bound = withUnsafeMutablePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
+                    bind(socket, address, length) == 0 && Glibc.listen(socket, 1) == 0
+                        && getsockname(socket, address, &length) == 0
+                }
+            }
+            guard bound else {
+                close(socket)
+                return nil
+            }
+            return (socket, UInt16(bigEndian: address.sin_port))
         }
     #endif
 
