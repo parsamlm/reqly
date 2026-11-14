@@ -219,6 +219,12 @@ public actor CaptureSession {
         await ScriptRunner.shared.check(code)
     }
 
+    /// What's wrong with a script, as ``checkScript(_:)`` says it, and the line it's on, counted
+    /// from 1, when the script engine says; or nothing when it reads.
+    public nonisolated func scriptProblem(_ code: String) async -> (message: String, line: Int?)? {
+        await ScriptRunner.shared.problem(in: code)
+    }
+
     /// Runs a script on an exchange captured earlier, as it would run on traffic, and says what
     /// it would do. Nothing goes anywhere, and the script's `shared` object starts empty.
     public nonisolated func tryScript(_ code: String, on id: ExchangeID) async -> [ScriptTrial] {

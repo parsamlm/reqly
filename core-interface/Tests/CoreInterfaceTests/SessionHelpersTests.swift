@@ -214,6 +214,19 @@ import Testing
         #expect(RequestDraft(url: "api.weatherly.dev", body: Data([0x89, 0x50, 0x4E, 0x47, 0xFF])).bodyText == nil)
     }
 
+    /// A script's problem with its line, which the editor goes to, in the words it shows.
+    @Test func givesAScriptProblemWithItsLine() async throws {
+        let folder = SessionAPITests.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let host = try await Self.open(folder)
+        let code = "// Checks the forecast.\n\nfunction onRequest( {"
+        let problem = try #require(await host.scriptProblem(code))
+        #expect(problem == ScriptProblem(message: "SyntaxError: invalid property name, on line 3.", line: 3))
+        #expect(await host.checkScript(code) == problem.message)
+        #expect(await host.scriptProblem("function onRequest(request) { return request }") == nil)
+        await host.close()
+    }
+
     #if !os(Windows)
         /// The adb the system's parts find is the one that runs: here a stand-in that knows one
         /// emulator, which sends its traffic through Reqly.

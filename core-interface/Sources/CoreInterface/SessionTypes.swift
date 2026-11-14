@@ -252,6 +252,19 @@ public struct RequestDraft: Sendable, Equatable {
     }
 }
 
+/// What's wrong with a script, as the script editor shows it under the code.
+public struct ScriptProblem: Sendable, Equatable {
+    /// Such as "SyntaxError: invalid property name, on line 1."
+    public var message: String
+    /// The line it's on, counted from 1, when the script engine says.
+    public var line: Int?
+
+    public init(message: String, line: Int?) {
+        self.message = message
+        self.line = line
+    }
+}
+
 /// A response saved as a file for Map Local to answer with, as "Save the Response as a File…"
 /// saves it.
 public struct ResponseFile: Sendable, Equatable {

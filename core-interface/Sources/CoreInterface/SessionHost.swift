@@ -564,6 +564,12 @@ public actor SessionHost {
         await capture.checkScript(code)
     }
 
+    /// What's wrong with a script, in ``checkScript(_:)``'s words, with the line it's on, or
+    /// nothing when it reads.
+    public func scriptProblem(_ code: String) async -> ScriptProblem? {
+        await capture.scriptProblem(code).map { ScriptProblem(message: $0.message, line: $0.line) }
+    }
+
     /// A script's syntax, to color it as you type: its keywords, strings, numbers, literals and
     /// comments. Past the limit, the script shows without colors, as long bodies do.
     public nonisolated func highlightScript(_ code: String) -> [SyntaxToken] {
