@@ -1,16 +1,18 @@
 # Reqly's desktop file, named after its app ID, which GTK gives its window on Wayland and as its
-# X11 class, so docks and task bars show Reqly's name and icon. For checks in a desktop VM:
-# linux/README.md installs it with the program's full path in Exec, since a desktop's PATH may not
-# have ~/.local/bin. Reqly doesn't open files yet, so Exec takes none, and the files desktops pass
-# all the same are ignored; %F, MimeType, with Reqly's own file types, and the action that starts
-# capturing come with the package, once Step 5 opens files.
+# X11 class, so docks and task bars show Reqly's name and icon. Exec takes the files Files opens
+# with Reqly, %F, which the Reqly that's running opens, each in a window of its own; MimeType names
+# Reqly's sessions and HAR files, whose types net.reqly.Reqly.xml describes. The package installs
+# both, with the action that starts capturing. For checks in a desktop VM: linux/README.md
+# installs them by hand, with the program's full path in Exec, since a desktop's PATH may not have
+# ~/.local/bin.
 [Desktop Entry]
 Type=Application
 Name=Reqly
 Comment=See what your apps send and receive
-Exec=reqly
+Exec=reqly %F
 Icon=net.reqly.Reqly
 Categories=Development;Network;
 Keywords=proxy;http;https;traffic;har;debug;
+MimeType=application/x-reqly-session;application/har+json;
 StartupNotify=true
 StartupWMClass=net.reqly.Reqly
