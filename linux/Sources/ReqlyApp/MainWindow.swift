@@ -467,6 +467,8 @@ final class MainWindow {
 
     isolated deinit {
         g_object_unref(raw(window))
+        // The main menu's buttons hold their own references.
+        g_object_unref(raw(menu))
     }
 
     /// Reqly closes the window, and destroys it next: from now on, what the window left waiting on

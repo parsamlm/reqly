@@ -219,8 +219,11 @@ final class RequestList {
         }
         setUpRows()
         size()
-        // The columns' widths are in sp, so they grow as the text does.
-        connect(gtk_settings_get_default(), "notify::gtk-xft-dpi") { [weak self] in self?.size() }
+        // The columns' widths are in sp, so they grow as the text does. GTK's settings outlive a
+        // file's window, so the handler goes with the view.
+        connect(raw(gtk_settings_get_default()), "notify::gtk-xft-dpi", whileAlive: raw(view)) { [weak self] in
+            self?.size()
+        }
         // The method's font is the desktop's monospace one from libadwaita 1.7.
         Styles.whenMonospaceFontChanges(whileAlive: raw(view)) { [weak self] in self?.size() }
         icons.onFound = { [weak self] key in self?.iconFound(key) }
