@@ -30,9 +30,9 @@ public actor SessionHost {
     private let httpsHost: HTTPSHost?
     /// Where events go, as they happen, until the session closes.
     private var events: (@Sendable (Event) -> Void)?
-    /// Finds Android's tools as each emulator call starts. Tests hide them this way, rather than
-    /// by changing the environment while other tests read it.
-    private var findAdb: @Sendable () -> AndroidDebugBridge? = { AndroidDebugBridge.find() }
+    /// Finds Android's tools as each emulator call starts, as the system's parts say. Tests hide
+    /// them this way, rather than by changing the environment while other tests read it.
+    private var findAdb: @Sendable () -> AndroidDebugBridge?
     private var list = TrafficList()
     private var version = 0
     private var storeSearch: Task<Void, Never>?
@@ -169,6 +169,7 @@ public actor SessionHost {
         self.protobuf = protobuf
         self.origins = origins
         self.system = system
+        self.findAdb = system.findAdb
         self.events = events
     }
 
@@ -868,8 +869,8 @@ public actor SessionHost {
     /// What's wrong with a reverse proxy as you edit it, or where it sends requests.
     public func checkReverseProxy(_ draft: ReverseProxyDraft, proxyPort: Int) -> CheckResult {
         let proxy = draft.proxy(keeping: nil)
-        let problem = proxy.problem(
-            port: draft.port, proxyPort: proxyPort, among: connectionsBook.contents.reverseProxies)
+        let problem = reverseProxyProblem(
+            proxy, port: draft.port, proxyPort: proxyPort, among: connectionsBook.contents.reverseProxies)
         let note =
             problem == nil
             ? proxy.server.map { "Apps that use http://localhost:\(String(proxy.localPort)) reach \($0.url)." }
@@ -883,12 +884,25 @@ public actor SessionHost {
     {
         let proxies = connectionsBook.contents.reverseProxies
         let proxy = draft.proxy(keeping: proxies.first { $0.id == draft.id })
-        if let problem = proxy.problem(port: draft.port, proxyPort: proxyPort, among: proxies) {
+        if let problem = reverseProxyProblem(proxy, port: draft.port, proxyPort: proxyPort, among: proxies) {
             throw Problem(.badRequest, problem)
         }
         connectionsBook.saveReverseProxy(proxy)
         await applyReverseProxies()
         return connectionsState
+    }
+
+    /// What's wrong with a reverse proxy, with its port as typed: a port below the lowest one this
+    /// system lets an app listen on, or what ``ReverseProxy/problem(port:proxyPort:among:)`` says.
+    private func reverseProxyProblem(
+        _ proxy: ReverseProxy, port: String, proxyPort: Int, among proxies: [ReverseProxy]
+    ) -> String? {
+        let lowest = system.lowestPort()
+        if let number = Int(port.trimmingCharacters(in: .whitespaces)), number >= 1, number < lowest {
+            let floor = String(lowest)
+            return "Linux lets only administrators use ports below \(floor). Choose \(floor) or above."
+        }
+        return proxy.problem(port: port, proxyPort: proxyPort, among: proxies)
     }
 
     @discardableResult
