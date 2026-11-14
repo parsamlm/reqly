@@ -152,4 +152,33 @@ import Testing
         #expect(try await store.exchange(F.id(1)) == imported)
         #expect(try await store.search("\"t\":14") == [F.id(1)])
     }
+
+    /// Every session merges its search index as `searchDeleteMerge` says: a new one, and one
+    /// opened from a file saved before Reqly set it. A saved file keeps the setting.
+    @Test func setsWhenTheSearchIndexMerges() async throws {
+        let setting = "SELECT v FROM search_config WHERE k = 'deletemerge'"
+        let store = try await sampleStore()
+        defer { store.discard() }
+        #expect(try await store.database.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
+
+        let mac = SessionCompatibilityTests.sessions.appending(path: "Mac 1.0.reqly")
+        var readOnly = Configuration()
+        readOnly.readonly = true
+        let file = try DatabaseQueue(path: mac.path(percentEncoded: false), configuration: readOnly)
+        #expect(try await file.read { try Int.fetchOne($0, sql: setting) } == nil)
+        try file.close()
+        let root = F.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let opened = try await TrafficStore.openSession(mac, in: root)
+        defer { opened.discard() }
+        #expect(try await opened.database.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
+
+        let url = self.file()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await opened.saveSession(to: url, hidingSecrets: false)
+        let saved = try DatabaseQueue(path: url.path(percentEncoded: false), configuration: readOnly)
+        defer { try? saved.close() }
+        #expect(try await saved.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
+    }
 }

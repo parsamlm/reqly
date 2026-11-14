@@ -44,6 +44,15 @@ public final class TrafficStore: Sendable {
     /// it can be unpacked.
     static let searchableCompressedSize = 8 << 20
 
+    /// How much of a level of the search index, in percent, may be exchanges that went before
+    /// SQLite writes that level again without them. A session drops its oldest exchanges, which
+    /// are all in the index's biggest, oldest level. At SQLite's 10, a session at its limit wrote
+    /// hundreds of MB again every few thousand requests, each time adding a level, which makes
+    /// SQLite merge more in each save, so saves took seconds, and longer each time. At 50 that's
+    /// a fifth as often, for half the work, and the level holds at most as much of what went as
+    /// of what's kept.
+    static let searchDeleteMerge = 50
+
     /// The session's folder.
     public let directory: URL
     public let limits: Limits
@@ -69,6 +78,12 @@ public final class TrafficStore: Sendable {
         self.lock = lock
         database = try DatabasePool(path: directory.appending(path: "traffic.sqlite").path(percentEncoded: false))
         try Schema.migrator.migrate(database)
+        // SQLite keeps the setting in the database, so a session saved as a file takes it along.
+        // It changes only when SQLite merges, so any Reqly opens the file as before.
+        try database.write { db in
+            try db.execute(
+                sql: "INSERT INTO search(search, rank) VALUES ('deletemerge', ?)", arguments: [Self.searchDeleteMerge])
+        }
     }
 
     // MARK: - Writing
