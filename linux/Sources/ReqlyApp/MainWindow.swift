@@ -750,12 +750,40 @@ final class MainWindow {
     }
 
     /// The search bar opened or closed. Closed, the list has the keyboard's focus, when the bar
-    /// had it.
+    /// had it, once the session has the search cleared and the list has its rows again: given it at
+    /// once, a row would be heard where it was among the requests found, then where it is, as on
+    /// GTK's next frame.
     private func searchChanged() {
         guard !search.isOpen else { return }
-        let focus = gtk_root_get_focus(cast(window))
-        if focus.map({ isInside($0, search.widget) || gtk_widget_get_mapped($0) == 0 }) ?? true {
-            focusContent()
+        let isLost = { [weak self] () -> Bool in
+            guard let self else { return false }
+            let focus = gtk_root_get_focus(cast(window))
+            return focus.map { self.isInside($0, self.search.widget) || gtk_widget_get_mapped($0) == 0 } ?? true
+        }
+        guard isLost() else { return }
+        // Once the bar has cleared its field, which starts the search's end.
+        idle { [weak self] in
+            self?.search.afterSearching { [weak self] in
+                self?.whenListSettles(tries: 50) {
+                    if isLost() {
+                        self?.focusContent()
+                    }
+                }
+            }
+            return false
+        }
+    }
+
+    /// Runs `body` once the list has every change in, looking every 20 ms, `tries` times, and then
+    /// runs it anyway.
+    private func whenListSettles(tries: Int, _ body: @escaping @MainActor () -> Void) {
+        if list.isSettled || tries == 0 {
+            body()
+            return
+        }
+        timeout(20) { [weak self] in
+            self?.whenListSettles(tries: tries - 1, body)
+            return false
         }
     }
 

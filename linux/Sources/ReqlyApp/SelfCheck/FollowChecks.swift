@@ -123,7 +123,56 @@ extension SelfCheck {
         try require(
             list.reveals - revealsBefore == 1, "the list showed its newest row \(list.reveals - revealsBefore) times")
         try await checkKeepingTheSelection(session, &follower)
+        try await checkTabIntoTheFollowedList(&follower)
         try await checkABurstIntoAnEmptyList(&follower)
+    }
+
+    /// Tab into the list, from the Filters button, once the list has followed new traffic while
+    /// the keyboard's focus was elsewhere: the row that had the focus, out of view by then, comes
+    /// into view and has it again, so screen readers hear it, rather than a row they can't see.
+    /// Then, with a request selected once its row came, while the focus was elsewhere, Tab gives
+    /// the focus to that row, not to the one that had it.
+    private func checkTabIntoTheFollowedList(_ follower: inout Follower) async throws {
+        let list = window.list
+        let adjustment = try present(gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
+        let first = try present(list.exchange(at: 0), "the list has no first row")
+        list.select(id: first)
+        try await until("the first row to show, selected", seconds: 3) {
+            list.selected == first && self.rowShows(first)
+        }
+        try require(list.focusSelection(), "the first row can't have the focus")
+        try await until("the first row to have the focus", seconds: 3) { list.focusedExchange == first }
+        let filters = window.filters.filtersButton
+        try require(gtk_widget_grab_focus(filters) != 0, "the Filters button can't have the focus")
+        // At its end, the list follows a request, and the first row goes out of view.
+        gtk_adjustment_set_value(
+            adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+        await settle()
+        try await follower.send(1)
+        try require(!rowShows(first), "after the list followed, its first row still shows")
+        try FakeInput.press("Tab", in: window.window)
+        try await until("Tab to give the first row the focus, in view", seconds: 3) {
+            list.focusedExchange == first && self.rowShows(first)
+        }
+        note("Tab into the list after it followed: the first row, with the focus before, comes into view with it")
+
+        // A request selected once its row comes, with the focus elsewhere.
+        try require(gtk_widget_grab_focus(filters) != 0, "the Filters button can't have the focus")
+        gtk_adjustment_set_value(
+            adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+        await settle()
+        let next = ExchangeID(rawValue: follower.newest.rawValue + 1)
+        var wasSelected: Bool?
+        list.selectOnceShown(next) { wasSelected = $0 }
+        try await follower.send(1)
+        try await until("the new request to be selected once its row came", seconds: 3) { wasSelected != nil }
+        try require(wasSelected == true && list.selected == next, "the new request wasn't selected as its row came")
+        try FakeInput.press("Tab", in: window.window)
+        try await until("Tab to give the selected row the focus", seconds: 3) {
+            list.focusedExchange == next && self.rowShows(next)
+        }
+        note("a request selected as its row came, with the focus elsewhere: Tab gives that row the focus")
+        list.select(id: nil)
     }
 
     /// The 4xx filter on, then off, with the list at its end, where every other request of the

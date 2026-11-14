@@ -56,6 +56,15 @@ final class SearchBar {
         gtk_search_bar_set_search_mode(cast(widget), 0)
     }
 
+    /// Runs `body` once the session has the latest search, as when closing the bar has cleared it.
+    func afterSearching(_ body: @escaping @MainActor () -> Void) {
+        let latest = searching
+        Task {
+            await latest?.value
+            body()
+        }
+    }
+
     /// Typing in `pane`, such as the list's, opens the bar, with what you typed in its field.
     func captureTyping(in pane: Widget) {
         gtk_search_bar_set_key_capture_widget(cast(widget), pane)
