@@ -52,6 +52,9 @@ final class BodyView {
     private(set) var whole: WholeBody?
     /// The body as it has grown since you opened the whole of it, which shows once you close that.
     private(set) var waiting: PresentedBody?
+    /// Whether Show Whole Body is still making the whole body's view, while a body that grows
+    /// meanwhile waits as it would with the view open, so the view still opens.
+    private var opensWhole = false
     /// Whether Show Whole Body has the keyboard's focus again once the grown body's code is laid
     /// out, as it had before the whole body opened.
     private var focusesShowWhole = false
@@ -154,16 +157,17 @@ final class BodyView {
 
     /// Shows `body`, in the mode last chosen for bodies of its part while it has that mode, in the
     /// mode it showed in while it has that, and in its first mode otherwise. The same body again,
-    /// as it was, changes nothing; one that has grown while you read the whole of it waits until
-    /// you close that. Code that still shows gets the new text in the same view, so the keyboard's
-    /// focus and the caret in it stay, and the mode switch stays while the modes do; a focus the
-    /// new body took goes back to the same mode's view or button, or the mode that shows.
+    /// as it was, changes nothing; one that has grown while you read the whole of it, or while
+    /// that view is made, waits until you close it. Code that still shows gets the new text in the
+    /// same view, so the keyboard's focus and the caret in it stay, and the mode switch stays while
+    /// the modes do; a focus the new body took goes back to the same mode's view or button, or the
+    /// mode that shows.
     func show(_ body: PresentedBody) {
         if let old = self.body, Self.isSame(old.body, body.body) {
             self.body = body
             return
         }
-        guard whole == nil else {
+        guard whole == nil, !opensWhole else {
             waiting = body
             return
         }
@@ -548,19 +552,28 @@ final class BodyView {
 
     // MARK: - Show Whole Body
 
-    /// Opens the whole of the code that shows in a view of its own.
+    /// Opens the whole of the code that shows in a view of its own. A body that grows while the
+    /// view is made waits, so the view opens with the body you chose it for.
     func showWholeBody() {
-        guard let presented = body?.body, let mode, whole == nil,
+        guard let presented = body?.body, let mode, whole == nil, !opensWhole,
             let code = mode == .formatted ? presented.formatted ?? presented.raw : presented.raw
         else { return }
         let title = part == .request ? "Request Body" : "Response Body"
         let summary = BodyWords.summary(presented)
         let shown = shown
+        opensWhole = true
         Task { [weak self] in
             let text = await Task.detached(priority: .userInitiated) {
                 CodeText(code, lineLimit: .max, byteLimit: .max, pieces: CodeText.longestLine)
             }.value
-            guard let self, self.shown == shown, whole == nil else { return }
+            guard let self else { return }
+            opensWhole = false
+            guard self.shown == shown, whole == nil else {
+                if let waiting {
+                    show(waiting)
+                }
+                return
+            }
             let whole = WholeBody(text, title: title, summary: summary) { [weak self] in self?.copyBody() }
             whole.onClosed = { [weak self] in
                 guard let self else { return }
