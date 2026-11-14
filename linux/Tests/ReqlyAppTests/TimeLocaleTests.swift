@@ -67,6 +67,27 @@ import Testing
         #expect(Format.time(Self.afternoon, locale: german, timeZone: Self.utc) == "16:05:59")
     }
 
+    @Test(arguments: [("fa_IR", 1405), ("th_TH", 2569), ("ar_SA", 1448)])
+    func writesEveryDateInTheGregorianCalendar(identifier: String, ownYear: Int) {
+        // ICU's own calendar for these is the Solar Hijri, the Buddhist or the Islamic one, but
+        // GLib's, and so the desktop's, is Gregorian: a certificate's date and a cookie's, which
+        // Format and DetailsFormat write, say the same year in the locale's words and digits.
+        let locale = Locale(identifier: identifier)
+        let gregorian = Locale(identifier: "\(identifier)@calendar=gregorian")
+        let year = 2026.formatted(.number.grouping(.never).locale(locale))
+        let other = ownYear.formatted(.number.grouping(.never).locale(locale))
+        let date = Format.date(Self.afternoon, locale: locale, timeZone: Self.utc)
+        let day = DetailsFormat.day(Self.afternoon, locale: locale, timeZone: Self.utc)
+        #expect(date.contains(year) && !date.contains(other), "\(date)")
+        #expect(day.contains(year) && !day.contains(other), "\(day)")
+        // In the order and words the locale has for that calendar, with no era.
+        #expect(date == Format.date(Self.afternoon, locale: gregorian, timeZone: Self.utc))
+        #expect(day == DetailsFormat.day(Self.afternoon, locale: gregorian, timeZone: Self.utc))
+        #expect(
+            DetailsFormat.moment(Self.afternoon, locale: locale, timeZone: Self.utc)
+                == DetailsFormat.moment(Self.afternoon, locale: gregorian, timeZone: Self.utc))
+    }
+
     @Test func keepsNumbersAndTimesApart() {
         // A row's and the heading's numbers by the language, their times by LC_TIME.
         let british = Locale(identifier: "en_GB")

@@ -51,6 +51,20 @@ enum TimeLocale {
         return identifier
     }
 
+    /// The calendar every time and date Reqly writes is in. ICU's own for some locales isn't, such
+    /// as fa_IR's Solar Hijri, th_TH's Buddhist or ar_SA's Islamic one, but GLib knows only this
+    /// one, so the rest of the desktop's dates are in it.
+    static let calendar = Calendar(identifier: .gregorian)
+
+    /// `locale`, with its words and digits, in ``calendar``: so a date formatter takes the order
+    /// and words the locale has for that calendar, with no era, not those for its own.
+    static func gregorian(_ locale: Locale) -> Locale {
+        guard locale.calendar.identifier != calendar.identifier else { return locale }
+        var components = Locale.Components(locale: locale)
+        components.calendar = calendar.identifier
+        return Locale(components: components)
+    }
+
     /// The modifiers that name a script, as glibc's locales use them.
     private static let scripts = ["latin": "Latn", "cyrillic": "Cyrl", "devanagari": "Deva"]
 

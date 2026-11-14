@@ -27,14 +27,18 @@ enum Format {
     }
 
     /// The time of day, to the second, as your locale writes it, such as `11:05:59 AM`. Times and
-    /// dates go by ``TimeLocale``, which follows LC_TIME.
+    /// dates go by ``TimeLocale``, which follows LC_TIME, in the Gregorian calendar.
     static func time(_ date: Date, locale: Locale = TimeLocale.current, timeZone: TimeZone = .current) -> String {
-        date.formatted(Date.FormatStyle(date: .omitted, time: .standard, locale: locale, timeZone: timeZone))
+        date.formatted(
+            Date.FormatStyle(
+                date: .omitted, time: .standard, locale: locale, calendar: TimeLocale.calendar, timeZone: timeZone))
     }
 
     /// The day, shortened as your locale shortens it, such as `Nov 1, 2026`.
     static func date(_ date: Date, locale: Locale = TimeLocale.current, timeZone: TimeZone = .current) -> String {
-        date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale, timeZone: timeZone))
+        date.formatted(
+            Date.FormatStyle(
+                date: .abbreviated, time: .omitted, locale: locale, calendar: TimeLocale.calendar, timeZone: timeZone))
     }
 
     /// Decimal units, as GNOME's Files uses: `713 B`, `4.1 KB`, `254 KB`, `1.2 MB`.

@@ -29,10 +29,11 @@ enum DetailsFormat {
         return isDefaultPort ? host : "\(host):\(port)"
     }
 
-    /// A formatter of `template`'s fields, in the order and words `locale` puts them.
+    /// A formatter of `template`'s fields, in the order and words `locale` puts them, in the
+    /// Gregorian calendar, as the list's times and dates are.
     private static func formatter(_ template: String, locale: Locale, timeZone: TimeZone) -> DateFormatter {
         let formatter = DateFormatter()
-        formatter.locale = locale
+        formatter.locale = TimeLocale.gregorian(locale)
         formatter.timeZone = timeZone
         formatter.setLocalizedDateFormatFromTemplate(template)
         return formatter
