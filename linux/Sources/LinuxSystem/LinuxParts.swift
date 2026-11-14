@@ -9,8 +9,9 @@ import ReqlyModel
 extension SystemParts {
     /// Linux's own parts: your desktop's proxy setting, GNOME's and KDE's, from LinuxDesktop;
     /// Reqly's certificate, its key in your keyring and the places apps trust it, and the other
-    /// secrets, from LinuxTrust; and which app opened each connection, this computer's network
-    /// addresses and its neighbors' hardware addresses, from LinuxApps. The app names the files,
+    /// secrets, from LinuxTrust; which app opened each connection, this computer's network
+    /// addresses and its neighbors' hardware addresses, from LinuxApps; and the lowest port Linux
+    /// lets an ordinary user listen on. adb is found where the core looks. The app names the files,
     /// in the folders ``LinuxFolders`` gives. Test runs ask for stand-ins, which never touch the
     /// computer's settings, certificates or keyring.
     public static let linux = linux()
@@ -39,7 +40,19 @@ extension SystemParts {
             networkAddresses: {
                 NetworkAddresses.current().map { SystemParts.Address(interface: $0.interface, address: $0.address) }
             },
-            hardwareAddress: { NetworkNeighbors.hardwareAddress(of: $0) })
+            hardwareAddress: { NetworkNeighbors.hardwareAddress(of: $0) },
+            lowestPort: { lowestPort() })
+    }
+
+    /// The lowest port Linux lets an ordinary user listen on, which reverse proxies keep to:
+    /// `net.ipv4.ip_unprivileged_port_start`, from `file`. It's 1024 unless the system lowered
+    /// it, as Docker does to 0, which lets any port be used, so it's 1 then. A kernel too old to
+    /// have the setting keeps ports below 1024 for administrators.
+    public static func lowestPort(file: String = "/proc/sys/net/ipv4/ip_unprivileged_port_start") -> Int {
+        guard let text = try? String(contentsOfFile: file, encoding: .utf8),
+            let start = Int(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return 1024 }
+        return min(max(start, 1), 65535)
     }
 
     /// The certificate store Linux's parts give a session for `file`, with the root helper at
