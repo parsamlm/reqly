@@ -135,6 +135,8 @@ final class MainWindow {
     private(set) var about: Widget?
     /// Whether the window has shown, once or more.
     private(set) var hasShown = false
+    /// What the status line says now.
+    private(set) var statusWords: StatusLine?
 
     /// The app's model: capturing, settings, HTTPS and the rest, which every window shares.
     var appModel: AppModel { app.model }
@@ -450,10 +452,16 @@ final class MainWindow {
             isFirstFocusDue = false
             giveFirstFocus()
         }
-        let status = model.fileName ?? appModel.statusText
-        gtk_label_set_text(cast(statusLabel), status)
-        // The line may be cut short, advice and all, in a narrow window.
-        gtk_widget_set_tooltip_text(statusLabel, status)
+        let line =
+            model.fileName.map { StatusLine(status: $0) }
+            ?? StatusLine(status: appModel.statusText, notes: appModel.statusNotes)
+        if line != statusWords {
+            statusWords = line
+            gtk_label_set_text(cast(statusLabel), line.text)
+            // The line may be cut short, advice and all, in a narrow window.
+            gtk_widget_set_tooltip_text(statusLabel, line.tooltip)
+            setAccessibleDescription(statusLabel, line.description)
+        }
         if model.isCapturing {
             gtk_widget_add_css_class(statusDot, "capturing")
         } else {
