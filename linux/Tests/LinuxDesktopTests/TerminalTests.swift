@@ -144,11 +144,9 @@ import Testing
         let output = folder.appending(path: "environment")
         // A stand-in for xterm that runs its command, which prints the environment it gets.
         let xterm = folder.appending(path: "xterm")
-        try Data("#!/bin/sh\nshift\n\"$@\" > '\(output.path)'\n".utf8).write(to: xterm)
-        chmod(xterm.path, 0o755)
+        try TestEnvironment.program("#!/bin/sh\nshift\n\"$@\" > '\(output.path)'\n", at: xterm)
         let shell = folder.appending(path: "shell")
-        try Data("#!/bin/sh\nenv\n".utf8).write(to: shell)
-        chmod(shell.path, 0o755)
+        try TestEnvironment.program("#!/bin/sh\nenv\n", at: shell)
         try Terminal.open(
             setup: TerminalSetup(port: 9090, certificates: nil),
             environment: [
@@ -179,7 +177,7 @@ import Testing
         let scoped = folder.appending(path: "scoped")
         // A stand-in for systemd-run that notes its arguments, then runs what follows `--`.
         let systemdRun = folder.appending(path: "systemd-run")
-        try Data(
+        try TestEnvironment.program(
             """
             #!/bin/sh
             printf '%s\\n' "$@" > '\(scoped.path)'
@@ -187,13 +185,10 @@ import Testing
             shift
             exec "$@"
 
-            """.utf8
-        ).write(to: systemdRun)
-        chmod(systemdRun.path, 0o755)
+            """, at: systemdRun)
         let ran = folder.appending(path: "ran")
         let konsole = folder.appending(path: "konsole")
-        try Data("#!/bin/sh\necho \"$@\" > '\(ran.path)'\n".utf8).write(to: konsole)
-        chmod(konsole.path, 0o755)
+        try TestEnvironment.program("#!/bin/sh\necho \"$@\" > '\(ran.path)'\n", at: konsole)
         let environment = [
             "PATH": folder.path + ":/usr/bin:/bin", "SHELL": "/bin/sh", "XDG_CURRENT_DESKTOP": "KDE",
             "XDG_RUNTIME_DIR": runtime.path,
