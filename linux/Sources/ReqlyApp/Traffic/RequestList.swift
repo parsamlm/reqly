@@ -143,8 +143,8 @@ final class RequestList {
     private var isFetching = false
     private var isCheckingSelected = false
     private var revealTimer: UInt32?
-    /// Whether the list goes to its very end once the newest row has been laid out.
-    private var isEnding = false
+    /// The list going to its very end, frame after frame, once the newest row has been laid out.
+    private var ending = GoingToTheEnd()
     private var describeTimer: UInt32?
     /// The cells GTK has bound, by list item, and the list items showing each exchange, so a
     /// changed exchange's cells are filled in again where they are.
@@ -270,9 +270,13 @@ final class RequestList {
         return (stringProperty(row, "accessible-label") ?? "", stringProperty(row, "accessible-description") ?? "")
     }
 
+    /// Whether every change is in the view, with the contents of the rows it shows, and the list
+    /// is done going to its end.
+    var isSettled: Bool { rowsAreIn && !ending.isGoing }
+
     /// Whether every change is in the view, with the contents of the rows it shows.
-    var isSettled: Bool {
-        feed.isEmpty && !mirror.isWaitingForRows && !isReadingRows && !isFetching && !cache.hasWanted && !isEnding
+    private var rowsAreIn: Bool {
+        feed.isEmpty && !mirror.isWaitingForRows && !isReadingRows && !isFetching && !cache.hasWanted
     }
 
     // MARK: - The selection
@@ -430,7 +434,7 @@ final class RequestList {
         // A row, not the view: a row's menu, which is the view's child, takes the focus too.
         let hadFocus = rowHasFocus
         let started = monotonicMicroseconds()
-        following.begin(showsEnd: isEnding || showsEnd())
+        following.begin(showsEnd: ending.isGoing || showsEnd())
         var inserted = 0
         isSplicing = true
         while let piece = feed.next() {
@@ -529,7 +533,7 @@ final class RequestList {
         following.stop()
         cancelReveal()
         // Nor does it go on to its very end, as the newest row it showed is laid out.
-        isEnding = false
+        ending.stop()
     }
 
     /// Forgets the newest row that was to show once it's time.
@@ -547,29 +551,33 @@ final class RequestList {
         gtk_column_view_scroll_to(cast(view), UInt32(count - 1), nil, GTK_LIST_SCROLL_NONE, nil)
         // GTK places rows it hasn't laid out yet by how tall it guesses they are, and may leave
         // the last one below the edge, so once a frame has laid them out, the list goes to its
-        // very end, frame after frame, until it's there, unless you scroll meanwhile, as
-        // `scrolledUp()` hears, or up from where it went, as a touchscreen does. GTK may not have
-        // gone to the row by the first frame, as when the list first shows rows, which isn't you
-        // scrolling. Until then it's at its end, for whether it follows.
-        guard !isEnding else { return }
-        isEnding = true
-        var frames = 0
-        var setTo: Double?
+        // very end, frame after frame, until a frame leaves it there with everything in, unless
+        // you scroll meanwhile, as `scrolledUp()` hears, or up from where it went, as a
+        // touchscreen does. GTK goes to the row in the frame after it's asked to, which isn't you
+        // scrolling, and may move the list then, as when the list first shows rows, or when it's
+        // asked again before the list is done. Until then it's at its end, for whether it follows.
+        guard ending.ask(now: monotonicMicroseconds()) else { return }
+        let round = ending.round
         tick(view) { [weak self] in
-            frames += 1
-            guard let self, frames >= 2 else { return true }
-            let adjustment = gtk_scrolled_window_get_vadjustment(cast(scroller))
-            let value = adjustment.map { gtk_adjustment_get_value($0) } ?? 0
-            let page = adjustment.map { gtk_adjustment_get_page_size($0) } ?? 0
-            let end = (adjustment.map { gtk_adjustment_get_upper($0) } ?? 0) - page
-            let isScrolled = setTo.map { value < $0 - 0.5 } ?? false
-            guard let adjustment, following.isFollowing, !isScrolled, value < end - 0.5, frames < 10 else {
-                isEnding = false
+            guard let self, ending.round == round else { return false }
+            guard let adjustment = gtk_scrolled_window_get_vadjustment(cast(scroller)) else {
+                ending.stop()
                 return false
             }
-            gtk_adjustment_set_value(adjustment, end)
-            setTo = end
-            return true
+            let value = gtk_adjustment_get_value(adjustment)
+            let end = gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment)
+            let step = ending.frame(
+                value: value, end: end, isFollowing: following.isFollowing, hasNewRows: following.hasUnrevealed,
+                isSettled: rowsAreIn, now: monotonicMicroseconds())
+            switch step {
+            case .wait:
+                return true
+            case .move(let end):
+                gtk_adjustment_set_value(adjustment, end)
+                return true
+            case .stop:
+                return false
+            }
         }
     }
 

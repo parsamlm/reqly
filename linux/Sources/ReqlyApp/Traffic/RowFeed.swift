@@ -129,3 +129,97 @@ struct Following {
         return isDone ? .after(milliseconds: (between - since + 999) / 1000) : .none
     }
 }
+
+/// How the list goes to its very end, frame after frame, once it has asked GTK to scroll to its
+/// newest row. GTK places a row it hasn't laid out yet by a guess: GTK 4.14 puts a new last row's
+/// top on the bottom edge, as if it had no height, and later versions leave it just below. So
+/// in each frame, before GTK lays it out, the list moves to its end, until a frame's layout has
+/// left it there with its end where it was, and every change and the rows' contents in. On a
+/// slow computer, GTK may lay out the rows the list last asked for frames after the list was
+/// first at its end, so it gives up after a time rather than a number of frames. Rows that come
+/// after the list asked wait for their own turn to show, as the list shows its newest row at most
+/// every 100 ms. It stops as you scroll up from where it left the list, as a touchscreen does: the
+/// list stops it itself for the keys, the wheel and the scrollbar.
+struct GoingToTheEnd {
+    /// What the list does in a frame, before GTK lays the frame out.
+    enum Step: Equatable {
+        /// Nothing, this frame.
+        case wait
+        /// Its scroll position to its end, here.
+        case move(to: Double)
+        /// Nothing more: it's at its end with everything in, or you scrolled, or the time's up.
+        case stop
+    }
+
+    /// The longest it goes on after the list last asked for its newest row, in microseconds.
+    static let timeLimit = 2_000_000
+
+    /// Whether it goes on, frame after frame.
+    private(set) var isGoing = false
+    /// Counts each time it starts or stops, so a frame callback of an earlier time can stop.
+    private(set) var round = 0
+    /// When the list last asked for its newest row, in monotonic microseconds.
+    private var askedAt = 0
+    /// Whether the list asked for its newest row since the last frame, which GTK goes to in the
+    /// next frame's layout, not before: a frame at the end until then isn't at its end for good,
+    /// nor is the list moving there you scrolling.
+    private var hasAsked = false
+    /// Where the last frame left the list, from which scrolling up is yours.
+    private var leftAt: Double?
+    /// The end, as the last frame found the list there with everything in.
+    private var steadyEnd: Double?
+
+    /// The list asked GTK to scroll to its newest row, at `now`. Whether it starts going, when
+    /// the list starts a frame callback.
+    mutating func ask(now: Int) -> Bool {
+        askedAt = now
+        hasAsked = true
+        guard !isGoing else { return false }
+        isGoing = true
+        round += 1
+        return true
+    }
+
+    /// Stops at once, as you scroll up.
+    mutating func stop() {
+        isGoing = false
+        round += 1
+    }
+
+    /// A frame, before its layout: the list's scroll position and its end, whether it still
+    /// follows new traffic, whether rows came in since it last asked, and whether every change and
+    /// the rows' contents are in, at `now`.
+    mutating func frame(
+        value: Double, end: Double, isFollowing: Bool, hasNewRows: Bool, isSettled: Bool, now: Int
+    ) -> Step {
+        guard isGoing else { return .stop }
+        guard !hasAsked else {
+            hasAsked = false
+            leftAt = nil
+            steadyEnd = nil
+            return .wait
+        }
+        let isScrolled = leftAt.map { value < $0 - 0.5 } ?? false
+        guard isFollowing, !isScrolled, now - askedAt < Self.timeLimit else {
+            stop()
+            return .stop
+        }
+        // They push the end out, and show once the list asks again.
+        guard !hasNewRows else {
+            steadyEnd = nil
+            return .wait
+        }
+        guard value >= end - 0.5 else {
+            leftAt = end
+            steadyEnd = nil
+            return .move(to: end)
+        }
+        leftAt = value
+        if isSettled, let steadyEnd, abs(steadyEnd - end) < 0.5 {
+            stop()
+            return .stop
+        }
+        steadyEnd = isSettled ? end : nil
+        return .wait
+    }
+}

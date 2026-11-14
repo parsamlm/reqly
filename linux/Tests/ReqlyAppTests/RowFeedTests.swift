@@ -195,6 +195,123 @@ import Testing
         #expect(result == .now)
     }
 
+    // MARK: - Going to the end
+
+    /// As on GitHub's arm64 runner: asked for the newest row again just as the list was at its
+    /// end, GTK lays the new last row out in the next frame with its top on the bottom edge, so
+    /// the list goes on to its end, rather than taking the frame before that layout as the end.
+    @Test func goesOnToARowAskedForAsItWasAtItsEnd() {
+        var ending = GoingToTheEnd()
+        var steps: [GoingToTheEnd.Step] = []
+        let started = ending.ask(now: 0)
+        // GTK goes to the row in the first frame's layout.
+        steps.append(ending.frame(0, 20_451, at: 16_000))
+        steps.append(ending.frame(19_191, 20_451, at: 33_000))
+        // 20 more rows, and the list asks again: the frame after is at the end the last layout
+        // made, which isn't its end for good.
+        let startedAgain = ending.ask(now: 40_000)
+        steps.append(ending.frame(20_451, 20_451, at: 50_000))
+        // That frame's layout left the newest row, 21 px, below the edge: to the end again.
+        steps.append(ending.frame(20_850, 20_871, at: 66_000))
+        // At its end, and still there a frame later, everything in: done.
+        steps.append(ending.frame(20_871, 20_871, at: 83_000))
+        let wasGoing = ending.isGoing
+        steps.append(ending.frame(20_871, 20_871, at: 100_000))
+        #expect(started && !startedAgain && wasGoing && !ending.isGoing)
+        #expect(steps == [.wait, .move(to: 20_451), .wait, .move(to: 20_871), .wait, .stop])
+    }
+
+    /// On a slow computer, the end moves for many frames, and the rows' contents come after:
+    /// it goes on, frame after frame, until both are done.
+    @Test func goesOnWhileTheEndMovesAndTheRowsFillIn() {
+        var ending = GoingToTheEnd()
+        _ = ending.ask(now: 0)
+        var steps = [ending.frame(0, 1_000, at: 16_000)]
+        var expected: [GoingToTheEnd.Step] = [.wait]
+        var end = 1_000.0
+        var now = 16_000
+        for _ in 0..<20 {
+            now += 50_000
+            steps.append(ending.frame(end - 21, end, at: now))
+            expected.append(.move(to: end))
+            end += 21
+        }
+        for isSettled in [false, false, true] {
+            now += 50_000
+            steps.append(ending.frame(end, end, at: now, isSettled: isSettled))
+            expected.append(.wait)
+        }
+        steps.append(ending.frame(end, end, at: now + 50_000))
+        expected.append(.stop)
+        #expect(steps == expected)
+    }
+
+    /// Rows that come after the list asked push its end out, but wait for their own turn to show,
+    /// as the list asks again once it's time: it doesn't move for them meanwhile, nor take a frame
+    /// at its old end as done.
+    @Test func leavesRowsAfterTheAskForTheirTurn() {
+        var ending = GoingToTheEnd()
+        _ = ending.ask(now: 0)
+        var steps = [ending.frame(0, 1_000, at: 16_000), ending.frame(979, 1_000, at: 33_000)]
+        // 50 rows more, 30 ms after the ask: their turn is at 100 ms.
+        steps.append(ending.frame(1_000, 2_050, at: 50_000, hasNewRows: true))
+        steps.append(ending.frame(1_000, 2_050, at: 66_000, hasNewRows: true))
+        steps.append(ending.frame(1_000, 2_050, at: 83_000, hasNewRows: true))
+        let wasGoing = ending.isGoing
+        let startedAgain = ending.ask(now: 100_000)
+        steps.append(ending.frame(1_000, 2_050, at: 116_000))
+        steps.append(ending.frame(1_200, 2_050, at: 133_000))
+        steps.append(ending.frame(2_050, 2_050, at: 150_000))
+        steps.append(ending.frame(2_050, 2_050, at: 166_000))
+        #expect(wasGoing && !startedAgain)
+        #expect(steps == [.wait, .move(to: 1_000), .wait, .wait, .wait, .wait, .move(to: 2_050), .wait, .stop])
+    }
+
+    /// It gives up 2 s after the list last asked for its newest row, however many frames that is.
+    @Test func givesUpAfterAWhile() {
+        var ending = GoingToTheEnd()
+        _ = ending.ask(now: 0)
+        var steps = [ending.frame(0, 500, at: 16_000), ending.frame(0, 500, at: 1_000_000)]
+        // Asked again, it goes on 2 s from then.
+        let startedAgain = ending.ask(now: 1_500_000)
+        steps += [ending.frame(500, 600, at: 1_516_000), ending.frame(500, 600, at: 3_000_000)]
+        steps.append(ending.frame(600, 700, at: 3_500_000))
+        let wasGoing = ending.isGoing
+        // The next time, it starts again.
+        let startsNextTime = ending.ask(now: 4_000_000)
+        #expect(!startedAgain && !wasGoing && startsNextTime)
+        #expect(steps == [.wait, .move(to: 500), .wait, .move(to: 600), .stop])
+    }
+
+    /// Scrolled up from where it left the list, as a finger drags it, or no longer following, as
+    /// the keys, the wheel and the scrollbar stop it, it stops; and stopped, a frame callback of
+    /// an earlier time sees it's over.
+    @Test func stopsAsYouScroll() {
+        var ending = GoingToTheEnd()
+        _ = ending.ask(now: 0)
+        let round = ending.round
+        var steps = [ending.frame(0, 1_000, at: 16_000), ending.frame(400, 1_000, at: 33_000)]
+        steps.append(ending.frame(900, 1_000, at: 50_000))
+        #expect(!ending.isGoing && ending.round != round)
+        // Found at its end, then dragged up a little.
+        _ = ending.ask(now: 100_000)
+        steps.append(ending.frame(1_000, 1_000, at: 116_000))
+        steps.append(ending.frame(1_000, 1_000, at: 133_000, isSettled: false))
+        steps.append(ending.frame(990, 1_000, at: 150_000, isSettled: false))
+        // No longer following.
+        _ = ending.ask(now: 200_000)
+        steps.append(ending.frame(0, 1_000, at: 216_000))
+        steps.append(ending.frame(0, 1_000, at: 233_000, isFollowing: false))
+        #expect(steps == [.wait, .move(to: 1_000), .stop, .wait, .wait, .stop, .wait, .stop])
+        // Stopped by the list.
+        _ = ending.ask(now: 300_000)
+        let started = ending.round
+        ending.stop()
+        let isGoing = ending.isGoing
+        let step = ending.frame(0, 1_000, at: 316_000)
+        #expect(!isGoing && ending.round != started && step == .stop)
+    }
+
     // MARK: - The rows' contents
 
     static func summary(_ id: UInt64) -> ExchangeSummary {
@@ -260,5 +377,17 @@ import Testing
         #expect(pinned?.text.isPinned == true)
         let missing = cache.update(ExchangeID(rawValue: 2)) { $0.annotation.isPinned = true }
         #expect(missing == nil)
+    }
+}
+
+extension GoingToTheEnd {
+    /// A frame of a list that follows, with no rows since it asked, and every change and the rows'
+    /// contents in, unless said.
+    fileprivate mutating func frame(
+        _ value: Double, _ end: Double, at now: Int, isSettled: Bool = true, isFollowing: Bool = true,
+        hasNewRows: Bool = false
+    ) -> Step {
+        frame(
+            value: value, end: end, isFollowing: isFollowing, hasNewRows: hasNewRows, isSettled: isSettled, now: now)
     }
 }
