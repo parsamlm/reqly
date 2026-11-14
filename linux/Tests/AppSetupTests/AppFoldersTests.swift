@@ -56,12 +56,26 @@ import Testing
         #expect(open.findsApps == true)
         #expect(open.rootStandIn == "/t/Root.dat")
 
+        #expect(open.sessionLimit == nil)
+
         let real = try Options([])
         let realOpen = AppFolders(options: real, environment: environment).openOptions(real)
         #expect(realOpen.setsSystemProxy == true)
         #expect(realOpen.proxySettingsStandIn == nil)
         #expect(realOpen.rootStandIn == nil)
         #expect(realOpen.rootFile == "/d/reqly/Certificate.dat")
+        #expect(realOpen.file == nil && realOpen.sessionLimit == nil)
+    }
+
+    /// The self-check's saved session opens in place of a live one, and its limit goes to the
+    /// session.
+    @Test func opensTheSelfChecksSession() throws {
+        let options = try Options([
+            "--smoke", "/t/report.txt", "--smoke-session", "/t/Mac 1.0.reqly", "--session-limit", "300",
+        ])
+        let open = AppFolders(options: options, environment: environment).openOptions(options)
+        #expect(open.file == "/t/Mac 1.0.reqly" && open.sessionLimit == 300)
+        #expect(open.rootFile == nil && open.setsSystemProxy == false)
     }
 
     /// A test run never reaches the files the Reqly you use keeps, which runs beside it: not its

@@ -62,12 +62,39 @@ guint reqly_attach_main_queue(gint priority) {
 GType reqly_type_boolean(void) { return G_TYPE_BOOLEAN; }
 GType reqly_type_int(void) { return G_TYPE_INT; }
 GType reqly_type_uint(void) { return G_TYPE_UINT; }
+GType reqly_type_int64(void) { return G_TYPE_INT64; }
 GType reqly_type_double(void) { return G_TYPE_DOUBLE; }
 GType reqly_type_string(void) { return G_TYPE_STRING; }
+GType reqly_type_object(void) { return G_TYPE_OBJECT; }
+GType reqly_type_variant(void) { return G_TYPE_VARIANT; }
+
+GType reqly_object_type(gpointer object) { return G_OBJECT_TYPE(object); }
 
 void reqly_accessible_set_label(GtkWidget *widget, const char *label) {
     gtk_accessible_update_property(GTK_ACCESSIBLE(widget), GTK_ACCESSIBLE_PROPERTY_LABEL, label, -1);
 }
+
+void reqly_accessible_set_relation_list(GtkWidget *widget, GtkAccessibleRelation relation, GtkWidget *const *widgets,
+                                        guint count) {
+    GList *list = NULL;
+    for (guint index = count; index > 0; index--) {
+        list = g_list_prepend(list, widgets[index - 1]);
+    }
+    GValue value = G_VALUE_INIT;
+    gtk_accessible_relation_init_value(relation, &value);
+    if (G_VALUE_HOLDS_POINTER(&value)) {
+        // GTK 4.14 keeps the list itself.
+        g_value_set_pointer(&value, list);
+    } else {
+        // A newer GTK's GtkAccessibleList, which copies it. 4.14's from an array refuses any.
+        g_value_take_boxed(&value, gtk_accessible_list_new_from_list(list));
+        g_list_free(list);
+    }
+    gtk_accessible_update_relation_value(GTK_ACCESSIBLE(widget), 1, &relation, &value);
+    g_value_unset(&value);
+}
+
+void reqly_emit(gpointer instance, const char *signal) { g_signal_emit_by_name(instance, signal); }
 
 gboolean reqly_is_main_thread(void) { return gettid() == getpid(); }
 

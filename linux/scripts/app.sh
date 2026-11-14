@@ -13,7 +13,10 @@
 #   linux/scripts/app.sh self-check --smoke-parts window  one part of the self-check
 # self-check builds the program, reqly, then runs its self-check headless, with stand-ins for your
 # settings (linux/scripts/self-check.sh), and prints the report. Where Docker is, the self-check
-# runs in a container of its own, as an ordinary account, with no network but its own 127.0.0.1.
+# runs in a container of its own, as an ordinary account, with no network but its own 127.0.0.1,
+# and only the scripts and saved sessions its parts use from the repository, read-only, where they
+# are in it, and the app's icons where the build had them, in /work, as Reqly looks for them in
+# the checkout it was built from.
 # Options:
 #   --volume NAME       the build volume (default reqly-linux-build). One build at a time uses it:
 #                       the container is named after it, so a second one is refused.
@@ -21,6 +24,8 @@
 #                       whose packages are resolved (GitHub sometimes refuses these containers'
 #                       clones of GRDB's SQLiteLib). Default: reqly-linux-build, for other volumes.
 #   --time-limit MIN    stop the build after this many minutes (default 60)
+#   --pictures DIR      keep the self-check's pictures of the window in this folder, made if it's
+#                       missing, rather than in its scratch folder, which goes
 #   --in-place          build in this checkout with this computer's Swift, even where Docker is
 # The build uses 6 jobs unless the swift options say otherwise. If this script is stopped, its
 # container stops too; if it's killed, `docker kill <volume>-run` stops the container, and
@@ -38,12 +43,14 @@ image=reqly-linux-dev:noble
 volume=reqly-linux-build
 seed=
 minutes=60
+pictures=
 inPlace=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --volume) [[ $# -ge 2 ]] || usage; volume=$2; shift 2 ;;
         --seed) [[ $# -ge 2 ]] || usage; seed=$2; shift 2 ;;
         --time-limit) [[ $# -ge 2 && $2 =~ ^[0-9]+$ ]] || usage; minutes=$2; shift 2 ;;
+        --pictures) [[ $# -ge 2 ]] || usage; pictures=$2; shift 2 ;;
         --in-place) inPlace=true; shift ;;
         -h | --help) usage ;;
         *) break ;;
@@ -55,11 +62,16 @@ shift
 rest=("$@")
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+if [[ -n $pictures ]]; then
+    mkdir -p "$pictures"
+    pictures=$(cd "$pictures" && pwd)
+fi
 
 if $inPlace || ! command -v docker >/dev/null; then
     if [[ $command == self-check ]]; then
         timeout --kill-after=30s "${minutes}m" swift build --package-path "$root/linux" --product reqly
         program=$(swift build --package-path "$root/linux" --show-bin-path)/reqly
+        [[ -z $pictures ]] || export REQLY_PICTURES=$pictures
         exec timeout --kill-after=30s "${minutes}m" "$root/linux/scripts/self-check.sh" "$program" \
             ${rest[@]+"${rest[@]}"}
     fi
@@ -134,10 +146,16 @@ if [[ $command == self-check ]]; then
     docker run --rm --init "${tty[@]+"${tty[@]}"}" --name "$volume-run" \
         -v "$root:/src:ro" -v "$volume:/build" "$image" \
         bash -c "$inside" app.sh "${minutes}m" self-check --scratch-path /build ${jobs[@]+"${jobs[@]}"}
+    # The whole repository mounted here makes the next build's tar see its folders change.
+    sessions=core/Tests/TrafficStoreTests/Sessions
+    kept=()
+    [[ -z $pictures ]] || kept=(-v "$pictures:/pictures" -e REQLY_PICTURES=/pictures)
     exec docker run --rm --init "${tty[@]+"${tty[@]}"}" --name "$volume-self-check" \
         --network none --user 1000:1000 \
-        -v "$root/linux/scripts:/scripts:ro" -v "$volume:/build:ro" "$image" \
-        timeout --kill-after=30s "${minutes}m" /scripts/self-check.sh /build/reqly ${rest[@]+"${rest[@]}"}
+        -v "$root/linux/scripts:/src/linux/scripts:ro" -v "$root/$sessions:/src/$sessions:ro" \
+        -v "$root/linux/packaging/icons:/work/linux/packaging/icons:ro" \
+        -v "$volume:/build:ro" ${kept[@]+"${kept[@]}"} "$image" \
+        timeout --kill-after=30s "${minutes}m" /src/linux/scripts/self-check.sh /build/reqly ${rest[@]+"${rest[@]}"}
 fi
 exec docker run --rm --init "${tty[@]+"${tty[@]}"}" --name "$volume-run" \
     -v "$root:/src:ro" -v "$volume:/build" "$image" \

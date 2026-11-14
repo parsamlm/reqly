@@ -25,6 +25,8 @@ public struct Arguments: @unchecked Sendable {
     public func int(_ index: Int) -> Int32 { g_value_get_int(value(index)) }
     public func uint(_ index: Int) -> UInt32 { g_value_get_uint(value(index)) }
     public func double(_ index: Int) -> Double { g_value_get_double(value(index)) }
+    /// Flags, such as a key's GdkModifierType.
+    public func flags(_ index: Int) -> UInt32 { g_value_get_flags(value(index)) }
 
     /// A GVariant, such as a D-Bus method call's parameters.
     public func variant(_ index: Int) -> OpaquePointer? { g_value_get_variant(value(index)) }
@@ -92,6 +94,29 @@ public func connect(
     connect(raw(instance), signal, after: after, body)
 }
 
+/// g_signal_connect for as long as another object lives, as g_signal_connect_object does: once
+/// `object` is finalized, GLib invalidates the closure, which disconnects it, so `body` never
+/// runs for an object that's gone. Meanwhile each call holds a reference to `object`. For a
+/// signal of something that outlives what `body` changes, such as the style manager's
+/// `notify::dark` for a code view's buffer.
+@MainActor @discardableResult
+public func connect(
+    _ instance: UnsafeMutableRawPointer?, _ signal: String, after: Bool = false,
+    whileAlive object: UnsafeMutableRawPointer?, _ body: @escaping @MainActor (Arguments) -> Void
+) -> UInt {
+    let handler = closure(body)
+    g_object_watch_closure(cast(object), handler)
+    return UInt(g_signal_connect_closure(instance, signal, handler, cBool(after)))
+}
+
+@MainActor @discardableResult
+public func connect(
+    _ instance: UnsafeMutableRawPointer?, _ signal: String, after: Bool = false,
+    whileAlive object: UnsafeMutableRawPointer?, _ body: @escaping @MainActor () -> Void
+) -> UInt {
+    connect(instance, signal, after: after, whileAlive: object) { (_: Arguments) in body() }
+}
+
 // MARK: - Callbacks that aren't signals
 
 /// A pointer carried into the main actor's code and back out, which Swift can't check: GLib
@@ -146,6 +171,59 @@ private let tickCall: GtkTickCallback = { _, _, context in
 @MainActor @discardableResult
 public func tick(_ widget: Widget, _ body: @escaping @MainActor () -> Bool) -> UInt32 {
     gtk_widget_add_tick_callback(widget, tickCall, Box<SourceBody>(body).retained(), releaseContext)
+}
+
+typealias ClockedTickBody = @MainActor (OpaquePointer?) -> Bool
+
+private let clockedTickCall: GtkTickCallback = { _, clock, context in
+    let body = Box<ClockedTickBody>.from(context)
+    let frameClock = Unchecked(clock)
+    return cBool(MainActor.assumeIsolated { body(frameClock.value) })
+}
+
+/// ``tick(_:_:)`` with the widget's GdkFrameClock, for the frame's time, as
+/// gdk_frame_clock_get_frame_time gives it, or how long frames take.
+@MainActor @discardableResult
+public func tick(_ widget: Widget, _ body: @escaping @MainActor (_ frameClock: OpaquePointer?) -> Bool) -> UInt32 {
+    gtk_widget_add_tick_callback(widget, clockedTickCall, Box<ClockedTickBody>(body).retained(), releaseContext)
+}
+
+/// What a drawing area's draw function gets: a Cairo context, and the area's width and height.
+public typealias DrawBody = @MainActor (_ cairo: OpaquePointer?, _ width: Int32, _ height: Int32) -> Void
+
+private let drawCall: GtkDrawingAreaDrawFunc = { _, cairo, width, height, context in
+    let body = Box<DrawBody>.from(context)
+    let cairo = Unchecked(cairo)
+    MainActor.assumeIsolated { body(cairo.value, width, height) }
+}
+
+/// gtk_drawing_area_set_draw_func: `body` draws the area with Cairo each time it's drawn, until
+/// the area goes or gets another. The area holds `body`, so it should hold what owns the area only
+/// weakly.
+@MainActor
+public func setDraw(_ area: Widget, _ body: @escaping DrawBody) {
+    gtk_drawing_area_set_draw_func(cast(area), drawCall, Box<DrawBody>(body).retained(), releaseContext)
+}
+
+/// A tree row's children: a new GListModel, which the tree takes, or nil for a row with none.
+public typealias ChildrenBody = @MainActor (_ item: UnsafeMutableRawPointer?) -> OpaquePointer?
+
+private let childrenCall: GtkTreeListModelCreateModelFunc = { item, context in
+    let body = Box<ChildrenBody>.from(context)
+    let item = Unchecked(item)
+    return MainActor.assumeIsolated { Unchecked(body(item.value)) }.value
+}
+
+/// gtk_tree_list_model_new over `root`, a GListModel it takes: each item's children come from
+/// `children`, as the item is first expanded, so a tree is made as it's opened. Its items are
+/// GtkTreeListRows, each holding an item of `root`'s or of a list `children` gave. The tree holds
+/// `children` until it goes.
+@MainActor
+public func treeListModel(
+    _ root: OpaquePointer, autoexpand: Bool = false, children: @escaping ChildrenBody
+) -> OpaquePointer {
+    gtk_tree_list_model_new(
+        root, 0, cBool(autoexpand), childrenCall, Box<ChildrenBody>(children).retained(), releaseContext)
 }
 
 /// g_unix_signal_add_full: `body` runs on the main thread each time the process gets `signal`,
