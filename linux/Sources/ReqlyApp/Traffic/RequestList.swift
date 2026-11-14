@@ -174,6 +174,9 @@ final class RequestList {
     private var lastFocusedRow: UnsafeMutableRawPointer?
     /// Whether the list is giving a row the keyboard's focus itself, in view, rather than Tab.
     private var isGivingFocus = false
+    /// Whether a button or a finger is down on the list: GTK gives the row under it the keyboard's
+    /// focus as it goes down, and selects the row as it comes up.
+    private var isPressed = false
     /// Whether every row was put in again since the rows were last described, as a search does.
     private var rowsWereReset = false
     /// Whether the list's window has closed, though the list may live on a moment, as a task that
@@ -246,6 +249,18 @@ final class RequestList {
         let focus = gtk_event_controller_focus_new()!
         connect(focus, "enter") { [weak self] in self?.focusCameIn() }
         gtk_widget_add_controller(view, focus)
+        // Before the rows' own handlers, which give a row the focus as the button goes down.
+        let presses = gtk_event_controller_legacy_new()!
+        gtk_event_controller_set_propagation_phase(presses, GTK_PHASE_CAPTURE)
+        connect(presses, "event") { [weak self] (arguments: Arguments) in
+            guard let self, let event: OpaquePointer = cast(arguments.pointer(1)) else { return }
+            switch gdk_event_get_event_type(event) {
+            case GDK_BUTTON_PRESS, GDK_TOUCH_BEGIN: isPressed = true
+            case GDK_BUTTON_RELEASE, GDK_TOUCH_END, GDK_TOUCH_CANCEL, GDK_KEY_PRESS: isPressed = false
+            default: break
+            }
+        }
+        gtk_widget_add_controller(view, presses)
         connect(view, "destroy") { [weak self] in self?.isGone = true }
         listener = model.listen { [weak self] event in
             guard let self, !isGone else { return }
@@ -479,11 +494,13 @@ final class RequestList {
     /// The keyboard's focus came into the list, as Tab brings it from the filter bar or the
     /// details: GTK gives it to the row that had it last, which may be out of view, as the list
     /// followed new traffic meanwhile, and then screen readers say nothing of it; or it may not be
-    /// the selected row, as when Reqly selected a request itself. Once GTK is done, as a click
-    /// selects the row it focuses, the selected row has the focus, or the row GTK gave it to when
-    /// none is, in view: one out of view comes into view first, then takes the focus there.
+    /// the selected row, as when Reqly selected a request itself. Once GTK is done, the selected
+    /// row has the focus, or the row GTK gave it to when none is, in view: one out of view comes
+    /// into view first, then takes the focus there. A click that brought it, or a touch, is left
+    /// alone: GTK gives the row under it the focus as the button goes down, then selects it as it
+    /// comes up, so the row clicked has both.
     private func focusCameIn() {
-        guard !isGivingFocus else { return }
+        guard !isGivingFocus, !isPressed else { return }
         idle { [weak self] in
             if let self, !isGone {
                 bringTheFocusIntoView()
