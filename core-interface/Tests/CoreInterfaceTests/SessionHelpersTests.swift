@@ -199,6 +199,7 @@ import Testing
         let folder = SessionAPITests.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let host = try await Self.openSample("Mac 1.0.reqly", in: folder)
+        // Its target is `/v2/forecast?city=Lisbon&days=3`: the name leaves the query out.
         let forecast = try await host.responseFile(ExchangeID(rawValue: 1))
         #expect(forecast.suggestedName == "forecast.json" && forecast.status == 200)
         #expect(forecast.contentType == "application/json")

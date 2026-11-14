@@ -284,7 +284,8 @@ public struct ResponseFile: Sendable, Equatable {
     }
 
     /// A name for the response's file, such as `forecast.json`: the last part of the request's
-    /// path, or its host, with the extension Map Local gives the type when the name has none.
+    /// path (its target without the query), or its host, with the extension Map Local gives the
+    /// type when the name has none.
     static func name(for request: RequestHead, contentType: String?) -> String {
         let last = request.path.split(separator: "/").last.map(String.init) ?? ""
         let readable = (last.removingPercentEncoding ?? last).replacingOccurrences(of: "/", with: "-")
