@@ -294,7 +294,9 @@ final class App {
         }
     }
 
-    private func open(_ files: [OpaquePointer]) {
+    /// The same, for GIO's files, as GApplication gives them, which may be addresses that aren't
+    /// on this computer.
+    func open(_ files: [OpaquePointer]) {
         // A window made now would go at once, and its session wouldn't close.
         guard !isQuitting else { return }
         for file in files {
@@ -302,15 +304,30 @@ final class App {
                 shown.present()
                 continue
             }
-            guard let path = takeString(g_file_get_path(file)) else { continue }
+            guard let path = takeString(g_file_get_path(file)) else {
+                // An address with no path on this computer, as a URI on the command line that
+                // GVfs hasn't mounted: its window says so, rather than a first launch ending with
+                // no window and nothing said.
+                let address = takeString(g_file_get_parse_name(file)) ?? ""
+                let base = takeString(g_file_get_basename(file)).flatMap { $0 == "/" ? nil : $0 }
+                AppLog.write("can't open \(address), which isn't a file on this computer")
+                let session = SessionModel(app: model, notOnThisComputer: address, name: base ?? address)
+                addFileWindow(MainWindow(app: self, model: session), showing: file)
+                continue
+            }
             let session = SessionModel(app: model, file: URL(filePath: path))
             let window = MainWindow(app: self, model: session)
-            fileWindows.append(window)
-            fileWindowFiles[ObjectIdentifier(window)] = file
-            g_object_ref(raw(file))
             session.openFile()
-            window.present()
+            addFileWindow(window, showing: file)
         }
+    }
+
+    /// Keeps `window`, which shows `file`, and shows it.
+    private func addFileWindow(_ window: MainWindow, showing file: OpaquePointer) {
+        fileWindows.append(window)
+        fileWindowFiles[ObjectIdentifier(window)] = file
+        g_object_ref(raw(file))
+        window.present()
     }
 
     /// The file window that shows `file`, the same file as GIO compares them, case and all.

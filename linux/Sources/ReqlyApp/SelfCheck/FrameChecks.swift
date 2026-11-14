@@ -193,9 +193,10 @@ extension SelfCheck {
         await settle()
     }
 
-    /// A file that isn't a session, in a window that says why, under a header bar of its own with
-    /// the file's name, the main menu, which F10 opens, and the window's buttons, as the panes'
-    /// header bars don't show. Screen readers hear the problem as it shows. Ctrl+W closes it.
+    /// A file that isn't a session, and an address that isn't on this computer, each in a window
+    /// that says why, under a header bar of its own with the file's name, the main menu, which F10
+    /// opens, and the window's buttons, as the panes' header bars don't show. Screen readers hear
+    /// the problem as it shows. Ctrl+W closes each window.
     private func checkFilesThatDontOpen() async throws {
         let damaged = try scratchFolder("damaged").appending(path: "Damaged.reqly")
         try Data("this isn't a session".utf8).write(to: damaged)
@@ -218,6 +219,18 @@ extension SelfCheck {
         try await until("Ctrl+W to close Damaged.reqly's window") { app.fileWindows.isEmpty }
         note("Damaged.reqly: “\(said.first { $0.hasPrefix(title) } ?? "")”, heard as it showed")
 
+        let address = "sftp://192.0.2.1/Saved.har"
+        let remote = try present(g_file_new_for_uri(address), "GIO made no file of \(address)")
+        defer { g_object_unref(raw(remote)) }
+        app.open([remote])
+        let elsewhere = try present(app.fileWindows.first, "\(address) got no window")
+        try await until("Saved.har's window to say why it didn't open") { elsewhere.showsProblem }
+        let problem = elsewhere.model.problem ?? ""
+        try require(problem.contains(address), "Saved.har's window says “\(problem)”")
+        try await checkPageHeaderBar(of: elsewhere, "Saved.har")
+        try FakeInput.press("Control_L", "w", in: elsewhere.window)
+        try await until("Ctrl+W to close Saved.har's window") { app.fileWindows.isEmpty }
+        note("\(address): a window named Saved.har, saying “\(problem)”")
         await settle()
     }
 

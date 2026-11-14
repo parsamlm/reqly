@@ -17,6 +17,8 @@ final class SessionModel {
     unowned let app: AppModel
     /// The file the session was opened from, or `nil` for the live session.
     let file: URL?
+    /// The name of a file that isn't on this computer, which has no path here.
+    private let name: String?
     /// The session, once it's open.
     private(set) var session: SessionHost?
     /// Why a file's session couldn't be opened, in the core's words.
@@ -40,7 +42,19 @@ final class SessionModel {
     init(app: AppModel, file: URL?) {
         self.app = app
         self.file = file
+        name = nil
         isOpening = file != nil
+        appObserver = app.observe { [weak self] in self?.changed() }
+    }
+
+    /// A file that isn't on this computer, at `address`, as GIO gives a URI with no local path, such
+    /// as an sftp:// one GVfs hasn't mounted: its window, named `name`, says Reqly can't open it.
+    init(app: AppModel, notOnThisComputer address: String, name: String) {
+        self.app = app
+        file = URL(filePath: name)
+        self.name = name
+        isOpening = false
+        problem = "Reqly can open only files on this computer. This one is at \(address)."
         appObserver = app.observe { [weak self] in self?.changed() }
     }
 
@@ -58,7 +72,7 @@ final class SessionModel {
     var isSaved: Bool { file != nil || app.options.smokeSession != nil }
 
     /// The file's name, as its window's title shows it.
-    var fileName: String? { file?.lastPathComponent }
+    var fileName: String? { name ?? file?.lastPathComponent }
 
     // MARK: - The app's, as the window reads it
 
