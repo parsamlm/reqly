@@ -14,13 +14,19 @@ extension SelfCheck {
         Part(name: "menu-dialogs") { try await $0.checkMenuDialogs() },
     ]
 
-    /// The menu's actions, which App.swift registers.
+    /// The menu's actions, which App.swift and WindowActions.swift register.
     private static let menuActions = [
-        "set-up-https", "open-terminal", "copy-terminal-setup", "settings", "about", "quit",
+        "app.new-request", "app.open", "win.save-session", "win.export-har", "app.devices", "app.set-up-https",
+        "app.open-terminal", "app.copy-terminal-setup", "app.settings", "app.shortcuts", "app.welcome", "app.about",
+        "app.quit",
     ]
 
+    /// The menu's entries that are off while the window's session has no requests.
+    private static let actionsForRequests: Set<String> = ["win.save-session", "win.export-har"]
+
     /// The window shows the list's header bar, with the capture switch, and the sidebar's, with
-    /// the main menu, whose every entry has its action, and the status line.
+    /// the main menu, whose every entry has its action, on but for saving and exporting while the
+    /// session has no requests, and the status line.
     func checkWindow() async throws {
         let window = window
         try await until("the window to show") { gtk_widget_get_mapped(window.window) != 0 }
@@ -41,17 +47,20 @@ extension SelfCheck {
             gtk_widget_is_ancestor(window.menuButton, window.sidebarHeader) != 0,
             "the main menu isn't in the sidebar's header bar")
         let entries = menuEntries(window.menu)
+        let isEmpty = window.list.total == 0
         for entry in entries {
-            let name = entry.action.hasPrefix("app.") ? String(entry.action.dropFirst(4)) : entry.action
+            let isWindows = entry.action.hasPrefix("win.")
+            let group: UnsafeMutableRawPointer? = isWindows ? raw(window.window) : raw(app.application)
+            let name = String(entry.action.drop { $0 != "." }.dropFirst())
             try require(
-                g_action_group_has_action(cast(app.application), name) != 0,
+                g_action_group_has_action(cast(group), name) != 0,
                 "the menu's \(entry.label) has no action \(entry.action)")
-            try require(
-                g_action_group_get_action_enabled(cast(app.application), name) != 0,
-                "the menu's \(entry.label) is off")
+            let isOn = g_action_group_get_action_enabled(cast(group), name) != 0
+            let isOffWhileEmpty = isEmpty && Self.actionsForRequests.contains(entry.action)
+            try require(isOn != isOffWhileEmpty, "the menu's \(entry.label) is \(isOn ? "on" : "off")")
         }
-        let missing = Self.menuActions.filter { action in !entries.contains { $0.action == "app.\(action)" } }
-        try require(missing.isEmpty, "the menu has no entry for app.\(missing.joined(separator: ", app."))")
+        let missing = Self.menuActions.filter { action in !entries.contains { $0.action == action } }
+        try require(missing.isEmpty, "the menu has no entry for \(missing.joined(separator: ", "))")
         note("main menu: \(entries.map { "\($0.label) (\($0.action))" }.joined(separator: ", "))")
 
         let status = string(gtk_label_get_text(cast(window.statusLabel))) ?? ""

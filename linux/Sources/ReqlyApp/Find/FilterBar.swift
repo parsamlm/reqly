@@ -41,7 +41,7 @@ final class FilterBar {
     private(set) var isFolded = false
     /// Runs once the session filters the list with a new filter.
     var onFilter: (() -> Void)?
-    private let model: AppModel
+    private let model: SessionModel
     /// The room the tokens have: an area that draws nothing, and says when its width changes.
     private let room: Widget
     /// What each menu offers, after its "Any": what the session has, and the choice, even when its
@@ -56,7 +56,7 @@ final class FilterBar {
     /// The latest change of filter. The next one waits for it, so the session gets them in order.
     private var filtering: Task<Void, Never>?
 
-    init(model: AppModel) {
+    init(model: SessionModel) {
         self.model = model
         Self.addStyles()
         let bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!

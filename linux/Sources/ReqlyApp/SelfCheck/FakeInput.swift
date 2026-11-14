@@ -46,6 +46,14 @@ enum FakeInput {
         return (rootX, rootY)
     }
 
+    /// Moves the pointer to the middle of `widget`, which shows, with no button down.
+    static func hover(_ widget: Widget) throws {
+        let x = try X.shared()
+        let (rootX, rootY) = try middle(of: widget, x)
+        _ = x.fakeMotion(x.display, -1, rootX, rootY, 0)
+        _ = x.flush(x.display)
+    }
+
     /// Turns the wheel up `notches` over the middle of `widget`, which shows, at once: X's button
     /// 4, pressed and let go each notch.
     static func scrollUp(_ widget: Widget, notches: Int) throws {

@@ -6,29 +6,49 @@ import Foundation
 import GtkBinding
 import LinuxDesktop
 
-/// Reqly for Linux: the application, its window and its actions.
+/// Reqly for Linux: the application, its windows and its actions.
 ///
 /// A real run is the only Reqly: a second launch hands GApplication's activation to the first one,
-/// through its name on the session bus, which brings back its window, and quits before it touches
-/// anything, so two never put back each other's proxy settings. A test run is a non-unique
-/// application, so it runs beside the Reqly that's open, unless `--app-id` gives it an ID of its
-/// own, under which it's the only one.
+/// through its name on the session bus, with the files it was given, and quits before it touches
+/// anything, so two never put back each other's proxy settings. Without files, the first brings
+/// back its live window; with files, it opens each in a window of its own. A test run is a
+/// non-unique application, so it runs beside the Reqly that's open and opens its own files, unless
+/// `--app-id` gives it an ID of its own, under which it's the only one.
+///
+/// The live session and its window are the app's: the window is made the first time it shows, and
+/// closing it hides it, which stops capturing and closes the windows that belong to it, such as
+/// Rules. A file's window closes alone, and its session with it. Reqly quits once no window shows,
+/// or with Quit, closing every session.
 @MainActor
 final class App {
     /// The app ID: the name a running Reqly holds on the session bus, and its desktop file's name.
     static let id = ProxyGuard.appName
     /// Reqly for Linux's version, as About and `--version` show it.
     static let version = "1.0.0-dev"
+    /// Where Sponsor Reqly goes, as on the Mac.
+    static let sponsor = "https://github.com/sponsors/parsamlm"
 
     let options: Options
     let model: AppModel
     let application: UnsafeMutablePointer<AdwApplication>
-    private(set) var window: MainWindow?
+    /// The live session's window, once it has shown.
+    private(set) var liveWindow: MainWindow?
+    /// The windows of the files opened, in the order they opened.
+    private(set) var fileWindows: [MainWindow] = []
+    /// Windows that belong to the live window, such as Rules, Devices and composers, which close as
+    /// it hides.
+    private(set) var secondaryWindows: [Widget] = []
+    /// Each file window's file, to find the window that shows a file again.
+    private var fileWindowFiles: [ObjectIdentifier: OpaquePointer] = [:]
     private var selfCheck: SelfCheck?
-    private var isQuitting = false
-    /// The model's close, once something has started it: quitting, the session's end, or the main
-    /// loop's. They share it, since the core's session closes once.
+    private(set) var isQuitting = false
+    /// Every session's close, once something has started it: quitting, the session's end, or the
+    /// main loop's. They share it, since each of the core's sessions closes once.
     private var closing: Task<Void, Never>?
+    /// Whether every session has closed.
+    private var isClosed = false
+    /// The sessions of file windows that closed, until their copies have gone.
+    private var closingFiles: [Task<Void, Never>] = []
     /// The session bus's shared connection, which GApplication uses too, kept for as long as
     /// Reqly runs, with its filter.
     private var sessionBus: OpaquePointer?
@@ -42,8 +62,8 @@ final class App {
         self.options = options
         model = AppModel(options: options, folders: AppFolders(options: options))
         let isUnique = !options.isTestRun || options.appID != nil
-        application = adw_application_new(
-            options.appID ?? Self.id, isUnique ? G_APPLICATION_DEFAULT_FLAGS : G_APPLICATION_NON_UNIQUE)
+        let flags = G_APPLICATION_HANDLES_OPEN.rawValue | (isUnique ? 0 : G_APPLICATION_NON_UNIQUE.rawValue)
+        application = adw_application_new(options.appID ?? Self.id, GApplicationFlags(rawValue: flags))
     }
 
     /// Runs Reqly until it quits, and returns its exit status.
@@ -51,14 +71,20 @@ final class App {
         MainLoop.runSwiftMainQueue()
         connect(application, "startup") { [weak self] in self?.startUp() }
         connect(application, "activate") { [weak self] in self?.activate() }
+        connect(application, "open") { [weak self] (arguments: Arguments) in
+            self?.open(files: arguments.pointer(1), count: Int(arguments.int(2)))
+        }
         followTheSession()
         // The window's X11 class, as the app ID, so desktops that match windows to desktop files by
         // their class find Reqly's. On Wayland, GTK names the window by the app ID itself.
         g_set_prgname(Self.id)
-        // Only the program's name: Reqly's own options aren't GApplication's, and the files a
-        // launcher passes wait for Step 5.
-        var arguments: [UnsafeMutablePointer<CChar>?] = [CommandLine.unsafeArgv[0], nil]
-        let status = g_application_run(cast(application), 1, &arguments)
+        // The program's name and the files, which GApplication makes full paths of, or takes as
+        // URIs: Reqly's own options aren't GApplication's, which would refuse them. A Reqly that's
+        // running already gets the files.
+        let given = [CommandLine.arguments[0]] + options.files
+        var arguments: [UnsafeMutablePointer<CChar>?] = given.map { strdup($0) } + [nil]
+        defer { arguments.forEach { free($0) } }
+        let status = g_application_run(cast(application), Int32(given.count), &arguments)
         // When the main loop ended without Reqly's quit, as when the display went on GNOME 50.
         close(within: 5)
         // Only now, with nothing left to do but end: the session manager ends the session, and the
@@ -157,14 +183,14 @@ final class App {
         g_dbus_connection_add_filter(connection, dropSessionManagerSignals, nil, nil)
     }
 
-    /// Closes the model, unless it's closed, and waits for it at most `seconds`, running the main
-    /// loop, which runs the close meanwhile: capturing stops, so your proxy settings go back
-    /// before Reqly ends, and the session's folder goes. The watcher puts the settings back if
+    /// Closes every session, unless they're closed, and waits for it at most `seconds`, running
+    /// the main loop, which runs the close meanwhile: capturing stops, so your proxy settings go
+    /// back before Reqly ends, and the sessions' folders go. The watcher puts the settings back if
     /// Reqly ends before that. Call it only from a GLib callback, such as a signal's handler,
     /// never from a Swift task: GLib doesn't run Swift's main queue again while it's running a
     /// task from it, so the close would wait for the deadline.
     private func close(within seconds: Double) {
-        guard !model.isClosed else { return }
+        guard !isClosed else { return }
         let task = startClosing()
         let done = Closing()
         Task {
@@ -180,77 +206,193 @@ final class App {
         g_source_remove(tick)
     }
 
-    /// Starts the model's close, or returns the one that's under way.
+    /// Starts every session's close, or returns the one that's under way: the live one, which
+    /// stops capturing first, and each file window's, which deletes its copy, together.
     private func startClosing() -> Task<Void, Never> {
         if let closing {
             return closing
         }
-        let task = Task { [model] in await model.close() }
+        let files = fileWindows.map(\.model)
+        let closed = closingFiles
+        let task = Task { [model] in
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await model.close() }
+                for file in files {
+                    group.addTask { await file.close() }
+                }
+                for close in closed {
+                    group.addTask { await close.value }
+                }
+            }
+            self.isClosed = true
+        }
         closing = task
         return task
     }
 
-    /// Shows the window: a new one the first time, and the one that's open when another launch
-    /// asks for it.
+    // MARK: - Windows
+
+    /// A launch without files, the first or a later one: the live window shows, made the first
+    /// time, or brought back.
     private func activate() {
-        if let window {
-            window.present()
-            return
+        presentLive()
+    }
+
+    /// Shows the live window, made the first time, brought back once it was closed, or brought to
+    /// the front, as every command for the live session does first.
+    @discardableResult
+    func presentLive() -> MainWindow {
+        if let liveWindow {
+            liveWindow.present()
+            return liveWindow
         }
-        let window = MainWindow(app: self)
-        self.window = window
+        let window = MainWindow(app: self, model: model.live)
+        liveWindow = window
         window.present()
-        if let report = options.smokeReport {
-            let check = SelfCheck(app: self, report: URL(filePath: report), names: options.smokeParts)
-            selfCheck = check
-            Task { await check.run() }
+        startSelfCheck()
+        return window
+    }
+
+    /// A launch with files, the first or a later one, through GApplication: each in a window of
+    /// its own, made here, before GApplication goes on, so a first launch with only files keeps
+    /// running. Nothing captures, and the live window doesn't show.
+    private func open(files: UnsafeMutableRawPointer?, count: Int) {
+        guard let files, count > 0 else { return }
+        let list = files.assumingMemoryBound(to: OpaquePointer?.self)
+        open((0..<count).compactMap { list[$0] })
+        startSelfCheck()
+    }
+
+    /// Opens each of `files` in a window of its own, or brings forward the window that shows it.
+    /// A file that can't be opened gets its window too, which says why.
+    func open(_ urls: [URL]) {
+        let files = urls.map { g_file_new_for_path($0.path)! }
+        open(files)
+        for file in files {
+            g_object_unref(raw(file))
         }
     }
 
-    /// The menu's actions, each in one place, calling the feature that owns it. The dialogs open
-    /// once the menu has closed: see ``afterMenu(_:)``.
-    private func addActions() {
-        add("set-up-https") { [weak self] in self?.afterMenu { $0.setUpHTTPS() } }
-        add("open-terminal") { [weak self] in self?.window?.openTerminal() }
-        add("copy-terminal-setup") { [weak self] in self?.window?.copyTerminalSetup() }
-        add("settings", accelerator: "<Control>comma") { [weak self] in self?.afterMenu { $0.showSettings() } }
-        add("about") { [weak self] in self?.afterMenu { $0.showAbout() } }
-        add("quit", accelerator: "<Control>q") { [weak self] in self?.quit() }
+    private func open(_ files: [OpaquePointer]) {
+        for file in files {
+            if let shown = window(showing: file) {
+                shown.present()
+                continue
+            }
+            guard let path = takeString(g_file_get_path(file)) else { continue }
+            let session = SessionModel(app: model, file: URL(filePath: path))
+            let window = MainWindow(app: self, model: session)
+            fileWindows.append(window)
+            fileWindowFiles[ObjectIdentifier(window)] = file
+            g_object_ref(raw(file))
+            session.openFile()
+            window.present()
+        }
     }
 
-    /// Runs `body` with the window once the main menu, whose entry may have run the action, has
-    /// closed and given the keyboard's focus back to its button. A dialog opened from the entry
-    /// itself would give the focus back to the entry as it closes, in the hidden menu, as
-    /// libadwaita 1.5 does, which leaves the window's shortcuts and Tab doing nothing.
-    private func afterMenu(_ body: @escaping @MainActor (MainWindow) -> Void) {
-        idle { [weak self] in
-            if let window = self?.window {
-                body(window)
+    /// The file window that shows `file`, the same file as GIO compares them, case and all.
+    private func window(showing file: OpaquePointer) -> MainWindow? {
+        fileWindows.first { window in
+            fileWindowFiles[ObjectIdentifier(window)].map { g_file_equal($0, file) != 0 } ?? false
+        }
+    }
+
+    /// The window `window` asked to close, with its close button or Ctrl+W: a file's window
+    /// closes, and its session with it; the live window hides, which stops capturing and closes
+    /// the windows that belong to it. Once no window shows, Reqly quits.
+    func closeWindow(_ window: MainWindow) {
+        let showsOthers =
+            fileWindows.contains { $0 !== window } || (liveWindow.map { $0 !== window && $0.isShowing } ?? false)
+        // Quitting holds the application first, so it doesn't end with its last window, before
+        // the sessions have closed.
+        if !showsOthers {
+            quit()
+        }
+        if window === liveWindow {
+            hideLive()
+        } else if let index = fileWindows.firstIndex(where: { $0 === window }) {
+            fileWindows.remove(at: index)
+            if let file = fileWindowFiles.removeValue(forKey: ObjectIdentifier(window)) {
+                g_object_unref(raw(file))
             }
+            gtk_window_destroy(cast(window.window))
+            if !isQuitting {
+                let session = window.model
+                closingFiles.append(Task { await session.close() })
+            }
+        }
+    }
+
+    /// The live window goes, but its session and list stay: capturing stops, which puts your
+    /// proxy settings back, and the windows that belong to it close. Show Live Traffic, or a
+    /// launch without files, brings it back.
+    private func hideLive() {
+        guard let liveWindow, liveWindow.isShowing else { return }
+        for secondary in secondaryWindows {
+            gtk_window_destroy(cast(secondary))
+        }
+        secondaryWindows = []
+        gtk_widget_set_visible(liveWindow.window, 0)
+        if !isQuitting {
+            model.liveWindowHidden()
+        }
+    }
+
+    /// Keeps `window`, such as Rules, Devices or a composer, over the live window, without
+    /// blocking it, until the live window hides, which closes it, or it closes itself.
+    func addSecondary(_ window: Widget) {
+        if let liveWindow {
+            gtk_window_set_transient_for(cast(window), cast(liveWindow.window))
+        }
+        secondaryWindows.append(window)
+        connect(window, "destroy") { [weak self] in
+            self?.secondaryWindows.removeAll { $0 == window }
+        }
+    }
+
+    /// The Reqly window in front, the live window or a file's, or the live window when none of
+    /// them is.
+    var windowInFront: MainWindow? {
+        let active = gtk_application_get_active_window(cast(application)).map { cast($0) as Widget }
+        return ([liveWindow].compactMap { $0 } + fileWindows).first { $0.window == active } ?? liveWindow
+    }
+
+    /// Whether a dialog shows over the window in front, while which shortcuts wait.
+    var dialogShows: Bool {
+        guard let active = gtk_application_get_active_window(cast(application)).map({ cast($0) as Widget }) else {
             return false
         }
-    }
-
-    /// Adds the action `app.<name>`, which runs `body`, with its keyboard shortcut.
-    private func add(_ name: String, accelerator: String? = nil, _ body: @escaping @MainActor () -> Void) {
-        let action = g_simple_action_new(name, nil)!
-        connect(action, "activate") { body() }
-        g_action_map_add_action(cast(application), cast(action))
-        g_object_unref(raw(action))
-        if let accelerator {
-            withCStrings([accelerator]) { gtk_application_set_accels_for_action(cast(application), "app.\(name)", $0) }
+        if g_type_check_instance_is_a(cast(active), adw_application_window_get_type()) != 0 {
+            return visibleDialog(over: active) != nil
         }
+        if g_type_check_instance_is_a(cast(active), adw_window_get_type()) != 0 {
+            return adw_window_get_visible_dialog(cast(active)) != nil
+        }
+        return false
     }
 
-    /// Quits Reqly, whichever way you quit: from the menu, by closing the window, with a signal,
-    /// or as the self-check ends. Capturing stops first, which puts your desktop's proxy back, and
-    /// the session's folder goes.
+    /// Starts the self-check, once, as the first window shows, when the run asks for it.
+    private func startSelfCheck() {
+        guard selfCheck == nil, let report = options.smokeReport else { return }
+        let check = SelfCheck(app: self, report: URL(filePath: report), names: options.smokeParts)
+        selfCheck = check
+        Task { await check.run() }
+    }
+
+    // MARK: - Quitting
+
+    /// Quits Reqly, whichever way you quit: from the menu, by closing the last window, with a
+    /// signal, or as the self-check ends. Capturing stops first, which puts your desktop's proxy
+    /// back, and every session's folder goes. The application holds on until then, rather than
+    /// ending as its last window goes, and until a self-check has written its report.
     func quit() {
         guard !isQuitting else { return }
         isQuitting = true
+        g_application_hold(cast(application))
         let closing = startClosing()
         Task {
             await closing.value
+            await selfCheck?.finished()
             g_application_quit(cast(application))
         }
     }

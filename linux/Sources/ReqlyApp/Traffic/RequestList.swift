@@ -109,6 +109,8 @@ final class RequestList {
     /// Runs when you choose Add or Edit Comment… in a row's menu, with its request, which the
     /// window then shows on the details' Overview, where its comment is written.
     var onComment: ((ExchangeID) -> Void)?
+    /// One of the Request menu's commands, chosen in a row's menu, on that row's request.
+    var onCommand: ((RequestCommand, ExchangeSummary) -> Void)?
     /// How many times the list has brought its newest row into view, following new traffic.
     private(set) var reveals = 0
     /// When the newest row is to come into view, once the time between reveals has gone, in
@@ -120,7 +122,7 @@ final class RequestList {
         get { following.between }
         set { following.between = newValue }
     }
-    private let model: AppModel
+    private let model: SessionModel
     private let selection: OpaquePointer
     private let empty: Widget
     /// The rows' exchange IDs, as text, which the view shows.
@@ -165,7 +167,7 @@ final class RequestList {
     /// The row the right button was pressed on, and where, whose menu opens as it's let go.
     private var menuPress: (id: ExchangeID, x: Double, y: Double)?
 
-    init(model: AppModel) {
+    init(model: SessionModel) {
         self.model = model
         ListStyles.install()
         items = gtk_string_list_new(nil)
@@ -636,6 +638,14 @@ final class RequestList {
         gtk_stack_set_visible_child(cast(widget), empty)
         let title: String
         let description: String
+        if let name = model.fileName {
+            // A file's window, as on the Mac.
+            adw_status_page_set_title(cast(empty), "No Requests")
+            // Its description is markup, which a file's name may look like.
+            let words = takeString(g_markup_escape_text("“\(name)” has no requests in it.", -1))
+            adw_status_page_set_description(cast(empty), words)
+            return
+        }
         switch (model.isCapturing, model.options.setsSystemProxy) {
         case (true, true):
             title = "Waiting for Traffic"
@@ -961,8 +971,9 @@ final class RequestList {
             self?.annotate(summary.id, color: color.map { .set($0) } ?? .remove)
         }
         menu.onComment = { [weak self] summary in self?.onComment?(summary.id) }
+        menu.onCommand = { [weak self] command, summary in self?.onCommand?(command, summary) }
         menu.decrypts = { [weak self] host in
-            guard let self, model.options.smokeSession == nil else { return nil }
+            guard let self, !model.isSaved else { return nil }
             return model.https.decrypts(host)
         }
         menu.onDecrypt = { [weak self] host, isOn in

@@ -57,7 +57,7 @@ final class Sidebar {
     /// Runs when the chosen scope's count changes, or its title, or the session's count, as when
     /// the arrow keys choose another scope.
     var onCount: (() -> Void)?
-    private let model: AppModel
+    private let model: SessionModel
     private let icons = AppIcons()
     /// Each section's row keys, as text, which the view shows, and what they hold.
     private let sections: [OpaquePointer]
@@ -86,7 +86,7 @@ final class Sidebar {
     private var isDone = true
     private var isMoving = false
 
-    init(model: AppModel) {
+    init(model: SessionModel) {
         self.model = model
         let settings = model.settings
         let shown: [(SidebarRows.Section, Bool)] = [

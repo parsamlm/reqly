@@ -82,4 +82,13 @@ public struct AppFolders: Sendable {
             findsApps: true, rootFile: options.usesYourCertificates ? rootFile.path : nil,
             rootStandIn: options.rootStandIn, sessionLimit: options.sessionLimit)
     }
+
+    /// What a saved session or HAR file at `file` opens with, in a window of its own: a copy in the
+    /// sessions folder, which goes as its window closes. It captures nothing, so it touches none of
+    /// your settings, your certificate or your keyring.
+    public func openOptions(file: String, _ options: Options) -> OpenOptions {
+        OpenOptions(
+            sessionsFolder: sessionsFolder.path, file: file, setsSystemProxy: false, findsApps: false,
+            sessionLimit: options.sessionLimit)
+    }
 }

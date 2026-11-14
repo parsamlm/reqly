@@ -1,18 +1,41 @@
 import CGtk
 import GtkBinding
+import ReqlyModel
 
 extension MainWindow {
     /// The window's actions, `win.<name>`, each with its keyboard shortcut, as GNOME's apps have
     /// them, and the Mac's where GNOME has none: F9 shows and hides the sidebar; Ctrl+F searches;
     /// Ctrl+1 to Ctrl+5 choose the details' pages, `win.page::overview` to `win.page::timing`;
-    /// Ctrl+K clears the traffic, but for pinned requests; Ctrl+R starts or stops capturing. F10
-    /// opens the main menu that shows, as its button is GTK's primary menu, and Escape goes back,
-    /// in its own order: see ``escape()``. While a dialog shows over the window, they wait.
+    /// Ctrl+K clears the traffic, but for pinned requests; Ctrl+R starts or stops capturing. Ctrl+S
+    /// saves the window's session and Shift+Ctrl+E exports it as HAR; Shift+Ctrl+C and Ctrl+Alt+C
+    /// copy the request shown's URL and a cURL command; Ctrl+W closes a file's window, but not the
+    /// live one, which only its close button hides. F10 opens the main menu that shows, as its
+    /// button is GTK's primary menu, and Escape goes back, in its own order: see ``escape()``.
+    /// While a dialog shows over the window, they wait.
     func addActions() {
         add("toggle-sidebar", accelerator: "F9") { [weak self] in self?.toggleSidebar() }
         add("search", accelerator: "<Control>f") { [weak self] in self?.openSearch() }
         clearAction = add("clear", accelerator: "<Control>k") { [weak self] in self?.clear() }
         add("toggle-capture", accelerator: "<Control>r") { [weak self] in self?.toggleCapture() }
+        saveAction = add("save-session", accelerator: "<Control>s") { [weak self] in self?.saveSession() }
+        exportAction = add("export-har", accelerator: "<Shift><Control>e") { [weak self] in
+            self?.exportHAR(selecting: self?.details.shown)
+        }
+        let close = add("close", accelerator: "<Control>w") { [weak self] in
+            guard let self else { return }
+            app.closeWindow(self)
+        }
+        // One key never stops capturing or ends the session by accident.
+        g_simple_action_set_enabled(close, cBool(!model.isLive))
+        copyURLAction = add("copy-url", accelerator: "<Shift><Control>c") { [weak self] in
+            self?.runOnShown(.copyURL)
+        }
+        copyCurlAction = add("copy-curl", accelerator: "<Control><Alt>c") { [weak self] in
+            self?.runOnShown(.copyCurl)
+        }
+        for action in [copyURLAction, copyCurlAction] {
+            g_simple_action_set_enabled(action, cBool(details.shown != nil))
+        }
 
         let pageType = g_variant_type_new("s")
         let pageAction = g_simple_action_new("page", pageType)!
@@ -163,11 +186,39 @@ extension MainWindow {
         return true
     }
 
+    /// One of the Request menu's commands, from a row's menu, the details' menu or a shortcut, on
+    /// `summary`'s request, in this window's session, when it works on it.
+    func run(_ command: RequestCommand, on summary: ExchangeSummary) {
+        guard command.isAvailable(for: summary) else { return }
+        switch command {
+        case .copyURL: copyURL(of: summary)
+        case .copyCurl: copyCurl(of: summary.id)
+        case .copyResponseBody: copyResponseBody(of: summary.id)
+        case .exportHAR: exportHAR(selecting: summary.id)
+        case .resend: resend(summary.id)
+        case .editAndResend: editAndResend(summary.id)
+        case .addRule(let kind): addRule(kind, for: summary)
+        }
+    }
+
+    /// A shortcut's command, on the request the details show.
+    private func runOnShown(_ command: RequestCommand) {
+        guard visibleDialog(over: window) == nil, let summary = details.summary, summary.id == details.shown else {
+            return
+        }
+        run(command, on: summary)
+    }
+
     /// Adds the action `win.<name>`, which runs `body`, with its keyboard shortcut, and gives it.
     @discardableResult
     private func add(_ name: String, accelerator: String, _ body: @escaping @MainActor () -> Void) -> OpaquePointer {
         let action = g_simple_action_new(name, nil)!
-        connect(action, "activate") { body() }
+        connect(action, "activate") { [weak self] in
+            // While a dialog shows over the window, its keys wait, as the others' do in their own
+            // handlers.
+            guard let self, visibleDialog(over: window) == nil else { return }
+            body()
+        }
         g_action_map_add_action(cast(window), cast(action))
         g_object_unref(raw(action))
         withCStrings([accelerator]) { gtk_application_set_accels_for_action(cast(app.application), "win.\(name)", $0) }

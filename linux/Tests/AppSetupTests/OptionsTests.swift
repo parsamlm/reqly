@@ -52,8 +52,8 @@ import Testing
         #expect(removal.rootStandIn == "/t/Root.dat")
     }
 
-    /// Desktops pass files even though the desktop file's Exec takes none, as Open With does: the
-    /// run takes them, and opens Reqly's window, or brings back the one that's open.
+    /// The files a desktop passes, paths or URIs, which the Reqly that's running opens, each in a
+    /// window of its own.
     @Test func takesTheFilesADesktopPasses() throws {
         let options = try Options(["/home/ana/Documents/note.txt", "file:///etc/hostname"])
         #expect(options.command == .open)

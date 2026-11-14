@@ -19,11 +19,11 @@ final class SearchBar {
     private(set) var query = ""
     /// Runs once the session searches for new text, and the list shows what it found so far.
     var onSearch: (() -> Void)?
-    private let model: AppModel
+    private let model: SessionModel
     /// The latest search. The next one waits for it, so the session gets them in order.
     private var searching: Task<Void, Never>?
 
-    init(model: AppModel) {
+    init(model: SessionModel) {
         self.model = model
         entry = gtk_search_entry_new()
         gtk_search_entry_set_placeholder_text(cast(entry), "Search requests")

@@ -90,7 +90,7 @@ final class DetailsPane {
     private(set) var bodies: [MessagePart: BodyView] = [:]
     /// How many times the pane has read a request's details, which the self-check counts.
     private(set) var reads = 0
-    let model: AppModel
+    let model: SessionModel
     /// The request's secrets you chose to show, which stay shown while it shows: each header, by
     /// its part and place; the cookies' values, by part; and the Raw page's.
     var shownHeaders: Set<String> = []
@@ -109,6 +109,10 @@ final class DetailsPane {
     /// again.
     private let marksMenu: OpaquePointer
     private let httpsMenu: OpaquePointer
+    /// The Request menu's commands' actions, `details.<name>`, on while they work on the request.
+    private var commands: [RequestCommand: OpaquePointer] = [:]
+    /// One of the Request menu's commands, chosen in the details' menu, on the request shown.
+    var onCommand: ((RequestCommand, ExchangeSummary) -> Void)?
     /// The page you chose, which shows for each request that has it.
     private var chosen = Page.overview
     private var isChoosing = false
@@ -142,7 +146,7 @@ final class DetailsPane {
     /// again once the focus leaves it.
     private var waiting: Page?
 
-    init(model: AppModel) {
+    init(model: SessionModel) {
         self.model = model
         DetailsStyles.install()
         stack = cast(adw_view_stack_new())
@@ -689,6 +693,16 @@ final class DetailsPane {
         add("pin") { [weak self] in self?.togglePin() }
         add("comment") { [weak self] in self?.editComment() }
         add("decrypt") { [weak self] in self?.toggleDecrypting() }
+        for command in RequestCommand.detailsCommands {
+            let action = g_simple_action_new(command.actionName, nil)!
+            connect(action, "activate") { [weak self] in
+                guard let self, let summary, summary.id == shown else { return }
+                onCommand?(command, summary)
+            }
+            g_action_map_add_action(cast(actions), cast(action))
+            g_object_unref(raw(action))
+            commands[command] = action
+        }
         connect(colorAction, "activate") { [weak self] (arguments: Arguments) in
             guard let name = arguments.variant(1).flatMap({ string(g_variant_get_string($0, nil)) }) else { return }
             self?.mark(MarkColor(rawValue: name))
@@ -708,8 +722,10 @@ final class DetailsPane {
         g_action_map_lookup_action(cast(actions), name)
     }
 
-    /// The colors: None, then the seven. And the details' menu: Pin or Unpin Request, Color and
-    /// Add or Edit Comment…, then Decrypt or Stop Decrypting the host.
+    /// The colors: None, then the seven. And the details' menu, in the Mac's Request menu's order:
+    /// Copy URL, Copy as cURL and Copy Response Body; Resend and Edit and Resend…; Pin or Unpin
+    /// Request, Color and Add or Edit Comment…; Add Rule, with each kind; then Decrypt or Stop
+    /// Decrypting the host.
     private func makeMenus() {
         g_menu_append(colors, "None", "details.color::none")
         let marks = g_menu_new()!
@@ -721,8 +737,25 @@ final class DetailsPane {
         g_menu_append(marksMenu, "Pin Request", "details.pin")
         g_menu_append_submenu(marksMenu, "Color", cast(colors))
         g_menu_append(marksMenu, "Add Comment…", "details.comment")
-        g_menu_append_section(menu, nil, cast(marksMenu))
-        g_menu_append_section(menu, nil, cast(httpsMenu))
+        let copies = g_menu_new()!
+        let sending = g_menu_new()!
+        let rules = g_menu_new()!
+        for command in RequestCommand.detailsCommands {
+            switch command {
+            case .resend, .editAndResend: g_menu_append(sending, command.title, "details.\(command.actionName)")
+            case .addRule: g_menu_append(rules, command.title, "details.\(command.actionName)")
+            default: g_menu_append(copies, command.title, "details.\(command.actionName)")
+            }
+        }
+        let addRule = g_menu_new()!
+        g_menu_append_submenu(addRule, "Add Rule", cast(rules))
+        g_object_unref(raw(rules))
+        for section in [copies, sending, marksMenu, addRule, httpsMenu] {
+            g_menu_append_section(menu, nil, cast(section))
+        }
+        for section in [copies, sending, addRule] {
+            g_object_unref(raw(section))
+        }
     }
 
     /// The actions on while there's a request, and Decrypt while this session decrypts and the
@@ -741,6 +774,10 @@ final class DetailsPane {
             g_simple_action_set_enabled(action(name), cBool(hasRequest))
         }
         g_simple_action_set_enabled(colorAction, cBool(hasRequest))
+        for (command, action) in commands {
+            g_simple_action_set_enabled(
+                action, cBool(summary.map { hasRequest && command.isAvailable(for: $0) } ?? false))
+        }
         g_simple_action_set_enabled(action("decrypt"), cBool(hasRequest && decrypts != nil))
         g_simple_action_set_state(colorAction, g_variant_new_string(annotation.color?.rawValue ?? "none"))
         let entries = [

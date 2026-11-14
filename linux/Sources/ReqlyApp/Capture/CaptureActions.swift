@@ -75,13 +75,13 @@ extension MainWindow {
         let says = saysCapturing
         saysCapturing = false
         Task {
-            await model.setCapturing(on)
+            await appModel.setCapturing(on)
             if hadFocus, gtk_widget_get_sensitive(captureSwitch) != 0 {
                 gtk_widget_grab_focus(captureSwitch)
             }
             // Ctrl+R, away from the switch, which screen readers would have said.
             if says, gtk_widget_is_focus(captureSwitch) == 0 {
-                announce(window, model.statusText)
+                announce(window, appModel.statusText)
             }
         }
     }

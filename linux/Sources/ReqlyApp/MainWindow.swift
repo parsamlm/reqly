@@ -25,10 +25,16 @@ import ReqlyModel
 /// in `Bodies/`; capturing in `Capture/`, the terminal in `Terminal/` and HTTPS in `HTTPS/`. This
 /// file puts them in place and tells each what another did. App.swift registers the menu's actions,
 /// and WindowActions.swift the window's own, with their shortcuts.
+///
+/// The live window shows the live session, which the app keeps; a file's window shows a saved
+/// session or HAR file, in a session of its own, with the file's name as its title, and no capture
+/// switch or Rules button. Closing a file's window closes it alone; closing the live window hides
+/// it: see ``App``.
 @MainActor
 final class MainWindow {
     unowned let app: App
-    let model: AppModel
+    /// The window's session: the live one, or a file's.
+    let model: SessionModel
     let window: Widget
     /// The sidebar's split view, around the list's and the details'.
     let outer: OpaquePointer
@@ -37,7 +43,11 @@ final class MainWindow {
     let sidebarHeader: Widget
     /// The list's header bar, with the capture switch.
     let listHeader: Widget
+    /// "Capture" and its switch, which a file's window hides.
+    let captureBox: Widget
     let captureSwitch: Widget
+    /// The Rules menu's button, at the end of the list's header bar, in the live window only.
+    let rulesButton: Widget
     /// Shows and hides the sidebar, in the list's header bar, while the sidebar is folded away or
     /// hidden.
     let sidebarToggle: Widget
@@ -73,6 +83,10 @@ final class MainWindow {
     let listNarrows: OpaquePointer
     private let statusDot: Widget
     private let toasts: Widget
+    /// The panes, or, in a file's window, what shows while the file opens or once it couldn't.
+    private let content: Widget
+    private var opening: Widget?
+    private var failed: Widget?
     /// The list, or the no-matches page in its place.
     private let listContent: Widget
     /// Whether the switch is being set to the model's state, rather than by you.
@@ -91,6 +105,13 @@ final class MainWindow {
     private var firstFocus: Widget?
     /// Clear's action, which is on while there's something to clear.
     var clearAction: OpaquePointer?
+    /// Save Session… and Export as HAR…, which are on while the session has requests.
+    var saveAction: OpaquePointer?
+    var exportAction: OpaquePointer?
+    /// Copy URL and Copy as cURL, Shift+Ctrl+C and Ctrl+Alt+C, on while the details show a
+    /// request.
+    var copyURLAction: OpaquePointer?
+    var copyCurlAction: OpaquePointer?
     /// The details' pages' action, Ctrl+1 to Ctrl+5, which is on while the details show a
     /// request, as on the Mac.
     var pageAction: OpaquePointer?
@@ -107,31 +128,24 @@ final class MainWindow {
     private(set) var settings: SettingsDialog?
     private(set) var setUp: SetUpDialog?
     private(set) var about: Widget?
+    /// Whether the window has shown, once or more.
+    private(set) var hasShown = false
 
-    init(app: App) {
+    /// The app's model: capturing, settings, HTTPS and the rest, which every window shares.
+    var appModel: AppModel { app.model }
+
+    init(app: App, model: SessionModel) {
         self.app = app
-        model = app.model
+        self.model = model
         window = adw_application_window_new(cast(app.application))
-        gtk_window_set_title(cast(window), "Reqly")
+        gtk_window_set_title(cast(window), model.fileName ?? "Reqly")
         gtk_window_set_icon_name(cast(window), App.id)
         let size = Self.openingSize(within: Self.workArea())
         gtk_window_set_default_size(cast(window), Int32(size.width), Int32(size.height))
         // The smallest size GNOME's adaptive windows design for.
         gtk_widget_set_size_request(window, 360, 294)
 
-        menu = g_menu_new()
-        let tools = g_menu_new()!
-        g_menu_append(tools, "Set Up HTTPS…", "app.set-up-https")
-        g_menu_append(tools, "Open Terminal", "app.open-terminal")
-        g_menu_append(tools, "Copy Terminal Setup", "app.copy-terminal-setup")
-        let general = g_menu_new()!
-        g_menu_append(general, "Settings", "app.settings")
-        g_menu_append(general, "About Reqly", "app.about")
-        g_menu_append(general, "Quit", "app.quit")
-        for section in [tools, general] {
-            g_menu_append_section(menu, nil, cast(section))
-            g_object_unref(raw(section))
-        }
+        menu = Self.mainMenu(isLive: model.isLive)
 
         // The sidebar's pane: Reqly's name and the main menu, which F10 opens while it shows.
         sidebar = Sidebar(model: model)
@@ -153,20 +167,26 @@ final class MainWindow {
         gtk_widget_set_tooltip_text(sidebarToggle, "Show Sidebar")
         setAccessibleLabel(sidebarToggle, "Show Sidebar")
         adw_header_bar_pack_start(cast(listHeader), sidebarToggle)
-        let capture = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
+        captureBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)
         let captureLabel = gtk_label_new("Capture")!
         captureSwitch = gtk_switch_new()
         gtk_widget_set_valign(captureSwitch, GTK_ALIGN_CENTER)
         setAccessibleLabel(captureSwitch, "Capture Traffic")
-        gtk_box_append(cast(capture), captureLabel)
-        gtk_box_append(cast(capture), captureSwitch)
-        gtk_widget_set_margin_start(capture, 6)
-        adw_header_bar_pack_start(cast(listHeader), capture)
+        gtk_box_append(cast(captureBox), captureLabel)
+        gtk_box_append(cast(captureBox), captureSwitch)
+        gtk_widget_set_margin_start(captureBox, 6)
+        // A file's window shows what was saved: it captures nothing.
+        gtk_widget_set_visible(captureBox, cBool(model.isLive))
+        adw_header_bar_pack_start(cast(listHeader), captureBox)
         listTitle = adw_window_title_new(Sidebar.Scope.all.title, nil)
         adw_header_bar_set_title_widget(cast(listHeader), listTitle)
         listMenuButton = Self.mainMenuButton(menu)
         gtk_widget_set_visible(listMenuButton, 0)
         adw_header_bar_pack_end(cast(listHeader), listMenuButton)
+        // The rules act on the live session, so a file's window has no Rules button.
+        rulesButton = RulesMenu.button()
+        gtk_widget_set_visible(rulesButton, cBool(model.isLive))
+        adw_header_bar_pack_end(cast(listHeader), rulesButton)
         searchButton = gtk_toggle_button_new()
         gtk_button_set_icon_name(cast(searchButton), "system-search-symbolic")
         gtk_widget_set_tooltip_text(searchButton, "Search")
@@ -238,7 +258,9 @@ final class MainWindow {
         adw_overlay_split_view_set_sidebar_width_fraction(outer, 0.2)
 
         toasts = adw_toast_overlay_new()
-        adw_toast_overlay_set_child(cast(toasts), cast(outer))
+        content = gtk_stack_new()
+        gtk_stack_add_named(cast(content), cast(outer), "session")
+        adw_toast_overlay_set_child(cast(toasts), content)
         adw_application_window_set_content(cast(window), toasts)
 
         // The list needs 560 sp and the details 320, beside a sidebar of up to 280, and the list
@@ -293,6 +315,8 @@ final class MainWindow {
         list.onRows = { [weak self] in self?.rowsChanged() }
         list.onFocusLost = { [weak self] in self?.focusWhatShowsSoon() }
         list.onComment = { [weak self] id in self?.editComment(id) }
+        list.onCommand = { [weak self] command, summary in self?.run(command, on: summary) }
+        details.onCommand = { [weak self] command, summary in self?.run(command, on: summary) }
         sidebar.onScope = { [weak self] _ in self?.scopeChosen() }
         sidebar.onCount = { [weak self] in self?.showTitle() }
         search.onSearch = { [weak self] in
@@ -308,9 +332,12 @@ final class MainWindow {
             guard let self, !self.isShowingCapture else { return }
             self.captureSwitched(on: gtk_switch_get_active(cast(self.captureSwitch)) != 0)
         }
-        // Closing the window quits Reqly, once capturing has stopped.
+        // A file's window closes alone; the live one hides, once capturing has stopped. The app
+        // quits once no window shows.
         connect(window, "close-request") { [weak self] (arguments: Arguments) in
-            self?.app.quit()
+            if let self {
+                app.closeWindow(self)
+            }
             arguments.returns(true)
         }
         model.observe { [weak self] in self?.update() }
@@ -327,10 +354,54 @@ final class MainWindow {
         countInputs()
         showSidebarToggle()
         update()
+        showRulesButton()
+        // The events that came while the window was made, or before, as a file's session hands
+        // over its rows as it opens.
+        model.startEvents()
     }
 
+    /// Shows the window, or brings it to the front. The live window's first showing starts
+    /// capturing, when you asked for that as Reqly opens, and opens the connections.
     func present() {
         gtk_window_present(cast(window))
+        hasShown = true
+        if model.isLive {
+            appModel.liveWindowShown()
+        }
+    }
+
+    /// Whether the window shows: the live window hides once it's closed.
+    var isShowing: Bool { gtk_widget_get_visible(window) != 0 }
+
+    /// The main menu, in three sections: New Request, Open…, Save Session… and Export as HAR…,
+    /// with Show Live Traffic in a file's window; Devices, Set Up HTTPS…, Open Terminal and Copy
+    /// Terminal Setup; Settings, Keyboard Shortcuts, Welcome to Reqly, About Reqly and Quit.
+    private static func mainMenu(isLive: Bool) -> OpaquePointer {
+        let menu = g_menu_new()!
+        let files = g_menu_new()!
+        g_menu_append(files, "New Request", "app.new-request")
+        g_menu_append(files, "Open…", "app.open")
+        g_menu_append(files, "Save Session…", "win.save-session")
+        g_menu_append(files, "Export as HAR…", "win.export-har")
+        if !isLive {
+            g_menu_append(files, "Show Live Traffic", "app.show-live-traffic")
+        }
+        let tools = g_menu_new()!
+        g_menu_append(tools, "Devices", "app.devices")
+        g_menu_append(tools, "Set Up HTTPS…", "app.set-up-https")
+        g_menu_append(tools, "Open Terminal", "app.open-terminal")
+        g_menu_append(tools, "Copy Terminal Setup", "app.copy-terminal-setup")
+        let general = g_menu_new()!
+        g_menu_append(general, "Settings", "app.settings")
+        g_menu_append(general, "Keyboard Shortcuts", "app.shortcuts")
+        g_menu_append(general, "Welcome to Reqly", "app.welcome")
+        g_menu_append(general, "About Reqly", "app.about")
+        g_menu_append(general, "Quit", "app.quit")
+        for section in [files, tools, general] {
+            g_menu_append_section(menu, nil, cast(section))
+            g_object_unref(raw(section))
+        }
+        return menu
     }
 
     /// Shows a short message at the bottom of the window, which goes by itself: plain text, not
@@ -351,22 +422,26 @@ final class MainWindow {
         return button
     }
 
-    /// Shows the switch, the status line and the list's title as they are now.
+    /// Shows the switch, the status line and the list's title as they are now, and in a file's
+    /// window, whether the file is still opening, or couldn't be.
     private func update() {
-        let isOn = model.capture == .starting || model.capture == .capturing
+        let appModel = appModel
+        let isOn = appModel.capture == .starting || appModel.capture == .capturing
         isShowingCapture = true
         gtk_switch_set_active(cast(captureSwitch), cBool(isOn))
         isShowingCapture = false
         // It waits for a start or a stop, and for the session.
-        let canSwitch = model.session != nil && (model.capture == .stopped || model.capture == .capturing)
-        gtk_widget_set_sensitive(captureSwitch, cBool(canSwitch))
+        let canSwitch = model.session != nil && (appModel.capture == .stopped || appModel.capture == .capturing)
+        gtk_widget_set_sensitive(captureSwitch, cBool(model.isLive && canSwitch))
+        showOpening()
         // Once the session has opened, and capturing has started when it starts as Reqly opens,
         // which turns the switch off meanwhile.
-        if isFirstFocusDue, model.session != nil, !model.isOpening {
+        let isOpen = model.isLive ? model.session != nil && !appModel.isOpening : model.session != nil
+        if isFirstFocusDue, isOpen {
             isFirstFocusDue = false
             giveFirstFocus()
         }
-        let status = model.statusText
+        let status = model.fileName ?? appModel.statusText
         gtk_label_set_text(cast(statusLabel), status)
         // The line may be cut short, advice and all, in a narrow window.
         gtk_widget_set_tooltip_text(statusLabel, status)
@@ -376,6 +451,40 @@ final class MainWindow {
             gtk_widget_remove_css_class(statusDot, "capturing")
         }
         showTitle()
+    }
+
+    /// A file's window, while its file opens: "Opening “name”…", with a spinner; once it couldn't,
+    /// why, in the core's words; then the panes.
+    private func showOpening() {
+        guard let name = model.fileName else { return }
+        if model.isOpening {
+            if opening == nil {
+                let page = namedStatusPage(name)
+                adw_status_page_set_title(cast(page), "Opening “\(name)”…")
+                adw_status_page_set_child(cast(page), HTTPSWidgets.spinner())
+                gtk_stack_add_named(cast(content), page, "opening")
+                opening = page
+            }
+            gtk_stack_set_visible_child_name(cast(content), "opening")
+        } else if let problem = model.problem {
+            if failed == nil {
+                let page = namedStatusPage(name)
+                adw_status_page_set_icon_name(cast(page), "dialog-warning-symbolic")
+                adw_status_page_set_title(cast(page), "Reqly Couldn't Open “\(name)”")
+                // Its description is markup, which a path in the problem may look like.
+                adw_status_page_set_description(cast(page), takeString(g_markup_escape_text(problem, -1)))
+                gtk_stack_add_named(cast(content), page, "failed")
+                failed = page
+            }
+            gtk_stack_set_visible_child_name(cast(content), "failed")
+        } else {
+            gtk_stack_set_visible_child_name(cast(content), "session")
+        }
+    }
+
+    /// Whether the window shows what its file couldn't be opened for.
+    var showsProblem: Bool {
+        failed != nil && gtk_stack_get_visible_child(cast(content)) == failed
     }
 
     /// The list's title, by the scope you chose, and its count, and the session's at the status
@@ -388,7 +497,7 @@ final class MainWindow {
         let total = max(list.total, sidebar.total)
         let title = ListTitle(
             scope: sidebar.scope.title, shown: list.count, inScope: max(sidebar.count ?? total, list.count),
-            total: total, isCapturing: model.isCapturing, isSaved: model.options.smokeSession != nil)
+            total: total, isCapturing: model.isCapturing, isSaved: model.isSaved)
         adw_window_title_set_title(cast(listTitle), title.title)
         adw_window_title_set_subtitle(cast(listTitle), title.subtitle)
         gtk_label_set_text(cast(statusCount), ListTitle.sessionCount(shown: list.count, total: total))
@@ -399,6 +508,10 @@ final class MainWindow {
             focusWhatShowsSoon()
         }
         g_simple_action_set_enabled(clearAction, cBool(canClear))
+        // Saving and exporting need something to save, as on the Mac.
+        for action in [saveAction, exportAction] {
+            g_simple_action_set_enabled(action, cBool(model.session != nil && total > 0))
+        }
         let nothingMatches = total > 0 && list.count == 0
         if nothingMatches {
             let words = NoMatches(query: search.query, filtersAreSet: filters.isActive)
@@ -493,7 +606,19 @@ final class MainWindow {
     /// while there's one.
     private func showDetails(_ id: ExchangeID?) {
         details.show(id)
-        g_simple_action_set_enabled(pageAction, cBool(details.shown != nil))
+        for action in [pageAction, copyURLAction, copyCurlAction] {
+            g_simple_action_set_enabled(action, cBool(details.shown != nil))
+        }
+    }
+
+    /// The Rules button's icon, tooltip and name, which say which rule kinds are on, as the live
+    /// session's rules are.
+    func showRulesButton() {
+        let kindsOn = appModel.rules?.set.kindsOn ?? []
+        let name = RulesMenu.name(kindsOn: kindsOn)
+        gtk_menu_button_set_icon_name(cast(rulesButton), kindsOn.isEmpty ? RulesMenu.icon : RulesMenu.onIcon)
+        gtk_widget_set_tooltip_text(rulesButton, name)
+        setAccessibleLabel(rulesButton, name)
     }
 
     /// Add or Edit Comment…, from a row's menu: its request, selected, on the details' Overview,
@@ -928,7 +1053,7 @@ final class MainWindow {
     }
 
     private func makeSettings() -> SettingsDialog {
-        let settings = SettingsDialog(model: model)
+        let settings = SettingsDialog(model: appModel)
         self.settings = settings
         connect(settings.dialog, "closed") { [weak self] in self?.keepFocusAfterDialog() }
         return settings
@@ -966,7 +1091,8 @@ final class MainWindow {
         }
     }
 
-    /// About Reqly: its name, version, website and license.
+    /// About Reqly: its name, version, website and license, and Sponsor Reqly, as the Mac's Help
+    /// menu has it.
     func showAbout() {
         let about: Widget = cast(adw_about_dialog_new())
         let dialog: OpaquePointer = cast(about)
@@ -977,6 +1103,7 @@ final class MainWindow {
         adw_about_dialog_set_comments(dialog, "An open-source inspector for what your apps send and receive.")
         adw_about_dialog_set_website(dialog, "https://reqly.net")
         adw_about_dialog_set_issue_url(dialog, "https://github.com/parsamlm/reqly/issues")
+        adw_about_dialog_add_link(dialog, "Sponsor Reqly", App.sponsor)
         adw_about_dialog_set_copyright(dialog, "Copyright © 2026 The Reqly Authors")
         adw_about_dialog_set_license_type(dialog, GTK_LICENSE_MIT_X11)
         self.about = about

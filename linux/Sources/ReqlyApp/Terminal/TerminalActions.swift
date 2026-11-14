@@ -36,8 +36,8 @@ extension MainWindow {
             if let failure {
                 toast(failure)
             } else {
-                model.openedTerminal = true
-                toast(TerminalWords.opened(isCapturing: model.isCapturing))
+                appModel.openedTerminal = true
+                toast(TerminalWords.opened(isCapturing: appModel.isCapturing))
             }
         }
     }
@@ -58,7 +58,7 @@ extension MainWindow {
     /// The variables for the port Reqly captures on, or will, with the certificate's once HTTPS is
     /// set up.
     private var terminalSetup: TerminalSetup {
-        TerminalSetup(port: model.port, certificates: terminalCertificates())
+        TerminalSetup(port: appModel.port, certificates: terminalCertificates())
     }
 }
 
