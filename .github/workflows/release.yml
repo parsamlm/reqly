@@ -16,6 +16,8 @@ permissions:
 jobs:
   release:
     runs-on: macos-26
+    # Notarizing usually takes a few minutes, and the whole job about 15.
+    timeout-minutes: 120
     env:
       TAG: ${{ github.ref_name }}
     steps:
