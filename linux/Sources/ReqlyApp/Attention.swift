@@ -222,6 +222,15 @@ extension App {
         }
     }
 
+    /// Withdraws every notification still standing, as Reqly quits: the request held or the
+    /// device waiting goes with it, and the desktop keeps a notification after its app has gone,
+    /// where clicking it couldn't reach them.
+    func withdrawNotifications() {
+        for attention in notified {
+            withdrawNotification(attention.id)
+        }
+    }
+
     /// The notifications' actions: `app.show-paused`, with the request's ID, and
     /// `app.review-device`, with the device's.
     private func addAttentionActions() {

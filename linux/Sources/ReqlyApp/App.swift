@@ -196,6 +196,7 @@ final class App {
     /// task from it, so the close would wait for the deadline.
     private func close(within seconds: Double) {
         guard !isClosed else { return }
+        withdrawNotifications()
         let task = startClosing()
         let done = Closing()
         Task {
@@ -395,6 +396,7 @@ final class App {
     func quit() {
         guard !isQuitting else { return }
         isQuitting = true
+        withdrawNotifications()
         g_application_hold(cast(application))
         let closing = startClosing()
         Task {
