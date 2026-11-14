@@ -122,6 +122,34 @@ import Testing
         await host.close()
     }
 
+    /// Each saved sample opens in a window of its own as the Linux app opens it, through
+    /// `SessionHost.open`, with its rows, details and WebSocket messages.
+    @Test(arguments: ["Mac 1.0.reqly", "Windows.reqly", "Linux.reqly"])
+    func opensASampleSavedOnEachSystem(_ name: String) async throws {
+        let folder = SessionAPITests.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let host = try await Self.openSample(name, in: folder)
+        let ids = try await Self.rows(of: host) { $0.count == 16 }
+        #expect(ids == (1...16).map(ExchangeID.init(rawValue:)))
+        let rows = await host.rows(ids)
+        #expect(rows.first?.host == "api.weatherly.dev" && rows.first?.annotation.comment == "Looks right")
+        #expect(rows[1].annotation.comment == "شهر تهران")
+        #expect(rows[5].kind == .tunnel && rows[5].host == "maps.weatherly.dev")
+
+        let forecast = try await host.details(ExchangeID(rawValue: 1))
+        #expect(forecast.query.map(\.name) == ["city", "days"] && forecast.query.first?.value == "Lisbon")
+        #expect(forecast.decryption == .decrypted)
+        #expect(try await host.details(ExchangeID(rawValue: 6)).decryption == .encryptedTunnel)
+        #expect(try await host.details(ExchangeID(rawValue: 13)).deviceName?.contains("Parsa's iPhone") == true)
+        let socket = try await host.details(ExchangeID(rawValue: 11))
+        #expect(socket.isWebSocket)
+        let messages = await host.messages(ExchangeID(rawValue: 11))
+        #expect(messages.map(\.direction) == [.sent, .received, .received])
+        #expect(messages.first?.data == Data(#"{"subscribe":"Lisbon"}"#.utf8))
+        #expect(messages.last?.closeCode == 1000)
+        await host.close()
+    }
+
     /// What Export as HAR counts and writes: the rows that show, without encrypted connections.
     @Test func exportsTheRowsThatShowAndStopsWhenCancelled() async throws {
         let folder = SessionAPITests.folder()
