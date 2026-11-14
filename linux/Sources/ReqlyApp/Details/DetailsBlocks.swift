@@ -8,8 +8,11 @@ import GtkBinding
 /// name by the row's name, as GTK has the name's label say it; or for a secret, its Show button.
 @MainActor
 enum DetailsBlocks {
-    /// The toast ``toast(_:from:)`` added last, held, and its words.
+    /// The toast ``toast(_:from:button:isUrgent:onButton:)`` added last, held, and its words.
     private static var lastToast: (words: String, toast: OpaquePointer)?
+
+    /// The words of the toast added last, for the self-check.
+    static var lastToastWords: String? { lastToast?.words }
 
     /// A section: its title, how many it holds, and `end`, such as Copy Headers, beside them, over
     /// `content`, each piece under the one before.
@@ -151,14 +154,31 @@ enum DetailsBlocks {
     }
 
     /// Says `words` at the bottom of `widget`'s window, as a toast, such as "Copied": plain text,
-    /// not Pango markup, since they may hold a path or a message. libadwaita says a toast to screen
-    /// readers itself from 1.7, as the self-check hears, but 1.5 doesn't, so there they hear it
-    /// from here, as they do when no toast can show. A toast with the same words as the one before
-    /// takes its place, so quick copies show one "Copied", said once, rather than one after another.
-    static func toast(_ words: String, from widget: Widget) {
-        let overlay = gtk_widget_get_ancestor(widget, adw_toast_overlay_get_type())
-        if let overlay, let toast = adw_toast_new(words) {
+    /// not Pango markup, since they may hold a path or a message. Every Reqly window has a toast
+    /// overlay around its content, and `widget` is in it, or is it; Settings, an
+    /// AdwPreferencesDialog, has its own. libadwaita says a toast to screen readers itself from
+    /// 1.7, as the self-check hears, but 1.5 doesn't, so there they hear it from here, as they do
+    /// when no toast can show. A toast with the same words as the one before takes its place, so
+    /// quick copies show one "Copied", said once, rather than one after another. With `button`,
+    /// such as Undo or Show, the toast has a button that runs `onButton`; an urgent one shows at
+    /// once, before toasts that wait.
+    static func toast(
+        _ words: String, from widget: Widget, button: String? = nil, isUrgent: Bool = false,
+        onButton: (@MainActor () -> Void)? = nil
+    ) {
+        let isSettings = g_type_check_instance_is_a(cast(widget), adw_preferences_dialog_get_type()) != 0
+        let overlay = isSettings ? nil : gtk_widget_get_ancestor(widget, adw_toast_overlay_get_type())
+        if isSettings || overlay != nil, let toast = adw_toast_new(words) {
             adw_toast_set_use_markup(toast, 0)
+            if let button {
+                adw_toast_set_button_label(toast, button)
+                if let onButton {
+                    connect(raw(toast), "button-clicked") { onButton() }
+                }
+            }
+            if isUrgent {
+                adw_toast_set_priority(toast, ADW_TOAST_PRIORITY_HIGH)
+            }
             if let last = lastToast {
                 // Gone already, it changes nothing.
                 if last.words == words {
@@ -168,9 +188,13 @@ enum DetailsBlocks {
             }
             g_object_ref(raw(toast))
             lastToast = (words, toast)
-            adw_toast_overlay_add_toast(cast(overlay), toast)
+            if isSettings {
+                adw_preferences_dialog_add_toast(cast(widget), toast)
+            } else {
+                adw_toast_overlay_add_toast(cast(overlay), toast)
+            }
         }
-        if overlay == nil || !LibraryVersion.adwaita(atLeast: 7) {
+        if !(isSettings || overlay != nil) || !LibraryVersion.adwaita(atLeast: 7) {
             announce(widget, words)
         }
     }

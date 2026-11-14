@@ -404,12 +404,12 @@ final class MainWindow {
         return menu
     }
 
-    /// Shows a short message at the bottom of the window, which goes by itself: plain text, not
-    /// Pango markup, since it may hold a path or a message.
-    func toast(_ text: String) {
-        let toast = adw_toast_new(text)
-        adw_toast_set_use_markup(toast, 0)
-        adw_toast_overlay_add_toast(cast(toasts), toast)
+    /// Shows a short message at the bottom of the window, which goes by itself, and screen readers
+    /// hear it: see ``DetailsBlocks/toast(_:from:button:isUrgent:onButton:)``.
+    func toast(
+        _ text: String, button: String? = nil, isUrgent: Bool = false, onButton: (@MainActor () -> Void)? = nil
+    ) {
+        DetailsBlocks.toast(text, from: toasts, button: button, isUrgent: isUrgent, onButton: onButton)
     }
 
     /// A button that opens the main menu, `menu`.
