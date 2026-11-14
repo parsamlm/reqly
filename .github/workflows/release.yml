@@ -65,6 +65,17 @@ jobs:
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export"
           codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/export/Reqly.app"
 
+      # The archive's dSYMs, for reading crash reports from this version: the app it ships is
+      # stripped. Keep a copy for as long as the version is out. This step never stops a release.
+      - name: Keep the debug information
+        uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          name: reqly-mac-${{ github.ref_name }}-dsyms
+          path: ${{ runner.temp }}/Reqly.xcarchive/dSYMs/
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Notarize
         env:
           API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
