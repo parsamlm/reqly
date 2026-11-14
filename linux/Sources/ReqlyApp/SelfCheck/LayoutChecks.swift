@@ -38,6 +38,7 @@ extension SelfCheck {
                 try await checkKeysBeside()
                 try await checkKeysFolded()
                 try await checkRows()
+                try await checkNarrowWidths()
             }.lines
         } catch {
             await restoreLayout(width: width, height: height)
@@ -161,6 +162,78 @@ extension SelfCheck {
             note("    pictures: \(pictures.joined(separator: ", "))")
         }
         adw_style_manager_set_color_scheme(manager, colorScheme)
+    }
+
+    /// The narrowest widths, with requests in the list: at 500 pixels, and at 360, GNOME's smallest
+    /// window, with the text at 1 and at 1.25, the window gets that narrow, as its content fits,
+    /// which libadwaita warns of when it doesn't; search, Clear and Rules are under the list, and
+    /// the list's columns that fit show, so it doesn't scroll sideways. At 1112, where the list's
+    /// pane is its narrowest beside the details, the filter bar fits it, without scrolling
+    /// sideways, and the header bar has its buttons.
+    private func checkNarrowWidths() async throws {
+        let window = window
+        let list = window.list
+        let session = try await session()
+        // Nothing listens on port 9, so each request fails at once, without leaving the computer.
+        for number in 1...3 {
+            _ = try await session.send(RequestDraft(url: "http://127.0.0.1:9/narrow/\(number)"))
+        }
+        try await until("the 3 requests' rows", seconds: 5) { list.count >= 3 }
+        let manager = adw_style_manager_get_default()
+        for layout in [
+            Layout(width: 1112), Layout(width: 500, detailsOver: true, sidebarFolds: true),
+            Layout(width: 360, detailsOver: true, sidebarFolds: true),
+            Layout(width: 360, text: 1.25, detailsOver: true, sidebarFolds: true),
+        ] {
+            try await resize(to: layout)
+            let content = try present(adw_application_window_get_content(cast(window.window)), "no content")
+            var minimum: Int32 = 0
+            gtk_widget_measure(content, GTK_ORIENTATION_HORIZONTAL, -1, &minimum, nil, nil, nil)
+            let width = gtk_widget_get_width(content)
+            try require(minimum <= width, "at \(layout.name), the window's content needs \(minimum) px of \(width)")
+            let isNarrow = layout.width < 1000
+            let underList = gtk_action_bar_get_revealed(cast(window.narrowBar)) != 0
+            let inHeader = [window.searchButton, window.clearButton, window.rulesButton].allSatisfy {
+                gtk_widget_get_visible($0) != 0
+            }
+            try require(
+                underList == isNarrow && inHeader == !isNarrow,
+                "at \(layout.name), search, Clear and Rules are \(underList ? "under the list" : "in the header bar")")
+            let columns = RequestList.Column.allCases.filter { list.shows($0) }.map(\.title)
+            let sideways = gtk_scrolled_window_get_hadjustment(cast(list.scroller))
+            let listNeeds = gtk_adjustment_get_upper(sideways)
+            let listHas = gtk_adjustment_get_page_size(sideways)
+            try require(
+                listNeeds <= listHas + 0.5,
+                "at \(layout.name), the list needs \(listNeeds) px of \(listHas), with \(columns)")
+            let bar = gtk_scrolled_window_get_hadjustment(cast(window.filters.widget))
+            let barNeeds = gtk_adjustment_get_upper(bar)
+            let barHas = gtk_adjustment_get_page_size(bar)
+            // Narrower, it scrolls sideways.
+            try require(
+                isNarrow || barNeeds <= barHas + 0.5,
+                "at \(layout.name), the filter bar needs \(barNeeds) px of \(barHas)")
+            var pictures: [String] = []
+            if isNarrow {
+                for (scheme, style) in [(ADW_COLOR_SCHEME_FORCE_LIGHT, "light"), (ADW_COLOR_SCHEME_FORCE_DARK, "dark")]
+                {
+                    adw_style_manager_set_color_scheme(manager, scheme)
+                    await settle()
+                    let file = try picture("layout-\(layout.name)-\(style).png")
+                    let size = try await ownPicture(window.window, to: file)
+                    pictures.append("\(file.lastPathComponent) (\(size))")
+                }
+                adw_style_manager_set_color_scheme(manager, colorScheme)
+            }
+            note(
+                "\(layout.name): the content needs \(minimum) of \(width) px; search, Clear and Rules "
+                    + "\(underList ? "under the list" : "in the header bar"); the list shows "
+                    + "\(columns.joined(separator: ", ")) in \(Int(listNeeds)) of \(Int(listHas)) px; the filter bar "
+                    + "takes \(Int(barNeeds)) of \(Int(barHas)) px\(pictures.isEmpty ? "" : "; ")"
+                    + pictures.joined(separator: ", "))
+        }
+        await session.clear()
+        try await until("the list to clear", seconds: 5) { list.total == 0 && list.count == 0 }
     }
 
     /// The window at `layout`'s width, with the text at its size, once it has settled.

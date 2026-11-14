@@ -17,9 +17,13 @@ import ReqlyModel
 ///
 /// Up to 1100 sp wide, the details open over the list, with Enter or a click on a row, and go back
 /// with Escape, Alt+← or the back button. Up to 760 sp, the sidebar folds away too, and shows over
-/// the list, and the main menu moves into the list's header bar. F9 shows and hides the sidebar at
-/// any width. The panes' widths are in sp, so they grow with the text, and libadwaita works them
-/// out again when its size changes.
+/// the list, and the main menu moves into the list's header bar. Narrower still, the list's columns
+/// go, least needed first, so it never scrolls sideways: App and Time up to 640 sp, Duration up to
+/// 520, and Size up to 400. Up to 520 sp, search, Clear and Rules move to a bar under the list, and
+/// the capture switch loses its word, so the header bar fits GNOME's narrowest window, 360 pixels,
+/// with the window's three buttons and the text at 1.25. F9 shows and hides the sidebar at any
+/// width. The panes' widths are in sp, so they grow with the text, and libadwaita works them out
+/// again when its size changes.
 ///
 /// What the panes hold belongs to the features, each in its own folder: the sidebar in `Sidebar/`,
 /// search and filters in `Find/`, the list in `Traffic/`, the details in `Details/` and the bodies
@@ -46,6 +50,7 @@ final class MainWindow {
     let listHeader: Widget
     /// "Capture" and its switch, which a file's window hides.
     let captureBox: Widget
+    let captureLabel: Widget
     let captureSwitch: Widget
     /// The Rules menu's button, at the end of the list's header bar, in the live window only.
     let rulesButton: Widget
@@ -56,6 +61,11 @@ final class MainWindow {
     let listTitle: Widget
     let clearButton: Widget
     let searchButton: Widget
+    /// Under the list, up to 520 sp: search, Clear and Rules, in place of the header bar's.
+    let narrowBar: Widget
+    let narrowSearchButton: Widget
+    let narrowClearButton: Widget
+    let narrowRulesButton: Widget
     /// The main menu's button, in the sidebar's header bar.
     let menuButton: Widget
     /// The main menu's button in the list's header bar, while the sidebar is folded away.
@@ -86,6 +96,11 @@ final class MainWindow {
     let detailsOver: OpaquePointer
     let sidebarFolds: OpaquePointer
     let listNarrows: OpaquePointer
+    /// Narrower than the sidebar's fold: up to 640, 520 and 400 sp, the list's columns go, and the
+    /// header bar's buttons move under the list from 520.
+    let columnsGo: OpaquePointer
+    let headerNarrows: OpaquePointer
+    let sizeGoes: OpaquePointer
     private let statusDot: Widget
     private let toasts: Widget
     /// The panes, or, in a file's window, what shows while the file opens or once it couldn't.
@@ -175,10 +190,12 @@ final class MainWindow {
         setAccessibleLabel(sidebarToggle, "Show Sidebar")
         adw_header_bar_pack_start(cast(listHeader), sidebarToggle)
         captureBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)
-        let captureLabel = gtk_label_new("Capture")!
+        captureLabel = gtk_label_new("Capture")!
         captureSwitch = gtk_switch_new()
         gtk_widget_set_valign(captureSwitch, GTK_ALIGN_CENTER)
         setAccessibleLabel(captureSwitch, "Capture Traffic")
+        // Its word goes in a narrow window.
+        gtk_widget_set_tooltip_text(captureSwitch, "Capture Traffic")
         gtk_box_append(cast(captureBox), captureLabel)
         gtk_box_append(cast(captureBox), captureSwitch)
         gtk_widget_set_margin_start(captureBox, 6)
@@ -186,6 +203,7 @@ final class MainWindow {
         gtk_widget_set_visible(captureBox, cBool(model.isLive))
         adw_header_bar_pack_start(cast(listHeader), captureBox)
         listTitle = adw_window_title_new(Sidebar.Scope.all.title, nil)
+        Self.letTitleShrink(listTitle)
         adw_header_bar_set_title_widget(cast(listHeader), listTitle)
         listMenuButton = Self.mainMenuButton(menu)
         gtk_widget_set_visible(listMenuButton, 0)
@@ -204,6 +222,23 @@ final class MainWindow {
         setAccessibleLabel(clearButton, "Clear Traffic")
         gtk_actionable_set_action_name(cast(clearButton), "win.clear")
         adw_header_bar_pack_end(cast(listHeader), clearButton)
+
+        // The same, under the list, in a narrow window.
+        narrowSearchButton = gtk_toggle_button_new()
+        gtk_button_set_icon_name(cast(narrowSearchButton), "system-search-symbolic")
+        gtk_widget_set_tooltip_text(narrowSearchButton, "Search")
+        setAccessibleLabel(narrowSearchButton, "Search")
+        narrowClearButton = gtk_button_new_from_icon_name("user-trash-symbolic")
+        gtk_widget_set_tooltip_text(narrowClearButton, "Clear Traffic. Pinned requests stay.")
+        setAccessibleLabel(narrowClearButton, "Clear Traffic")
+        gtk_actionable_set_action_name(cast(narrowClearButton), "win.clear")
+        narrowRulesButton = RulesMenu.button()
+        gtk_widget_set_visible(narrowRulesButton, cBool(model.isLive))
+        narrowBar = gtk_action_bar_new()
+        gtk_action_bar_pack_start(cast(narrowBar), narrowSearchButton)
+        gtk_action_bar_pack_start(cast(narrowBar), narrowClearButton)
+        gtk_action_bar_pack_end(cast(narrowBar), narrowRulesButton)
+        gtk_action_bar_set_revealed(cast(narrowBar), 0)
 
         // The status line: a dot that shows while Reqly captures, and what it's doing.
         statusLine = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)
@@ -239,6 +274,7 @@ final class MainWindow {
         adw_toolbar_view_add_top_bar(cast(listPane), search.widget)
         adw_toolbar_view_add_top_bar(cast(listPane), filters.widget)
         adw_toolbar_view_set_content(cast(listPane), listContent)
+        adw_toolbar_view_add_bottom_bar(cast(listPane), narrowBar)
         adw_toolbar_view_add_bottom_bar(cast(listPane), statusLine)
         search.captureTyping(in: listPane)
 
@@ -293,15 +329,49 @@ final class MainWindow {
         let listNarrows = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 1400sp"))!
         let appColumn = list.viewColumn(.app)
         Value.bool(false).with { adw_breakpoint_add_setter(listNarrows, cast(appColumn), "visible", $0) }
+        // Narrower than the sidebar's fold, each says all the one before says too. The list's
+        // columns go, with GTK's padding in each, so it fits: what's left takes 388 sp up to 640,
+        // 318 up to 520, and 254 up to 400, which is 318 pixels at 360 with the text at 1.25.
+        // The header bar, its buttons moved, takes about 320 pixels, its window buttons with it.
+        let columnsGo = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 640sp"))!
+        let headerNarrows = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 520sp"))!
+        let sizeGoes = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 400sp"))!
+        let gone: [(OpaquePointer, [RequestList.Column])] = [
+            (columnsGo, [.app, .time]), (headerNarrows, [.app, .time, .duration]),
+            (sizeGoes, [.app, .time, .duration, .size]),
+        ]
+        let (innerView, outerView, bar) = (inner, outer, narrowBar)
+        for (breakpoint, columns) in gone {
+            Value.bool(true).with {
+                adw_breakpoint_add_setter(breakpoint, cast(innerView), "collapsed", $0)
+                adw_breakpoint_add_setter(breakpoint, cast(outerView), "collapsed", $0)
+            }
+            for column in columns {
+                let viewColumn = list.viewColumn(column)
+                Value.bool(false).with { adw_breakpoint_add_setter(breakpoint, cast(viewColumn), "visible", $0) }
+            }
+            guard breakpoint != columnsGo else { continue }
+            Value.bool(true).with { adw_breakpoint_add_setter(breakpoint, cast(bar), "revealed", $0) }
+            for hidden in [captureLabel, clearButton, searchButton, rulesButton] {
+                Value.bool(false).with { adw_breakpoint_add_setter(breakpoint, cast(hidden), "visible", $0) }
+            }
+        }
         adw_application_window_add_breakpoint(cast(window), listNarrows)
         adw_application_window_add_breakpoint(cast(window), detailsOver)
         adw_application_window_add_breakpoint(cast(window), sidebarFolds)
+        for breakpoint in [columnsGo, headerNarrows, sizeGoes] {
+            adw_application_window_add_breakpoint(cast(window), breakpoint)
+        }
         self.detailsOver = detailsOver
         self.sidebarFolds = sidebarFolds
         self.listNarrows = listNarrows
+        self.columnsGo = columnsGo
+        self.headerNarrows = headerNarrows
+        self.sizeGoes = sizeGoes
 
         bind(raw(outer), "show-sidebar", to: raw(sidebarToggle), "active")
         bind(raw(search.widget), "search-mode-enabled", to: raw(searchButton), "active")
+        bind(raw(search.widget), "search-mode-enabled", to: raw(narrowSearchButton), "active")
         connect(outer, "notify::show-sidebar") { [weak self] in self?.sidebarChanged() }
         // As a breakpoint folds a pane away or back, libadwaita may take the focus with it.
         connect(outer, "notify::collapsed") { [weak self] in
@@ -423,6 +493,20 @@ final class MainWindow {
         DetailsBlocks.toast(text, from: toasts, button: button, isUrgent: isUrgent, onButton: onButton)
     }
 
+    /// AdwWindowTitle keeps room for 5 characters of its title and subtitle at the least, which a
+    /// narrow window's header bar doesn't have with the text at 1.25: its labels ellipsize down to
+    /// "…" instead.
+    private static func letTitleShrink(_ title: Widget) {
+        var child = gtk_widget_get_first_child(title)
+        while let widget = child {
+            if g_type_check_instance_is_a(cast(widget), gtk_label_get_type()) != 0 {
+                gtk_label_set_width_chars(cast(widget), -1)
+            }
+            letTitleShrink(widget)
+            child = gtk_widget_get_next_sibling(widget)
+        }
+    }
+
     /// A button that opens the main menu, `menu`.
     private static func mainMenuButton(_ menu: OpaquePointer) -> Widget {
         let button = gtk_menu_button_new()!
@@ -521,7 +605,9 @@ final class MainWindow {
         let canClear = model.session != nil && total > pinned
         // Clear's button, turning off with the keyboard's focus, as it does once it's cleared,
         // would leave the focus on nothing.
-        if !canClear, gtk_root_get_focus(cast(window)) == clearButton {
+        if !canClear, let focus = gtk_root_get_focus(cast(window)),
+            focus == clearButton || focus == narrowClearButton
+        {
             focusWhatShowsSoon()
         }
         g_simple_action_set_enabled(clearAction, cBool(canClear))
@@ -633,9 +719,11 @@ final class MainWindow {
     func showRulesButton() {
         let kindsOn = appModel.rules?.set.kindsOn ?? []
         let name = RulesMenu.name(kindsOn: kindsOn)
-        gtk_menu_button_set_icon_name(cast(rulesButton), kindsOn.isEmpty ? RulesMenu.icon : RulesMenu.onIcon)
-        gtk_widget_set_tooltip_text(rulesButton, name)
-        setAccessibleLabel(rulesButton, name)
+        for button in [rulesButton, narrowRulesButton] {
+            gtk_menu_button_set_icon_name(cast(button), kindsOn.isEmpty ? RulesMenu.icon : RulesMenu.onIcon)
+            gtk_widget_set_tooltip_text(button, name)
+            setAccessibleLabel(button, name)
+        }
     }
 
     /// Add or Edit Comment…, from a row's menu: its request, selected, on the details' Overview,

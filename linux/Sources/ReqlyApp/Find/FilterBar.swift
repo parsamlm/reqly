@@ -59,7 +59,8 @@ final class FilterBar {
     init(model: SessionModel) {
         self.model = model
         Self.addStyles()
-        let bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
+        // The toolbar's style puts 6 pixels between its parts.
+        let bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0)!
         gtk_widget_add_css_class(bar, "toolbar")
         allButton = Self.statusButton("All", tip: "Show every status", mark: nil)
         gtk_box_append(cast(bar), allButton)
@@ -373,9 +374,11 @@ final class FilterBar {
     /// A status button: its dot, or a warning for Failed, and its title.
     private static func statusButton(_ title: String, tip: String, mark: Widget?) -> Widget {
         let button = gtk_toggle_button_new()!
-        // On, it has a background, and off, none, as the Mac's chips.
+        // On, it has a background, and off, none, as the Mac's chips, and its sides are narrower
+        // than a button's, so the bar fits the list's narrowest pane beside the details.
         gtk_widget_add_css_class(button, "flat")
-        let content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
+        gtk_widget_add_css_class(button, "filter-chip")
+        let content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4)!
         if let mark {
             gtk_box_append(cast(content), mark)
             setAccessibleHidden(mark, true)
@@ -482,5 +485,6 @@ final class FilterBar {
     private static let css = """
         .filter-token { border-radius: 9999px; padding-left: 10px; background-color: alpha(@accent_bg_color, 0.15); }
         .filter-token button { min-width: 24px; min-height: 24px; padding: 0; }
+        .filter-chip { padding-left: 6px; padding-right: 6px; }
         """
 }
