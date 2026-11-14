@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import ReqlyModel
+import Synchronization
 
 /// Keeps one session's traffic on disk: a SQLite database, plus a folder for bodies too big to
 /// keep in it. Bodies are kept exactly as they came over the wire.
@@ -43,12 +44,24 @@ public final class TrafficStore: Sendable {
     /// it can be unpacked.
     static let searchableCompressedSize = 8 << 20
 
+    /// How much of a level of the search index, in percent, may be exchanges that went before
+    /// SQLite writes that level again without them. A session drops its oldest exchanges, which
+    /// are all in the index's biggest, oldest level. At SQLite's 10, a session at its limit wrote
+    /// hundreds of MB again every few thousand requests, each time adding a level, which makes
+    /// SQLite merge more in each save, so saves took seconds, and longer each time. At 50 that's
+    /// a fifth as often, for half the work, and the level holds at most as much of what went as
+    /// of what's kept.
+    static let searchDeleteMerge = 50
+
     /// The session's folder.
     public let directory: URL
     public let limits: Limits
     let database: DatabasePool
     /// Keeps other copies of Reqly from deleting the session while it's in use.
     private let lock: SessionLock?
+    /// How many exchanges the session holds, as of the last write that committed, so a save
+    /// needn't count them all: at 100,000 that takes 20 ms. `nil` until a write counts them.
+    private let exchangeCount = Mutex<Int?>(nil)
 
     /// Opens the session in `directory`, creating it if needed.
     public convenience init(directory: URL, limits: Limits = Limits()) throws {
@@ -65,6 +78,17 @@ public final class TrafficStore: Sendable {
         self.lock = lock
         database = try DatabasePool(path: directory.appending(path: "traffic.sqlite").path(percentEncoded: false))
         try Schema.migrator.migrate(database)
+        // SQLite keeps the setting in the database, so a session saved as a file takes it along.
+        // It changes only when SQLite merges, so any Reqly opens the file as before. Setting it
+        // reads the search index, which a saved file's damage may have left unreadable, and it
+        // only tunes merging, so the session opens without it: building the index sets it.
+        try? database.write { try Self.setSearchMerging(in: $0) }
+    }
+
+    /// Has the search index merge a level as `searchDeleteMerge` says.
+    static func setSearchMerging(in db: Database) throws {
+        try db.execute(
+            sql: "INSERT INTO search(search, rank) VALUES ('deletemerge', ?)", arguments: [searchDeleteMerge])
     }
 
     // MARK: - Writing
@@ -78,7 +102,7 @@ public final class TrafficStore: Sendable {
         _ exchanges: [Exchange], chunks: [BodyChunk] = [], messages: [StoredMessage] = []
     ) async throws -> [ExchangeID] {
         let messageSize = limits.messageSize
-        let (removed, files) = try await database.write { db in
+        let trimmed = try await writeCounting { db in
             let encoder = JSONEncoder()
             let exists = try db.cachedStatement(sql: "SELECT 1 FROM exchange WHERE id = ?")
             let upsert = try db.cachedStatement(sql: ExchangeRecord.upsertSQL)
@@ -86,11 +110,14 @@ public final class TrafficStore: Sendable {
             // Exchanges the store already had. The others are new, so they have no bodies or
             // search entries to look up yet.
             var stored: Set<ExchangeID> = []
+            var added = 0
             var sources: [Source: Int64] = [:]
             var devices: Set<Device> = []
             for exchange in exchanges {
                 if try Row.fetchOne(exists, arguments: [exchange.id.storageID]) != nil {
                     stored.insert(exchange.id)
+                } else {
+                    added += 1
                 }
                 if let device = exchange.device, devices.insert(device).inserted {
                     try upsertDevice.execute(arguments: [device.id, device.kind.rawValue, device.name, device.address])
@@ -131,10 +158,10 @@ public final class TrafficStore: Sendable {
             for exchange in exchanges {
                 try self.index(exchange, isNew: !stored.contains(exchange.id), arrived: arrived, in: db)
             }
-            return try self.trim(in: db)
+            return try self.trim(in: db, added: added)
         }
-        removeFiles(files)
-        return removed
+        removeFiles(trimmed.files)
+        return trimmed.removed
     }
 
     /// Clears the session, except the pinned exchanges.
@@ -154,6 +181,8 @@ public final class TrafficStore: Sendable {
                 try ExchangeRecord.deleteAll(db)
                 try db.execute(sql: "INSERT INTO search(search) VALUES('delete-all')")
             }
+            // The next write counts the pinned ones that are left.
+            self.exchangeCount.withLock { $0 = nil }
             return files
         }
         removeFiles(files)
@@ -316,21 +345,53 @@ public final class TrafficStore: Sendable {
         return SearchText.body(data, headers: headers, limit: limits.searchableBodySize)
     }
 
-    /// Drops the oldest finished exchanges past the limit, and returns them with their body files.
-    private func trim(in db: Database) throws -> ([ExchangeID], [String]) {
-        let excess = try ExchangeRecord.fetchCount(db) - limits.exchanges
-        guard excess > 0 else { return ([], []) }
+    /// Drops the oldest finished exchanges past the limit, and returns them with their body files,
+    /// and how many exchanges are left.
+    ///
+    /// - Parameter added: How many exchanges this write added.
+    private func trim(in db: Database, added: Int) throws -> Trimmed {
+        let count = try exchangeCount.withLock { $0 }.map { $0 + added } ?? ExchangeRecord.fetchCount(db)
+        let excess = count - limits.exchanges
+        guard excess > 0 else { return Trimmed(removed: [], files: [], count: count) }
         // Pinned exchanges are kept, even past the limit.
         let ids = try Int64.fetchAll(
             db, sql: "SELECT id FROM exchange WHERE isFinished AND NOT pinned ORDER BY id LIMIT ?", arguments: [excess]
         )
-        guard !ids.isEmpty else { return ([], []) }
+        guard !ids.isEmpty else { return Trimmed(removed: [], files: [], count: count) }
         let files = try SQLRequest<String>(
             literal: "SELECT file FROM body WHERE file IS NOT NULL AND exchangeID IN \(ids)"
         ).fetchAll(db)
         try ExchangeRecord.deleteAll(db, keys: ids)
         try db.execute(literal: "DELETE FROM search WHERE rowid IN \(ids)")
-        return (ids.map(ExchangeID.init(storageID:)), files)
+        return Trimmed(removed: ids.map(ExchangeID.init(storageID:)), files: files, count: count - ids.count)
+    }
+
+    private struct Trimmed: Sendable {
+        var removed: [ExchangeID]
+        var files: [String]
+        /// How many exchanges the session holds after the trim.
+        var count: Int
+    }
+
+    /// Runs `changes` in a transaction, as `database.write` does, and once it commits, keeps the
+    /// count they return. Any error leaves the count unknown, so the next save counts again. It
+    /// can't wait for GRDB to say how the transaction ended: when SQLite rolls one back by itself,
+    /// as when the disk is full or the commit fails, GRDB tells no one.
+    private func writeCounting(_ changes: @Sendable (Database) throws -> Trimmed) async throws -> Trimmed {
+        try await database.writeWithoutTransaction { db in
+            var trimmed = Trimmed(removed: [], files: [], count: 0)
+            do {
+                try db.inTransaction {
+                    trimmed = try changes(db)
+                    return .commit
+                }
+            } catch {
+                self.exchangeCount.withLock { $0 = nil }
+                throw error
+            }
+            self.exchangeCount.withLock { $0 = trimmed.count }
+            return trimmed
+        }
     }
 
     /// Deletes body files once the transaction that dropped them has committed.
