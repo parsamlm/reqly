@@ -877,7 +877,8 @@ extension SelfCheck {
     /// of their modes: the window's longest wait stays under 200 ms at each step, the run's first
     /// code view, which loads GtkSourceView, measured apart; the page shows the start of what's
     /// long, and keeps the caret in view as it moves down it; and Show Whole Body opens all of it
-    /// in a view of its own, a long line in pieces, which scrolls to the end.
+    /// in a view of its own, a long line in pieces, which scrolls to the end, timed once GTK's
+    /// renderer has drawn the like untimed.
     func checkBigBodies() async throws {
         let big = Self.bigJSON(bytes: 2 << 20)
         let line = Self.bigJSON(bytes: 520 << 10)
@@ -946,10 +947,12 @@ extension SelfCheck {
             note("    the last hex line: “\(hex.shownLines.last ?? "")”, after \(hex.pagesRead) pages")
         }
         try await choose("Formatted", of: bigView)
+        try await warmRenderer(for: bigView, watch: watch)
         try await measure("Show Whole Body, scrolled to the end") {
             try await showWhole(bigView)
         }
         try await choose("Raw", of: bigView)
+        try await warmRenderer(for: bigView, watch: watch)
         try await measure("its Raw's Show Whole Body, 2 MB on one line") {
             try await showWhole(bigView)
         }
@@ -965,6 +968,7 @@ extension SelfCheck {
             let code = try self.code(shown)
             try require(code.text.isCut && code.text.lines == 1, "the long line shows \(code.text.shownBytes) bytes")
             note("    shows “\(labels(in: shown.startLine).joined())”")
+            try await warmRenderer(for: shown, watch: watch)
             try await measure("its Show Whole Body") { try await showWhole(shown) }
         }
         try require(steps.count == 12, "only \(steps.count) steps ran")
@@ -1027,17 +1031,74 @@ extension SelfCheck {
         if shown.isSplit {
             note("    in pieces, wrapped: \(gtk_text_view_get_wrap_mode(cast(whole.code.view)) == GTK_WRAP_WORD_CHAR)")
         }
-        let adjustment = gtk_scrolled_window_get_vadjustment(cast(whole.code.widget))
-        await settlePage()
-        gtk_adjustment_set_value(adjustment, gtk_adjustment_get_upper(adjustment))
-        await settlePage()
-        gtk_adjustment_set_value(adjustment, gtk_adjustment_get_upper(adjustment))
-        await settlePage()
+        let scrolled = await scrollToEnd(whole)
         note(
-            "    the whole body: \(characters) characters, \(gtk_text_buffer_get_line_count(whole.code.buffer)) lines, scrolled to \(Int(gtk_adjustment_get_value(adjustment))) px"
+            "    the whole body: \(characters) characters, \(gtk_text_buffer_get_line_count(whole.code.buffer)) lines, scrolled to \(scrolled) px"
         )
         whole.close()
         try await until("Show Whole Body to close") { view.whole == nil }
+    }
+
+    /// Scrolls Show Whole Body's view to its end, once its first lines are laid out, `times` times,
+    /// as the lines at the end are laid out each time, and says how far down that is, in pixels.
+    private func scrollToEnd(_ whole: WholeBody, times: Int = 2) async -> Int {
+        let adjustment = gtk_scrolled_window_get_vadjustment(cast(whole.code.widget))
+        await settlePage()
+        for _ in 1...times {
+            gtk_adjustment_set_value(adjustment, gtk_adjustment_get_upper(adjustment))
+            await settlePage()
+        }
+        return Int(gtk_adjustment_get_value(adjustment))
+    }
+
+    /// How much of a body Show Whole Body shows when it warms GTK's renderer, in characters:
+    /// enough to scroll, and for a long line to come in pieces.
+    private static let warmUpCharacters = 64 << 10
+
+    /// Opens Show Whole Body's view of the start of the body `view` shows, in the mode it shows,
+    /// untimed, scrolls it to its end and closes it, then opens and closes it twice more, so that
+    /// GTK has drawn all that Show Whole Body of the whole body is about to draw: the dialog
+    /// opening, the text in its font, a long line in pieces, wrapped, under its banner, the shading
+    /// under the header bar once the text has scrolled, and the dialog closing. GitHub's runners
+    /// and VMs have no GPU, so GTK draws with llvmpipe, which compiles shaders the first time a
+    /// frame draws something new: a cost of the renderer, once, rather than of Reqly, of up to a
+    /// third of a second on one CPU, which falls on whichever step draws the new thing first, after
+    /// whatever the run drew before. The check warms the renderer so that it times Reqly. A frame
+    /// of the dialog's animation can need shaders of its own, by where it falls, which one opening
+    /// and closing doesn't always draw, nor sometimes two. The start of the body is text of its
+    /// own, so Reqly's work for the whole body is all still to do, and it keeps nothing from one
+    /// Show Whole Body to the next anyway.
+    private func warmRenderer(for view: BodyView, watch: ThreadWatch) async throws {
+        let start = monotonicMicroseconds()
+        let presented = try present(view.body?.body, "no body")
+        let code = try present(
+            view.mode == .formatted ? presented.formatted ?? presented.raw : presented.raw, "the body has no text")
+        let head = String(code.text.unicodeScalars.prefix(Self.warmUpCharacters))
+        let text = CodeText(
+            text: head, tokens: code.tokens, isCode: code.isCode, lineLimit: .max, byteLimit: .max,
+            pieces: CodeText.longestLine)
+        let whole = WholeBody(
+            text, title: view.part == .request ? "Request Body" : "Response Body",
+            summary: BodyWords.summary(presented)
+        ) {}
+        var closings = 0
+        whole.onClosed = { closings += 1 }
+        for opening in 1...3 {
+            whole.present(over: view.widget)
+            if opening == 1 {
+                try await until("Show Whole Body to warm GTK's renderer", seconds: 30) { whole.code.isFilled }
+                _ = await scrollToEnd(whole, times: 1)
+            } else {
+                await settlePage()
+            }
+            whole.close()
+            try await until("Show Whole Body to close, warming GTK's renderer") { closings == opening }
+            await settlePage()
+        }
+        let took = (monotonicMicroseconds() - start) / 1000
+        note(
+            "    warmed GTK's renderer, untimed, with Show Whole Body of its first \(head.unicodeScalars.count.formatted()) characters: \(took) ms, \(watch.waits(from: start))"
+        )
     }
 
     /// JSON of about `bytes`, on one line, as an API sends it: an array of forecasts.
