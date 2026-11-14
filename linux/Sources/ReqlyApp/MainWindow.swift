@@ -103,10 +103,13 @@ final class MainWindow {
     let sizeGoes: OpaquePointer
     private let statusDot: Widget
     private let toasts: Widget
-    /// The panes, or, in a file's window, what shows while the file opens or once it couldn't.
+    /// The panes, or, in a file's window, what shows while the file opens or once it couldn't,
+    /// each under a header bar of its own, as the panes' don't show meanwhile.
     private let content: Widget
     private var opening: Widget?
     private var failed: Widget?
+    /// The main menu's buttons in the opening and failed pages' header bars.
+    private var pageMenuButtons: [Widget] = []
     /// The list, or the no-matches page in its place.
     private let listContent: Widget
     /// Whether the switch is being set to the model's state, rather than by you.
@@ -600,37 +603,67 @@ final class MainWindow {
     }
 
     /// A file's window, while its file opens: "Opening “name”…", with a spinner; once it couldn't,
-    /// why, in the core's words; then the panes.
+    /// why, in the core's words, which screen readers hear as it shows; then the panes. Each page
+    /// has a header bar of its own, with the file's name, the main menu, which F10 opens, and the
+    /// window's buttons.
     private func showOpening() {
         guard let name = model.fileName else { return }
+        let shown = gtk_stack_get_visible_child(cast(content))
         if model.isOpening {
             if opening == nil {
                 let page = namedStatusPage(name)
                 adw_status_page_set_title(cast(page), "Opening “\(name)”…")
                 adw_status_page_set_child(cast(page), HTTPSWidgets.spinner())
-                gtk_stack_add_named(cast(content), page, "opening")
-                opening = page
+                opening = withHeaderBar(page, name: name)
+                gtk_stack_add_named(cast(content), opening, "opening")
             }
             gtk_stack_set_visible_child_name(cast(content), "opening")
         } else if let problem = model.problem {
+            let title = "Reqly Couldn't Open “\(name)”"
             if failed == nil {
                 let page = namedStatusPage(name)
                 adw_status_page_set_icon_name(cast(page), "dialog-warning-symbolic")
-                adw_status_page_set_title(cast(page), "Reqly Couldn't Open “\(name)”")
+                adw_status_page_set_title(cast(page), title)
                 // Its description is markup, which a path in the problem may look like.
                 adw_status_page_set_description(cast(page), takeString(g_markup_escape_text(problem, -1)))
-                gtk_stack_add_named(cast(content), page, "failed")
-                failed = page
+                failed = withHeaderBar(page, name: name)
+                gtk_stack_add_named(cast(content), failed, "failed")
             }
             gtk_stack_set_visible_child_name(cast(content), "failed")
+            if shown != failed {
+                announce(window, "\(title). \(problem)")
+            }
         } else {
             gtk_stack_set_visible_child_name(cast(content), "session")
         }
+        if gtk_stack_get_visible_child(cast(content)) != shown {
+            showSidebarToggle()
+        }
+    }
+
+    /// `page`, for a file's window while its file opens or once it couldn't, under a header bar of
+    /// its own, with the file's name, the main menu and the window's buttons.
+    private func withHeaderBar(_ page: Widget, name: String) -> Widget {
+        let header = adw_header_bar_new()!
+        adw_header_bar_set_title_widget(cast(header), adw_window_title_new(name, nil))
+        let menuButton = Self.mainMenuButton(menu)
+        adw_header_bar_pack_end(cast(header), menuButton)
+        pageMenuButtons.append(menuButton)
+        let view = adw_toolbar_view_new()!
+        adw_toolbar_view_add_top_bar(cast(view), header)
+        adw_toolbar_view_set_content(cast(view), page)
+        return view
     }
 
     /// Whether the window shows what its file couldn't be opened for.
     var showsProblem: Bool {
         failed != nil && gtk_stack_get_visible_child(cast(content)) == failed
+    }
+
+    /// The main menu's button that shows now, in a file's window while its file opens or once it
+    /// couldn't, in place of the panes'.
+    var pageMenuButton: Widget? {
+        pageMenuButtons.first { gtk_widget_get_mapped($0) != 0 }
     }
 
     /// The list's title, by the scope you chose, and its count, and the session's at the status
@@ -879,8 +912,14 @@ final class MainWindow {
         gtk_widget_set_visible(sidebarToggle, cBool(!(isDocked && shows)))
         gtk_widget_set_visible(listMenuButton, cBool(!(isDocked && shows)))
         gtk_widget_set_visible(menuButton, cBool(shows))
-        gtk_menu_button_set_primary(cast(menuButton), cBool(shows))
-        gtk_menu_button_set_primary(cast(listMenuButton), cBool(!shows))
+        // A file's window, while its file opens or once it couldn't, shows a page in the panes'
+        // place, with the main menu's button of its own.
+        let page = gtk_stack_get_visible_child(cast(content)).flatMap { $0 == (cast(outer) as Widget) ? nil : $0 }
+        gtk_menu_button_set_primary(cast(menuButton), cBool(page == nil && shows))
+        gtk_menu_button_set_primary(cast(listMenuButton), cBool(page == nil && !shows))
+        for button in pageMenuButtons {
+            gtk_menu_button_set_primary(cast(button), cBool(page.map { isInside(button, $0) } ?? false))
+        }
     }
 
     /// The search bar opened or closed. Closed, the list has the keyboard's focus, when the bar

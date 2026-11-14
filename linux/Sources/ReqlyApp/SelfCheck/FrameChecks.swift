@@ -31,6 +31,7 @@ extension SelfCheck {
             ("behind a dialog", { try await self.checkBehindADialog(window) }),
             ("Shift+Ctrl+D", { try await self.checkDevicesKey(window) }),
             ("a file's window", { try await self.checkFileWindow(window) }),
+            ("files that don't open", { try await self.checkFilesThatDontOpen() }),
             ("the new events", { try await self.checkNewEvents() }),
             ("getting your attention", { try await self.checkAttention(window) }),
             ("a window of the live window's", { try await self.checkSecondaryWindow(window) }),
@@ -190,6 +191,57 @@ extension SelfCheck {
         try require(window.isShowing && !app.isQuitting, "closing the file's window closed the live one")
         note("Ctrl+W: the live window stays; the file's window closes")
         await settle()
+    }
+
+    /// A file that isn't a session, in a window that says why, under a header bar of its own with
+    /// the file's name, the main menu, which F10 opens, and the window's buttons, as the panes'
+    /// header bars don't show. Screen readers hear the problem as it shows. Ctrl+W closes it.
+    private func checkFilesThatDontOpen() async throws {
+        let damaged = try scratchFolder("damaged").appending(path: "Damaged.reqly")
+        try Data("this isn't a session".utf8).write(to: damaged)
+        let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 6) {
+            // The reader takes a moment to start listening.
+            try? await Task.sleep(for: .milliseconds(1500))
+            app.open([damaged])
+            try? await until("Damaged.reqly's window to say why it didn't open") {
+                app.fileWindows.first?.showsProblem == true
+            }
+            try? await Task.sleep(for: .milliseconds(1000))
+        }
+        let file = try present(app.fileWindows.first, "Damaged.reqly got no window")
+        try require(file.showsProblem, "Damaged.reqly's window doesn't say why it didn't open")
+        let title = "Reqly Couldn't Open “Damaged.reqly”"
+        let said = heard.compactMap(\.detail)
+        try require(said.contains { $0.hasPrefix("\(title). ") }, "screen readers heard \(said), not \(title)")
+        try await checkPageHeaderBar(of: file, "Damaged.reqly")
+        try FakeInput.press("Control_L", "w", in: file.window)
+        try await until("Ctrl+W to close Damaged.reqly's window") { app.fileWindows.isEmpty }
+        note("Damaged.reqly: “\(said.first { $0.hasPrefix(title) } ?? "")”, heard as it showed")
+
+        await settle()
+    }
+
+    /// A file window's page while its file opens or once it couldn't: under a header bar with the
+    /// file's name and the window's buttons, the main menu, which F10 opens and Escape closes.
+    private func checkPageHeaderBar(of file: MainWindow, _ name: String) async throws {
+        await settle(file.window)
+        let windowTitle = string(gtk_window_get_title(cast(file.window))) ?? ""
+        try require(windowTitle == name, "\(name)'s window is titled \(windowTitle)")
+        let button = try present(file.pageMenuButton, "\(name)'s window shows no main menu")
+        let header = try present(gtk_widget_get_ancestor(button, adw_header_bar_get_type()), "no header bar")
+        let shownTitle = adw_header_bar_get_title_widget(cast(header)).flatMap {
+            string(adw_window_title_get_title(cast($0)))
+        }
+        try require(shownTitle == name, "\(name)'s header bar says \(shownTitle ?? "nothing")")
+        try require(
+            adw_header_bar_get_show_end_title_buttons(cast(header)) != 0, "\(name)'s header bar has no window buttons")
+        let popover = try present(gtk_menu_button_get_popover(cast(button)), "the main menu has no popover")
+        try FakeInput.press("F10", in: file.window)
+        try await until("F10 to open \(name)'s main menu", seconds: 3) { gtk_widget_get_mapped(cast(popover)) != 0 }
+        await settle(file.window)
+        try FakeInput.press("Escape", in: file.window)
+        try await until("Escape to close the main menu", seconds: 3) { gtk_widget_get_mapped(cast(popover)) == 0 }
+        await settle(file.window)
     }
 
     /// The events Step 5 adds reach the app's model, made up here: a device that waits, until the
