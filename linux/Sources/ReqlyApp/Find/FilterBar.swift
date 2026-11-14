@@ -12,15 +12,22 @@ import ReqlyModel
 /// a choice whose traffic has gone. The session does the filtering, through
 /// ``SessionHost/setFilter(_:)``.
 ///
-/// The bar is hidden while the session is empty, and it scrolls while the window is narrower than
-/// its buttons. The window puts ``widget`` under the search bar.
+/// The bar is hidden while the session is empty. A narrow window shows a menu of the statuses in
+/// place of their buttons, so the bar fits: see ``statusMenuButton``. It scrolls while the window
+/// is narrower than its buttons still. The window puts ``widget`` under the search bar.
 @MainActor
 final class FilterBar {
     /// The bar, in a scroller of its own.
     let widget: Widget
-    /// All, which shows every status, then a button for each kind.
+    /// All, which shows every status, then a button for each kind, in a box of their own.
     let allButton: Widget
     private(set) var statusButtons: [StatusFilter: Widget] = [:]
+    let statusBox: Widget
+    /// The statuses as a menu, with All Statuses and a check for each kind, which a narrow window
+    /// shows in place of their buttons, and its actions, `filter.status-all` and the kinds'.
+    let statusMenuButton: Widget
+    private let allAction: OpaquePointer
+    private var statusActions: [StatusFilter: OpaquePointer] = [:]
     /// Filters, and its popover's menus, checks and Clear All, and how many requests show.
     let filtersButton: Widget
     let popover: Widget
@@ -67,13 +74,40 @@ final class FilterBar {
         // The toolbar's style puts 6 pixels between its parts.
         let bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0)!
         gtk_widget_add_css_class(bar, "toolbar")
+        // 6 pixels apart too, as in the toolbar.
+        statusBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)
         allButton = Self.statusButton("All", tip: "Show every status", mark: nil)
-        gtk_box_append(cast(bar), allButton)
+        gtk_box_append(cast(statusBox), allButton)
         for status in StatusFilter.allCases {
             let button = Self.statusButton(status.title, tip: status.tip, mark: Self.mark(for: status))
             statusButtons[status] = button
-            gtk_box_append(cast(bar), button)
+            gtk_box_append(cast(statusBox), button)
         }
+        gtk_box_append(cast(bar), statusBox)
+        let actions = g_simple_action_group_new()!
+        allAction = g_simple_action_new_stateful("status-all", nil, g_variant_new_boolean(1))
+        g_action_map_add_action(cast(actions), cast(allAction))
+        g_object_unref(raw(allAction))
+        let entries = g_menu_new()!
+        g_menu_append(entries, "All Statuses", "filter.status-all")
+        let kinds = g_menu_new()!
+        for status in StatusFilter.allCases {
+            let action = g_simple_action_new_stateful(status.actionName, nil, g_variant_new_boolean(0))!
+            statusActions[status] = action
+            g_action_map_add_action(cast(actions), cast(action))
+            g_object_unref(raw(action))
+            g_menu_append(kinds, status.title, "filter.\(status.actionName)")
+        }
+        g_menu_append_section(entries, nil, cast(kinds))
+        g_object_unref(raw(kinds))
+        statusMenuButton = gtk_menu_button_new()
+        gtk_menu_button_set_menu_model(cast(statusMenuButton), cast(entries))
+        g_object_unref(raw(entries))
+        gtk_widget_set_tooltip_text(statusMenuButton, "Show requests by status")
+        gtk_widget_set_visible(statusMenuButton, 0)
+        gtk_box_append(cast(bar), statusMenuButton)
+        gtk_widget_insert_action_group(bar, "filter", cast(actions))
+        g_object_unref(raw(actions))
         let separator = gtk_separator_new(GTK_ORIENTATION_VERTICAL)!
         gtk_widget_set_margin_start(separator, 4)
         gtk_widget_set_margin_end(separator, 4)
@@ -160,6 +194,10 @@ final class FilterBar {
         connect(allButton, "toggled") { [weak self] in self?.statusToggled(nil) }
         for (status, button) in statusButtons {
             connect(button, "toggled") { [weak self] in self?.statusToggled(status) }
+        }
+        connect(allAction, "activate") { [weak self] in self?.statusToggled(nil) }
+        for (status, action) in statusActions {
+            connect(action, "activate") { [weak self] in self?.statusToggled(status) }
         }
         for (group, check) in contentChecks {
             connect(check, "toggled") { [weak self] in self?.contentToggled(group) }
@@ -289,6 +327,13 @@ final class FilterBar {
         for (status, button) in statusButtons {
             gtk_toggle_button_set_active(cast(button), cBool(filter.statuses.contains(status)))
         }
+        g_simple_action_set_state(allAction, g_variant_new_boolean(cBool(filter.statuses.isEmpty)))
+        for (status, action) in statusActions {
+            g_simple_action_set_state(action, g_variant_new_boolean(cBool(filter.statuses.contains(status))))
+        }
+        let words = StatusMenuWords(filter.statuses)
+        gtk_menu_button_set_label(cast(statusMenuButton), words.label)
+        setAccessibleLabel(statusMenuButton, words.name)
         for (group, check) in contentChecks {
             gtk_check_button_set_active(cast(check), cBool(filter.contents.contains(group)))
         }

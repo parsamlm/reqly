@@ -21,9 +21,9 @@ import ReqlyModel
 /// go, least needed first, so it never scrolls sideways: App and Time up to 640 sp, Duration up to
 /// 520, and Size up to 400. Up to 520 sp, search, Clear and Rules move to a bar under the list, and
 /// the capture switch loses its word, so the header bar fits GNOME's narrowest window, 360 pixels,
-/// with the window's three buttons and the text at 1.25. F9 shows and hides the sidebar at any
-/// width. The panes' widths are in sp, so they grow with the text, and libadwaita works them out
-/// again when its size changes.
+/// with the window's three buttons and the text at 1.25; and the filter bar's statuses become a
+/// menu, so it fits too. F9 shows and hides the sidebar at any width. The panes' widths are in sp,
+/// so they grow with the text, and libadwaita works them out again when its size changes.
 ///
 /// What the panes hold belongs to the features, each in its own folder: the sidebar in `Sidebar/`,
 /// search and filters in `Find/`, the list in `Traffic/`, the details in `Details/` and the bodies
@@ -352,7 +352,7 @@ final class MainWindow {
             (columnsGo, [.app, .time]), (headerNarrows, [.app, .time, .duration]),
             (sizeGoes, [.app, .time, .duration, .size]),
         ]
-        let (innerView, outerView, bar) = (inner, outer, narrowBar)
+        let (innerView, outerView, bar, statusMenu) = (inner, outer, narrowBar, filters.statusMenuButton)
         for (breakpoint, columns) in gone {
             Value.bool(true).with {
                 adw_breakpoint_add_setter(breakpoint, cast(innerView), "collapsed", $0)
@@ -364,9 +364,11 @@ final class MainWindow {
             }
             guard breakpoint != columnsGo else { continue }
             Value.bool(true).with { adw_breakpoint_add_setter(breakpoint, cast(bar), "revealed", $0) }
-            for hidden in [captureLabel, clearButton, searchButton, rulesButton] {
+            for hidden in [captureLabel, clearButton, searchButton, rulesButton, filters.statusBox] {
                 Value.bool(false).with { adw_breakpoint_add_setter(breakpoint, cast(hidden), "visible", $0) }
             }
+            // The filter bar's statuses as a menu, so the bar fits.
+            Value.bool(true).with { adw_breakpoint_add_setter(breakpoint, cast(statusMenu), "visible", $0) }
         }
         adw_application_window_add_breakpoint(cast(window), listNarrows)
         adw_application_window_add_breakpoint(cast(window), detailsOver)

@@ -101,8 +101,13 @@ extension SelfCheck {
         /// Whether the details show over the list, and whether the sidebar folds away too.
         var detailsOver = false
         var sidebarFolds = false
+        /// Scrollbars that take room of their own, as Cinnamon's, Xfce's and MATE's do, rather than
+        /// GNOME's, which show over what they scroll.
+        var classicScrollbars = false
 
-        var name: String { text == 1 ? "\(width)" : "\(width)-text-\(text)" }
+        var name: String {
+            (text == 1 ? "\(width)" : "\(width)-text-\(text)") + (classicScrollbars ? "-classic-scrollbars" : "")
+        }
     }
 
     private static let layouts = [
@@ -165,11 +170,12 @@ extension SelfCheck {
     }
 
     /// The narrowest widths, with requests in the list: at 500 pixels, and at 360, GNOME's smallest
-    /// window, with the text at 1 and at 1.25, the window gets that narrow, as its content fits,
-    /// which libadwaita warns of when it doesn't; search, Clear and Rules are under the list, and
-    /// the list's columns that fit show, so it doesn't scroll sideways. At 1112, where the list's
-    /// pane is its narrowest beside the details, the filter bar fits it, without scrolling
-    /// sideways, and the header bar has its buttons.
+    /// window, with the text at 1 and at 1.25, and with classic scrollbars, the window gets that
+    /// narrow, as its content fits, which libadwaita warns of when it doesn't; search, Clear and
+    /// Rules are under the list, the list's columns that fit show, so it doesn't scroll sideways,
+    /// and the filter bar's statuses are a menu, so it fits too, and no scrollbar covers it. At
+    /// 1112, where the list's pane is its narrowest beside the details, the filter bar fits it with
+    /// its status buttons, and the header bar has its buttons.
     private func checkNarrowWidths() async throws {
         let window = window
         let list = window.list
@@ -184,6 +190,8 @@ extension SelfCheck {
             Layout(width: 1112), Layout(width: 500, detailsOver: true, sidebarFolds: true),
             Layout(width: 360, detailsOver: true, sidebarFolds: true),
             Layout(width: 360, text: 1.25, detailsOver: true, sidebarFolds: true),
+            Layout(width: 500, detailsOver: true, sidebarFolds: true, classicScrollbars: true),
+            Layout(width: 360, detailsOver: true, sidebarFolds: true, classicScrollbars: true),
         ] {
             try await resize(to: layout)
             let content = try present(adw_application_window_get_content(cast(window.window)), "no content")
@@ -206,13 +214,19 @@ extension SelfCheck {
             try require(
                 listNeeds <= listHas + 0.5,
                 "at \(layout.name), the list needs \(listNeeds) px of \(listHas), with \(columns)")
-            let bar = gtk_scrolled_window_get_hadjustment(cast(window.filters.widget))
+            let filters = window.filters
+            let bar = gtk_scrolled_window_get_hadjustment(cast(filters.widget))
             let barNeeds = gtk_adjustment_get_upper(bar)
             let barHas = gtk_adjustment_get_page_size(bar)
-            // Narrower, it scrolls sideways.
+            try require(barNeeds <= barHas + 0.5, "at \(layout.name), the filter bar needs \(barNeeds) px of \(barHas)")
+            let barScrollbar = gtk_scrolled_window_get_hscrollbar(cast(filters.widget))
             try require(
-                isNarrow || barNeeds <= barHas + 0.5,
-                "at \(layout.name), the filter bar needs \(barNeeds) px of \(barHas)")
+                !layout.classicScrollbars || barScrollbar.map { gtk_widget_get_mapped($0) == 0 } ?? true,
+                "at \(layout.name), a scrollbar shows under the filter bar")
+            let asMenu = gtk_widget_get_visible(filters.statusMenuButton) != 0
+            try require(
+                asMenu == isNarrow && (gtk_widget_get_visible(filters.statusBox) != 0) == !isNarrow,
+                "at \(layout.name), the statuses are \(asMenu ? "a menu" : "buttons")")
             var pictures: [String] = []
             if isNarrow {
                 for (scheme, style) in [(ADW_COLOR_SCHEME_FORCE_LIGHT, "light"), (ADW_COLOR_SCHEME_FORCE_DARK, "dark")]
@@ -228,8 +242,9 @@ extension SelfCheck {
             note(
                 "\(layout.name): the content needs \(minimum) of \(width) px; search, Clear and Rules "
                     + "\(underList ? "under the list" : "in the header bar"); the list shows "
-                    + "\(columns.joined(separator: ", ")) in \(Int(listNeeds)) of \(Int(listHas)) px; the filter bar "
-                    + "takes \(Int(barNeeds)) of \(Int(barHas)) px\(pictures.isEmpty ? "" : "; ")"
+                    + "\(columns.joined(separator: ", ")) in \(Int(listNeeds)) of \(Int(listHas)) px; the filter bar, "
+                    + "with the statuses as \(asMenu ? "a menu" : "buttons"), takes \(Int(barNeeds)) of "
+                    + "\(Int(barHas)) px\(pictures.isEmpty ? "" : "; ")"
                     + pictures.joined(separator: ", "))
         }
         await session.clear()
@@ -244,6 +259,11 @@ extension SelfCheck {
             gtk_settings_reset_property(settings, "gtk-xft-dpi")
         } else {
             set(raw(settings), "gtk-xft-dpi", .int(Int32(96 * 1024 * layout.text)))
+        }
+        if layout.classicScrollbars {
+            set(raw(settings), "gtk-overlay-scrolling", .bool(false))
+        } else {
+            gtk_settings_reset_property(settings, "gtk-overlay-scrolling")
         }
         gtk_window_set_default_size(cast(window.window), layout.width, 760)
         // GTK keeps the window on the screen, inside the shadow's margin.
@@ -271,6 +291,7 @@ extension SelfCheck {
             try? await setCapture(on: false)
         }
         gtk_settings_reset_property(gtk_settings_get_default(), "gtk-xft-dpi")
+        gtk_settings_reset_property(gtk_settings_get_default(), "gtk-overlay-scrolling")
         adw_style_manager_set_color_scheme(adw_style_manager_get_default(), colorScheme)
         window.search.close()
         adw_navigation_split_view_set_show_content(window.inner, 0)

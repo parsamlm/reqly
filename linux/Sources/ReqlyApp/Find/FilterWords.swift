@@ -16,6 +16,9 @@ extension StatusFilter {
         }
     }
 
+    /// The name of the status menu's action for it, `filter.status-2xx` and the like.
+    var actionName: String { "status-" + title.lowercased() }
+
     /// The status button's tooltip.
     var tip: String {
         switch self {
@@ -40,6 +43,28 @@ extension ContentGroup {
         case .image: "Images"
         case .media: "Media"
         case .other: "Other"
+        }
+    }
+}
+
+/// The status menu's words: a narrow window's filter bar shows the menu in place of the status
+/// buttons, with a short label, and a name for screen readers that says every status chosen.
+struct StatusMenuWords: Equatable {
+    var label: String
+    var name: String
+
+    init(_ statuses: Set<StatusFilter>) {
+        let chosen = StatusFilter.allCases.filter(statuses.contains).map(\.title)
+        switch chosen.count {
+        case 0:
+            label = "All Statuses"
+            name = "Statuses: all"
+        case 1:
+            label = chosen[0]
+            name = "Statuses: \(chosen[0])"
+        default:
+            label = "\(chosen.count) Statuses"
+            name = "Statuses: " + chosen.dropLast().joined(separator: ", ") + " and " + chosen[chosen.count - 1]
         }
     }
 }
