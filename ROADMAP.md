@@ -45,7 +45,7 @@ Everything from Phase 1 on Debian, Ubuntu and the systems based on them, such as
 - [x] Capture Linux apps' traffic on GNOME and KDE with one switch. Reqly sets your desktop's proxy and always puts it back.
 - [x] HTTPS decryption, set up for your browsers and command-line tools, and removable at any time.
 - [x] A terminal set up for Reqly, so curl, git and other tools are captured too.
-- [ ] The request list, details, search and filters.
+- [x] The request list, details, search and filters.
 - [ ] Sending and saving, rules and scripts, devices, protocols and connections.
 - [ ] An icon in the notification area, on desktops that show one.
 - [ ] A `.deb` package and an apt repository, which keep Reqly up to date.
