@@ -44,7 +44,7 @@ final class SelfCheck {
     }
 
     /// Parts that run only when `--smoke-parts` names them, never in the whole self-check.
-    static var partsByName: [Part] { speedParts + notificationProbeParts }
+    static var partsByName: [Part] { speedParts + notificationProbeParts + standInParts }
 
     let app: App
     let report: URL
