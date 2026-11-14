@@ -328,6 +328,12 @@ final class DetailsPane {
         stopHearing()
     }
 
+    /// Its window has closed: it hears its session and HTTPS no more, as its widgets go with the
+    /// window.
+    func windowClosed() {
+        stopHearing()
+    }
+
     /// Stops hearing the session's events and changes, and HTTPS's.
     private func stopHearing() {
         if let listener {

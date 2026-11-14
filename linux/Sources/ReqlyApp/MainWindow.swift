@@ -150,9 +150,12 @@ final class MainWindow {
     private(set) var about: Widget?
     /// Whether the window has shown, once or more.
     private(set) var hasShown = false
-    /// Whether the window has closed and gone, though this object may live on a moment: the work
-    /// that waited on the main loop then does nothing.
+    /// Whether Reqly has closed the window, though this object may live on a moment: the work
+    /// that waited on the main loop then does nothing. See ``closed()``.
     private(set) var isClosed = false
+    /// The window's observer and listener of its session, which go as it closes.
+    private var observer: Int?
+    private var listener: Int?
     /// What the status line says now.
     private(set) var statusWords: StatusLine?
 
@@ -427,13 +430,13 @@ final class MainWindow {
             }
             arguments.returns(true)
         }
-        connect(window, "destroy") { [weak self] in self?.isClosed = true }
-        model.observe { [weak self] in
+        observer = model.observe { [weak self] in
             if self?.isClosed == false {
                 self?.update()
             }
         }
-        model.listen { [weak self] event in
+        listener = model.listen { [weak self] event in
+            guard self?.isClosed == false else { return }
             switch event {
             case .storageProblem(let problem?): self?.toast(problem)
             case .sidebar(let sidebar): self?.counted(pinned: sidebar.pinned)
@@ -464,6 +467,30 @@ final class MainWindow {
 
     isolated deinit {
         g_object_unref(raw(window))
+    }
+
+    /// Reqly closes the window, and destroys it next: from now on, what the window left waiting on
+    /// the main loop does nothing, and its panes hear their session no more, nor do what their
+    /// tasks waited for. GTK 4 doesn't free a destroyed window while this object holds it, and
+    /// says "destroy" only as it frees it, once this object goes, so nothing else tells them. Its
+    /// panes' widgets go with this object, though a pane's task may keep the pane a moment longer.
+    func closed() {
+        guard !isClosed else { return }
+        isClosed = true
+        if let observer {
+            model.stopObserving(observer)
+        }
+        if let listener {
+            model.stopListening(listener)
+        }
+        if let findingTimer {
+            g_source_remove(findingTimer)
+            self.findingTimer = nil
+        }
+        list.windowClosed()
+        sidebar.windowClosed()
+        filters.windowClosed()
+        details.windowClosed()
     }
 
     /// Whether the window shows: the live window hides once it's closed.
@@ -505,6 +532,7 @@ final class MainWindow {
     func toast(
         _ text: String, button: String? = nil, isUrgent: Bool = false, onButton: (@MainActor () -> Void)? = nil
     ) {
+        guard !isClosed else { return }
         DetailsBlocks.toast(text, from: toasts, button: button, isUrgent: isUrgent, onButton: onButton)
     }
 
@@ -607,6 +635,7 @@ final class MainWindow {
     /// line's end; whether there's anything to clear; and the no-matches page in the list's place
     /// while there's traffic, but none of it shows.
     private func showTitle() {
+        guard !isClosed else { return }
         // The list goes by the session's count once a burst's rows are in, and the sidebar hears
         // it a moment after the rows, so the window goes by the larger, and likewise for the
         // scope's.

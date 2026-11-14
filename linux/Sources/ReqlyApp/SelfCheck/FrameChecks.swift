@@ -367,17 +367,48 @@ extension SelfCheck {
     }
 
     /// A file's window, once closed, goes, with its list, its details and the rest: nothing keeps it.
+    /// Held as it closes, it and its panes know at once that it has closed, so what they left
+    /// waiting does nothing. A scope chosen in the sidebar just before the window closes, as a
+    /// click then Ctrl+W, still on its way to the session as the window goes, then shows nothing in
+    /// the gone window, and GTK says nothing of it.
     private func checkClosedWindowGoes() async throws {
         let closed = WeakWindow()
         app.open([try Self.macSession()])
         try await until("Mac 1.0.reqly's window") { app.fileWindows.first?.list.total ?? 0 > 0 }
-        closed.window = app.fileWindows.first
         await settle()
-        if let window = closed.window {
+        do {
+            let window = try present(app.fileWindows.first, "there's no file window")
+            closed.window = window
             app.closeWindow(window)
+            let knows = [
+                ("the window", window.isClosed), ("its list", window.list.isGone),
+                ("its sidebar", window.sidebar.isGone), ("its filter bar", window.filters.isGone),
+            ]
+            let unaware = knows.filter { !$0.1 }.map(\.0)
+            try require(unaware.isEmpty, "once closed, \(unaware.joined(separator: ", ")) don't know it")
         }
         try await until("the closed window to go", seconds: 10) { closed.window == nil }
-        note("a file's window, closed, goes")
+        note("a file's window, closed: it and its panes know at once, and it goes")
+
+        app.open([try Self.macSession()])
+        try await until("Mac 1.0.reqly's window again") {
+            app.fileWindows.first?.sidebar.rows.sections.joined().contains { $0.kind == .host } ?? false
+        }
+        await settle()
+        let host: String
+        do {
+            let window = try present(app.fileWindows.first, "there's no file window")
+            let row = try present(window.sidebar.rows.sections.joined().first { $0.kind == .host }, "no host row")
+            host = row.name
+            closed.window = window
+            // In one turn, as nothing else runs between a click and a key that come together.
+            window.sidebar.choose(row.key)
+            app.closeWindow(window)
+        }
+        // setScope's answer comes meanwhile.
+        try? await Task.sleep(for: .seconds(1))
+        try await until("the closed window to go", seconds: 10) { closed.window == nil }
+        note("a file's window closed as its sidebar narrows the list to \(host): nothing shows, and it goes")
     }
 
     /// A real GNotification, sent as a release sends one, with no notification server, as in the

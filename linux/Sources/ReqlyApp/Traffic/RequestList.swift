@@ -176,8 +176,12 @@ final class RequestList {
     private var isGivingFocus = false
     /// Whether every row was put in again since the rows were last described, as a search does.
     private var rowsWereReset = false
-    /// Whether the list's window has gone, though the list may live on a moment.
-    private var isGone = false
+    /// Whether the list's window has closed, though the list may live on a moment, as a task that
+    /// waits on the session holds it: see ``windowClosed()``.
+    private(set) var isGone = false
+    /// The list's listener and observer of its session, which go as its window closes.
+    private var listener: Int?
+    private var observer: Int?
     /// The request of the row the keyboard's focus last came to, and its description then, as
     /// screen readers heard it, for the self-check.
     private(set) var focusArrival: (id: ExchangeID, description: String)?
@@ -190,6 +194,11 @@ final class RequestList {
         gtk_single_selection_set_autoselect(selection, 0)
         gtk_single_selection_set_can_unselect(selection, 1)
         view = gtk_column_view_new(cast(selection))
+        // The selection takes the list's reference, and the view the selection's, and both go
+        // with the window: the list keeps its own until it goes, as a task may keep it a moment
+        // after its window.
+        g_object_ref(raw(items))
+        g_object_ref(raw(selection))
         gtk_widget_add_css_class(view, "data-table")
         gtk_widget_add_css_class(view, "requests")
         gtk_column_view_set_reorderable(cast(view), 0)
@@ -235,8 +244,8 @@ final class RequestList {
         connect(focus, "enter") { [weak self] in self?.focusCameIn() }
         gtk_widget_add_controller(view, focus)
         connect(view, "destroy") { [weak self] in self?.isGone = true }
-        model.listen { [weak self] event in
-            guard let self else { return }
+        listener = model.listen { [weak self] event in
+            guard let self, !isGone else { return }
             switch event {
             case .rows(let version, let total, _, let steps):
                 latestTotal = total
@@ -254,8 +263,32 @@ final class RequestList {
             default: break
             }
         }
-        model.observe { [weak self] in self?.showState() }
+        observer = model.observe { [weak self] in self?.showState() }
         showState()
+    }
+
+    isolated deinit {
+        g_object_unref(raw(selection))
+        g_object_unref(raw(items))
+    }
+
+    /// Its window has closed, and the window's widgets, the list's among them, go with it: the
+    /// list hears its session no more, drops what it waited to do, and a task that keeps it a
+    /// moment longer does nothing with them.
+    func windowClosed() {
+        guard !isGone else { return }
+        isGone = true
+        if let listener {
+            model.stopListening(listener)
+        }
+        if let observer {
+            model.stopObserving(observer)
+        }
+        finishAwaiting(selecting: false)
+        for timer in [revealTimer, describeTimer].compactMap({ $0 }) {
+            g_source_remove(timer)
+        }
+        (revealTimer, describeTimer) = (nil, nil)
     }
 
     /// How many rows the list shows.
@@ -359,6 +392,10 @@ final class RequestList {
     /// hears it wasn't.
     func selectOnceShown(_ id: ExchangeID, within seconds: Int = 10, then: (@MainActor (Bool) -> Void)? = nil) {
         finishAwaiting(selecting: false)
+        guard !isGone else {
+            then?(false)
+            return
+        }
         awaited = (id, selected, then)
         if shown.contains(id) {
             finishAwaiting(selecting: true)
@@ -519,7 +556,7 @@ final class RequestList {
         Task {
             let isThere = !(await session.rows([id])).isEmpty
             isCheckingSelected = false
-            if !isThere, selected == id, !shown.contains(id) {
+            if !isGone, !isThere, selected == id, !shown.contains(id) {
                 selected = nil
                 onSelection?(nil)
             }
@@ -577,6 +614,7 @@ final class RequestList {
     /// Takes in a change to the session's rows: the contents it makes old are forgotten, or asked
     /// for again, and its splices wait their turn to go into the view.
     private func take(_ change: RowMirror.Change) {
+        guard !isGone else { return }
         if change.isReset {
             cache.forgetAll()
             rowsWereReset = true
@@ -596,6 +634,10 @@ final class RequestList {
     /// Puts pieces of the waiting changes into the view for up to 8 ms, then lets the window
     /// draw before the next pieces. Whether the list follows them is decided before.
     private func feedSome() {
+        guard !isGone else {
+            isFeeding = false
+            return
+        }
         isFeeding = true
         // A row, not the view: a row's menu, which is the view's child, takes the focus too.
         let hadFocus = rowHasFocus
@@ -759,6 +801,7 @@ final class RequestList {
         Task {
             let rows = await session.rowIDs()
             isReadingRows = false
+            guard !isGone else { return }
             take(mirror.reset(version: rows.version, ids: rows.ids))
             if mirror.isWaitingForRows {
                 readEveryRow()
@@ -779,12 +822,16 @@ final class RequestList {
 
     private func fetch() {
         let wanted = cache.takeWanted()
-        guard !wanted.isEmpty, let session = model.session else {
+        guard !wanted.isEmpty, !isGone, let session = model.session else {
             isFetching = false
             return
         }
         Task {
             let summaries = await session.rows(wanted)
+            guard !isGone else {
+                isFetching = false
+                return
+            }
             for entry in cache.received(summaries, isBound: { itemsByID[$0] != nil }) {
                 refill(entry)
             }
@@ -798,6 +845,7 @@ final class RequestList {
     /// The status page while there's no traffic, saying how to start, and the list after, which
     /// the window's no-matches page covers while none of the session's requests show.
     private func showState() {
+        guard !isGone else { return }
         guard count == 0, total == 0 else {
             gtk_stack_set_visible_child(cast(widget), scroller)
             return
@@ -982,6 +1030,7 @@ final class RequestList {
 
     /// Fills in the cells and the row showing an exchange again, with its new contents.
     private func refill(_ entry: SummaryCache.Entry) {
+        guard !isGone else { return }
         let id = entry.summary.id
         for item in itemsByID[id] ?? [] {
             if let column = bound[item]?.column {
@@ -995,6 +1044,7 @@ final class RequestList {
 
     /// Shows the icon of an app found since its rows were filled in.
     private func iconFound(_ key: String) {
+        guard !isGone else { return }
         for (item, cell) in bound where cell.column == .app {
             if let entry = cache[cell.id], let source = entry.summary.source, AppIcons.key(of: source) == key {
                 fill(item, .app, entry)

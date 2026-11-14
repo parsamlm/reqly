@@ -85,6 +85,11 @@ final class Sidebar {
     /// through the rows with the arrow keys, and whether the arrow keys are moving now.
     private var isDone = true
     private var isMoving = false
+    /// Whether the sidebar's window has closed, though the sidebar may live on a moment, as a
+    /// change of scope that waits on the session holds it: see ``windowClosed()``.
+    private(set) var isGone = false
+    /// The sidebar's listener of its session, which goes as its window closes.
+    private var listener: Int?
 
     init(model: SessionModel) {
         self.model = model
@@ -103,6 +108,11 @@ final class Sidebar {
         gtk_single_selection_set_autoselect(selection, 0)
         let factory = gtk_signal_list_item_factory_new()
         view = gtk_list_view_new(cast(selection), factory)
+        // The view takes the selection's reference, and the store holds the sections' lists of
+        // its own, and they go with the window: the sidebar keeps its own references, the
+        // sections' from gtk_string_list_new, until it goes, as a task may keep it a moment after
+        // its window.
+        g_object_ref(raw(selection))
         gtk_widget_add_css_class(view, "navigation-sidebar")
         // Tab leaves the list, rather than going through every row.
         gtk_list_view_set_tab_behavior(cast(view), GTK_LIST_TAB_ITEM)
@@ -152,7 +162,7 @@ final class Sidebar {
         }
         gtk_widget_add_controller(view, keys)
         icons.onFound = { [weak self] key in self?.iconFound(key) }
-        model.listen { [weak self] event in
+        listener = model.listen { [weak self] event in
             switch event {
             case .sidebar(let sidebar): self?.received(sidebar)
             case .counts(let total, let pinned, let counts): self?.counted(total: total, pinned: pinned, counts)
@@ -160,6 +170,25 @@ final class Sidebar {
             }
         }
         show()
+    }
+
+    isolated deinit {
+        g_object_unref(raw(selection))
+        for section in sections {
+            g_object_unref(raw(section))
+        }
+        g_object_unref(raw(unpinAll))
+    }
+
+    /// Its window has closed, and the window's widgets, the sidebar's among them, go with it: the
+    /// sidebar hears its session no more, and a change of scope still on its way to the session
+    /// shows nothing once it gets there.
+    func windowClosed() {
+        guard !isGone else { return }
+        isGone = true
+        if let listener {
+            model.stopListening(listener)
+        }
     }
 
     /// Gives the keyboard's focus to the chosen row, or to the first while none is, and says
@@ -207,14 +236,14 @@ final class Sidebar {
             try await session.setScope(row.key)
         } catch {
             AppLog.write("couldn't narrow the list to \(row.heading): \(error.message)")
-            if chosen == row.key {
+            if !isGone, chosen == row.key {
                 chosen = scope.key
                 show()
             }
             return
         }
-        // Another was chosen meanwhile, and the session shows it next.
-        guard chosen == row.key else { return }
+        // Another was chosen meanwhile, and the session shows it next; or the window has gone.
+        guard !isGone, chosen == row.key else { return }
         scope = Scope(key: row.key, title: row.heading)
         count = counts[row.key]
         // Pinned shows while it's chosen, and goes when it isn't, with nothing pinned.
@@ -281,6 +310,7 @@ final class Sidebar {
     /// changed in each section, so the rows that stay keep their place and the chosen one stays
     /// chosen.
     private func show() {
+        guard !isGone else { return }
         let before = rows
         rows = SidebarRows(latest, counts: counts, chosen: chosen, folded: folded)
         isShowing = true
@@ -305,6 +335,7 @@ final class Sidebar {
 
     /// Chooses the chosen scope's row, while it shows, or none.
     private func showChosen() {
+        guard !isGone else { return }
         let position = rows.position(of: chosen).map(UInt32.init) ?? UInt32.max
         guard gtk_single_selection_get_selected(selection) != position else { return }
         isShowing = true
@@ -479,6 +510,7 @@ final class Sidebar {
 
     /// Fills in again the rows GTK has bound whose keys `changed` says changed.
     private func refill(_ changed: (String) -> Bool) {
+        guard !isGone else { return }
         for (item, key) in bound where changed(key) {
             fill(item)
         }

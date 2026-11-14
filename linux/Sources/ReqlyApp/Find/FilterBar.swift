@@ -55,6 +55,11 @@ final class FilterBar {
     private var isFitting = false
     /// The latest change of filter. The next one waits for it, so the session gets them in order.
     private var filtering: Task<Void, Never>?
+    /// Whether the bar's window has closed, though the bar may live on a moment, as a change of
+    /// filter that waits on the session holds it.
+    private(set) var isGone = false
+    /// The bar's listener of its session, which goes as its window closes.
+    private var listener: Int?
 
     init(model: SessionModel) {
         self.model = model
@@ -165,7 +170,7 @@ final class FilterBar {
         connect(clearAllButton, "clicked") { [weak self] in self?.clear() }
         connect(popover, "show") { [weak self] in self?.showChoices() }
         connect(room, "resize") { [weak self] in self?.roomChanged() }
-        model.listen { [weak self] event in
+        listener = model.listen { [weak self] event in
             switch event {
             case .rows(_, let total, let shown, _): self?.counted(total: total, shown: shown)
             case .sidebar(let sidebar): self?.received(sidebar)
@@ -175,6 +180,17 @@ final class FilterBar {
             }
         }
         showFilter()
+    }
+
+    /// Its window has closed, and the bar's widgets go with it: it hears its session no more, and
+    /// tells the window nothing more.
+    func windowClosed() {
+        isGone = true
+        onFilter = nil
+        if let listener {
+            model.stopListening(listener)
+            self.listener = nil
+        }
     }
 
     /// Whether any filter is set, the statuses too.
@@ -344,8 +360,9 @@ final class FilterBar {
         guard !isFitting else { return }
         isFitting = true
         idle { [weak self] in
-            self?.isFitting = false
-            self?.fitTokens()
+            guard let self, !isGone else { return false }
+            isFitting = false
+            fitTokens()
             return false
         }
     }

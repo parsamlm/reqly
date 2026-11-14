@@ -320,6 +320,7 @@ final class App {
             if let file = fileWindowFiles.removeValue(forKey: ObjectIdentifier(window)) {
                 g_object_unref(raw(file))
             }
+            window.closed()
             gtk_window_destroy(cast(window.window))
             if !isQuitting {
                 let session = window.model
