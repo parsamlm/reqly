@@ -1061,13 +1061,16 @@ extension SelfCheck {
     /// opening, the text in its font, a long line in pieces, wrapped, under its banner, the shading
     /// under the header bar once the text has scrolled, and the dialog closing. GitHub's runners
     /// and VMs have no GPU, so GTK draws with llvmpipe, which compiles shaders the first time a
-    /// frame draws something new: a cost of the renderer, once, rather than of Reqly, of up to a
-    /// third of a second on one CPU, which falls on whichever step draws the new thing first, after
-    /// whatever the run drew before. The check warms the renderer so that it times Reqly. A frame
-    /// of the dialog's animation can need shaders of its own, by where it falls, which one opening
-    /// and closing doesn't always draw, nor sometimes two. The start of the body is text of its
-    /// own, so Reqly's work for the whole body is all still to do, and it keeps nothing from one
-    /// Show Whole Body to the next anyway.
+    /// frame draws something new: a cost of the renderer, once, rather than of Reqly, of a third
+    /// of a second or more on one CPU, which falls on whichever step draws the new thing first,
+    /// after whatever the run drew before. The check warms the renderer so that it times Reqly. A
+    /// frame of the dialog's animation can need shaders of its own, by where it falls, which one
+    /// opening and closing doesn't always draw, nor sometimes two. The start of the body is text of
+    /// its own, so Reqly's work for the whole body is all still to do, and it keeps nothing from
+    /// one Show Whole Body to the next anyway. Work of Reqly's own that only the run's first Show
+    /// Whole Body did would fall in the warm-up too, and show only in its note, its waits not held
+    /// to 200 ms; it does in the whole self-check anyway, where the details part opens Show Whole
+    /// Body untimed before this part.
     private func warmRenderer(for view: BodyView, watch: ThreadWatch) async throws {
         let start = monotonicMicroseconds()
         let presented = try present(view.body?.body, "no body")
