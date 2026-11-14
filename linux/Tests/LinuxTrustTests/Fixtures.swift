@@ -59,10 +59,17 @@ enum Fixtures {
         return status.st_mode & 0o7777
     }
 
-    /// Writes an executable shell script.
+    /// Writes an executable shell script, through a shell of its own, so this process never has
+    /// the file open for writing. The tests run side by side in one process, and others start
+    /// programs all the time: one started while this process had the file open gets a copy of
+    /// that descriptor, which it holds until it runs its own program, and running the script
+    /// meanwhile fails with "Text file busy". Once the shell that wrote it has ended, nothing has
+    /// it open for writing.
     static func script(_ text: String, at url: URL) throws {
-        try Data(text.utf8).write(to: url)
-        chmod(url.path, 0o755)
+        let ended = try run(
+            "/bin/sh", ["-c", #"printf '%s' "$2" > "$1" && chmod 755 "$1""#, "sh", url.path, text],
+            environment: ["PATH": "/usr/bin:/bin"])
+        try #require(ended.status == 0, "Couldn't write \(url.path): \(ended.errorText)")
     }
 
     static var certutil: String? { ToolRun.find("certutil", in: ProcessInfo.processInfo.environment) }

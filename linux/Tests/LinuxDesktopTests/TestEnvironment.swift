@@ -1,5 +1,6 @@
 import CLinux
 import Foundation
+import Testing
 
 @testable import LinuxDesktop
 
@@ -57,5 +58,18 @@ enum TestEnvironment {
         let folder = URL.temporaryDirectory.appending(path: "ReqlyDesktopTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
+    }
+
+    /// Writes `script` to `file` as a program you can run, through a shell of its own, so this
+    /// process never has the file open for writing. The tests run side by side in one process,
+    /// and others start programs all the time: one started while this process had the file open
+    /// gets a copy of that descriptor, which it holds until it runs its own program, and running
+    /// the file meanwhile fails with "Text file busy". Once the shell that wrote it has ended,
+    /// nothing has it open for writing.
+    static func program(_ script: String, at file: URL) throws {
+        let pid = try Programs.start(
+            "/bin/sh", ["-c", #"printf '%s' "$2" > "$1" && chmod 755 "$1""#, "sh", file.path, script],
+            environment: ["PATH": "/usr/bin:/bin"])
+        try #require(Programs.wait(for: pid, seconds: 30) == 0, "Couldn't write \(file.path)")
     }
 }

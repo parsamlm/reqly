@@ -256,8 +256,7 @@ import Testing
         let marker = folder.appending(path: "started")
         // A stand-in for Reqly that notes its arguments.
         let program = folder.appending(path: "reqly")
-        try Data("#!/bin/sh\necho \"$@\" > '\(marker.path)'\n".utf8).write(to: program)
-        chmod(program.path, 0o755)
+        try TestEnvironment.program("#!/bin/sh\necho \"$@\" > '\(marker.path)'\n", at: program)
         let guardian = ProxyGuard(
             restoreFile: file, environment: ["PATH": folder.path, "HOME": folder.path], executable: program.path)
         try guardian.startWatcher()
