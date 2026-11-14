@@ -10,8 +10,9 @@ import ReqlyModel
 ///
 /// - the sidebar, under a header bar with Reqly's name and the main menu;
 /// - the list, under a header bar with the sidebar's toggle, the capture switch, what the list
-///   shows and how many, Clear, the search button, and the main menu once the sidebar has folded
-///   away; then the search bar and the filter bar, and the status line under the list;
+///   shows and how many, Clear, the search button, the Rules button, and the main menu once the
+///   sidebar has folded away; then the banners, the search bar and the filter bar, and the status
+///   line under the list;
 /// - the details, under a header bar of their own.
 ///
 /// Up to 1100 sp wide, the details open over the list, with Enter or a click on a row, and go back
@@ -61,6 +62,10 @@ final class MainWindow {
     let listMenuButton: Widget
     /// The main menu's model, a GMenu of sections.
     let menu: OpaquePointer
+    /// Under the list's header bar, in the live window: a request a breakpoint holds, while the
+    /// details don't show it, and a device that waits to be let in.
+    let pausedBanner = Banner()
+    let deviceBanner = Banner()
     let sidebar: Sidebar
     let search: SearchBar
     let filters: FilterBar
@@ -225,6 +230,10 @@ final class MainWindow {
         gtk_stack_add_named(cast(listContent), noMatches.widget, "no-matches")
         listPane = adw_toolbar_view_new()
         adw_toolbar_view_add_top_bar(cast(listPane), listHeader)
+        let banners = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0)!
+        gtk_box_append(cast(banners), pausedBanner.widget)
+        gtk_box_append(cast(banners), deviceBanner.widget)
+        adw_toolbar_view_add_top_bar(cast(listPane), banners)
         adw_toolbar_view_add_top_bar(cast(listPane), search.widget)
         adw_toolbar_view_add_top_bar(cast(listPane), filters.widget)
         adw_toolbar_view_set_content(cast(listPane), listContent)
