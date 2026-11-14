@@ -182,7 +182,7 @@ jobs:
           libnss3-tools gsettings-desktop-schemas dbus gnome-keyring ca-certificates
           libgtk-4-bin xvfb xauth at-spi2-core libglib2.0-bin
           fonts-cantarell fonts-dejavu-core adwaita-icon-theme librsvg2-common
-          libgl1-mesa-dri libegl1 x11-utils
+          libgl1-mesa-dri libegl1 x11-utils python3-pyatspi imagemagick
 
       - name: Build the Linux app
         run: linux/scripts/app.sh build
@@ -205,6 +205,106 @@ jobs:
           chown -R ubuntu: .
           install -d -o ubuntu -g ubuntu /tmp/ubuntu
           runuser -u ubuntu -- env TMPDIR=/tmp/ubuntu linux/scripts/app.sh self-check
+
+  # Reqly for Linux's release program, as a desktop runs it: Swift's runtime inside, and only the
+  # system's libraries beside it. It's built once, here, for the self-check on the newer systems
+  # below, beside the job above rather than in it, since a job that needs another waits for all of
+  # it, tests and self-check too. Kept with the run for three days, for running those again.
+  linux-app-release:
+    name: Linux app's release build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: swift:6.4.1-noble
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the development packages
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: >
+          apt-get update && apt-get install -y --no-install-recommends
+          libsqlite3-dev zlib1g-dev pkg-config
+          libgtk-4-dev libadwaita-1-dev libgtksourceview-5-dev libsecret-1-dev
+
+      - name: Build the release program
+        run: linux/scripts/app.sh build -c release --product reqly --static-swift-stdlib
+
+      # Artifacts don't keep files' modes, so the program goes in a tar.
+      - name: Pack it
+        run: tar -C linux/.build/release -cf linux/.build/reqly-${{ matrix.arch }}.tar reqly
+
+      - name: Keep it with the run
+        uses: actions/upload-artifact@v7
+        with:
+          name: reqly-linux-app-${{ matrix.arch }}
+          path: linux/.build/reqly-${{ matrix.arch }}.tar
+          if-no-files-found: error
+          retention-days: 3
+
+  # The release program's whole self-check on the newer systems Reqly for Linux supports, Debian 13
+  # (GTK 4.18, libadwaita 1.7) and Ubuntu 26.04 (GTK 4.22, libadwaita 1.9), where libadwaita moves
+  # the focus and draws text in ways 1.5 doesn't. Each gets the libraries the program needs, what
+  # the self-check runs on headless, as linux/docker/Dockerfile has for Ubuntu 24.04, and the
+  # desktop's own font, as GNOME sets it. The checkout is where the build's was, so the program
+  # finds its icons in it, and the self-check runs as an ordinary account, as above.
+  linux-app-elsewhere:
+    name: Linux app on ${{ matrix.system.name }} (${{ matrix.arch }})
+    needs: linux-app-release
+    strategy:
+      fail-fast: false
+      matrix:
+        system:
+          - { name: Debian 13, image: 'debian:13', fonts: '', font: 'Cantarell 11' }
+          - { name: Ubuntu 26.04, image: 'ubuntu:26.04', fonts: 'fonts-ubuntu fonts-adwaita', font: 'Ubuntu Sans 11' }
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.system.image }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GTK and what the self-check runs on
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: >
+          apt-get update && apt-get install -y --no-install-recommends
+          libgtk-4-1 libadwaita-1-0 libgtksourceview-5-0 libsecret-1-0 libsqlite3-0 zlib1g libstdc++6
+          ca-certificates tzdata libgl1-mesa-dri libegl1
+          fonts-cantarell fonts-dejavu-core adwaita-icon-theme librsvg2-common ${{ matrix.system.fonts }}
+          libgtk-4-bin xvfb xauth dbus at-spi2-core python3-pyatspi libglib2.0-bin x11-utils imagemagick
+
+      # Debian 13's GNOME has no Adwaita Sans package, so it's Cantarell, GNOME's font before 48.
+      - name: Use the desktop's font
+        run: |
+          mkdir -p /etc/gtk-4.0
+          printf '[Settings]\ngtk-font-name=%s\n' '${{ matrix.system.font }}' > /etc/gtk-4.0/settings.ini
+
+      - name: Get the release program
+        uses: actions/download-artifact@v8
+        with:
+          name: reqly-linux-app-${{ matrix.arch }}
+          path: linux/.build
+
+      - name: Unpack it
+        run: tar -C linux/.build -xf linux/.build/reqly-${{ matrix.arch }}.tar
+
+      - name: Run its self-check
+        run: |
+          useradd --create-home tester
+          runuser -u tester -- linux/scripts/self-check.sh linux/.build/reqly
 
   # libReqlyCore.so for release, with the parts of Swift's runtime it needs and its debug
   # information apart (linux/scripts/stage-core.sh). The Linux app won't load it. It's built

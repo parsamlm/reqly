@@ -53,8 +53,11 @@ final class SettingsDialog {
         presenting.append(body)
     }
 
-    /// Shows a short message at the bottom of the dialog, which covers the window's own.
+    /// Shows a short message at the bottom of the dialog, which covers the window's own: plain
+    /// text, not Pango markup, since it may hold a path or a message.
     func toast(_ text: String) {
-        adw_preferences_dialog_add_toast(cast(dialog), adw_toast_new(text))
+        let toast = adw_toast_new(text)
+        adw_toast_set_use_markup(toast, 0)
+        adw_preferences_dialog_add_toast(cast(dialog), toast)
     }
 }

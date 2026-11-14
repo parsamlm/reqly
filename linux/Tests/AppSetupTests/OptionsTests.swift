@@ -96,6 +96,23 @@ import Testing
         #expect(throws: Options.UsageError.self) { try Options(["--close-delay", "-1"]) }
     }
 
+    /// The self-check opens a saved session, or keeps a few hundred requests to reach the limit
+    /// with. Either makes a test run.
+    @Test func takesASessionForTheSelfCheck() throws {
+        let options = try Options(["--smoke-session", "/t/Mac 1.0.reqly", "--session-limit", "300"])
+        #expect(options.smokeSession == "/t/Mac 1.0.reqly" && options.sessionLimit == 300)
+        #expect(options.isTestRun && !options.setsSystemProxy && !options.usesYourCertificates)
+        #expect(try Options(["--smoke-session", "/t/Mac 1.0.reqly"]).isTestRun)
+        #expect(try Options(["--session-limit", "1"]).isTestRun)
+        #expect(try Options([]).sessionLimit == nil && Options([]).smokeSession == nil)
+        #expect(throws: Options.UsageError("--session-limit takes a number of requests, 1 or more, not 0.")) {
+            try Options(["--session-limit", "0"])
+        }
+        #expect(throws: Options.UsageError.self) { try Options(["--session-limit", "many"]) }
+        #expect(throws: Options.UsageError.self) { try Options(["--session-limit", "-3"]) }
+        #expect(throws: Options.UsageError("--smoke-session needs a value.")) { try Options(["--smoke-session"]) }
+    }
+
     /// A real run sets your desktop's proxy; a test run sets only a stand-in's, unless it's told
     /// otherwise.
     @Test func setsTheDesktopsProxyOnlyForARealRun() throws {

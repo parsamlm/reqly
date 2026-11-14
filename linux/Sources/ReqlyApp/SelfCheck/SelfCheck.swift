@@ -6,8 +6,8 @@ import GtkBinding
 import LinuxSystem
 
 /// The self-check, `--smoke <report>`: runs its parts one after another on the main loop, each
-/// within its time limit, or only the ones `--smoke-parts` names, and writes PASS or FAIL for
-/// each to the report, with what it found. Then Reqly quits, with status 0 when every part
+/// within its time limit, or only the ones `--smoke-parts` names, which may be ones that run only
+/// by name, such as `speed`, and writes PASS or FAIL for each to the report, with what it found. Then Reqly quits, with status 0 when every part
 /// passed and 1 when any failed. linux/scripts/app.sh's `self-check` runs it headless, with
 /// stand-ins for your settings.
 ///
@@ -33,7 +33,13 @@ final class SelfCheck {
     }
 
     /// Every part, in the order they run.
-    static var parts: [Part] { windowParts + captureParts + httpsParts }
+    static var parts: [Part] {
+        windowParts + captureParts + httpsParts + findParts + toolParts + trafficParts + detailsParts + bodyParts
+            + inspectParts
+    }
+
+    /// Parts that run only when `--smoke-parts` names them, never in the whole self-check.
+    static var partsByName: [Part] { speedParts }
 
     let app: App
     let report: URL
@@ -108,8 +114,9 @@ final class SelfCheck {
         }
         let display = gdk_display_get_default().map { typeName(raw($0)) } ?? "no display"
         say("Reqly \(App.version), GTK \(LibraryVersion.gtk), libadwaita \(LibraryVersion.adwaita), \(display)")
+        let named = Self.parts + Self.partsByName
         let chosen: [(name: String, part: Part?)] =
-            names.map { names in names.map { name in (name, Self.parts.first { $0.name == name }) } }
+            names.map { names in names.map { name in (name, named.first { $0.name == name }) } }
             ?? Self.parts.map { ($0.name, $0) }
         var passed = 0
         for (name, part) in chosen {
@@ -169,6 +176,27 @@ final class SelfCheck {
     }
 
     // MARK: - What parts use
+
+    /// The self-check's scratch folder, which self-check.sh deletes.
+    var scratch: URL { report.deletingLastPathComponent() }
+
+    /// A file in the checkout self-check.sh runs from, `$REQLY_CHECKOUT`, such as a script or a
+    /// saved session a part uses.
+    static func checkoutFile(_ path: String) throws -> URL {
+        guard let checkout = ProcessInfo.processInfo.environment["REQLY_CHECKOUT"] else {
+            throw Failure("there's no checkout to find \(path) in: run the self-check with self-check.sh")
+        }
+        let file = URL(filePath: checkout, directoryHint: .isDirectory).appending(path: path)
+        guard FileManager.default.fileExists(atPath: file.path) else { throw Failure("the checkout has no \(path)") }
+        return file
+    }
+
+    /// A new folder in the scratch folder.
+    func scratchFolder(_ name: String) throws -> URL {
+        let folder = scratch.appending(path: "\(name)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
 
     /// Notes what the part found, for the report.
     func note(_ line: String) {

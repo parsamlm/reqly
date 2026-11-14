@@ -34,11 +34,14 @@ public struct OpenOptions: Codable, Sendable {
     /// For test runs: more root certificates, in base64 DER, to trust when checking servers,
     /// such as a local test server's.
     public var extraTrustedRoots: [String]?
+    /// For test runs: the most requests the session keeps, in place of 100,000, as the Mac's
+    /// `-sessionLimit` does. Past it, the oldest finished ones go as new ones come.
+    public var sessionLimit: Int?
 
     public init(
         sessionsFolder: String, file: String? = nil, setsSystemProxy: Bool? = nil, proxyRestoreFile: String? = nil,
         proxySettingsStandIn: String? = nil, findsApps: Bool? = nil, rootFile: String? = nil,
-        rootStandIn: String? = nil, extraTrustedRoots: [String]? = nil
+        rootStandIn: String? = nil, extraTrustedRoots: [String]? = nil, sessionLimit: Int? = nil
     ) {
         self.sessionsFolder = sessionsFolder
         self.file = file
@@ -49,6 +52,7 @@ public struct OpenOptions: Codable, Sendable {
         self.rootFile = rootFile
         self.rootStandIn = rootStandIn
         self.extraTrustedRoots = extraTrustedRoots
+        self.sessionLimit = sessionLimit
     }
 }
 
@@ -745,8 +749,8 @@ public struct WireDetails: Codable, Sendable, Equatable {
     public var requestCookies: [WireCookie]
     public var responseCookies: [WireCookie]
 
-    init(_ exchange: Exchange) {
-        let state = WireState(exchange.state)
+    init(_ details: ExchangeDetails) {
+        let exchange = details.exchange
         id = exchange.id.rawValue
         kind = WireKind.name(exchange.kind)
         method = exchange.request.method
@@ -756,10 +760,7 @@ public struct WireDetails: Codable, Sendable, Equatable {
         port = exchange.request.port
         target = exchange.request.target
         path = exchange.request.path
-        query =
-            (exchange.request.query).map {
-                QueryParameters.parse($0).map { WireHeader(name: $0.name, value: $0.value) }
-            } ?? []
+        query = details.query.map { WireHeader(name: $0.name, value: $0.value) }
         version = exchange.request.version
         requestHeaders = exchange.request.headers.map(WireHeader.init)
         requestBodySize = exchange.requestBody.count
@@ -768,8 +769,8 @@ public struct WireDetails: Codable, Sendable, Equatable {
         responseVersion = exchange.response?.version
         responseHeaders = exchange.response?.headers.map(WireHeader.init)
         responseBodySize = exchange.responseBody.count
-        self.state = state.name
-        failure = state.failure
+        state = WireState(exchange.state).name
+        failure = details.failure
         started = exchange.timing.started.timeIntervalSince1970
         ended = Wire.seconds(exchange.timing.ended)
         remoteAddress = exchange.remoteAddress
@@ -781,7 +782,7 @@ public struct WireDetails: Codable, Sendable, Equatable {
         clientCertificate = exchange.clientCertificate
         sentByReqly = exchange.sentByReqly
         decryption =
-            switch DecryptionSituation(exchange) {
+            switch details.decryption {
             case .plain: "plain"
             case .encryptedTunnel: "encryptedTunnel"
             case .decrypted: "decrypted"
@@ -795,22 +796,20 @@ public struct WireDetails: Codable, Sendable, Equatable {
         bytesSent = exchange.bytesSent
         bytesReceived = exchange.bytesReceived
         messageCount = exchange.messageCount
-        isWebSocket = exchange.messageCount > 0 || exchange.response?.status == 101
-        grpc = exchange.grpcStatus.map(WireGRPC.init)
+        isWebSocket = details.isWebSocket
+        grpc = details.grpc.map(WireGRPC.init)
         responseTrailers = exchange.responseTrailers.map { $0.map(WireHeader.init) }
-        phases = exchange.timingPhases.map(WirePhase.init)
-        connectStarted = Wire.seconds(exchange.timing.connectStarted)
-        appliedRules = WireRule.joined(exchange.appliedRules)
+        phases = details.phases.map(WirePhase.init)
+        connectStarted = Wire.seconds(details.connectStarted)
+        appliedRules = details.appliedRules.map(WireRule.init)
         scriptOutput = exchange.scriptOutput.map {
             WireScriptOutput(rule: $0.rule, part: $0.part.rawValue, lines: $0.lines)
         }
         source = exchange.source
         deviceInfo = exchange.device.map(WireDeviceInfo.init)
-        if case .paused(let part) = exchange.state {
-            pausedPart = part.rawValue
-        }
-        requestCookies = exchange.request.headers.requestCookies.map { WireCookie(name: $0.name, value: $0.value) }
-        responseCookies = (exchange.response?.headers.responseCookies ?? []).map(WireCookie.init)
+        pausedPart = details.pausedPart?.rawValue
+        requestCookies = details.requestCookies.map(WireCookie.init)
+        responseCookies = details.responseCookies.map(WireCookie.init)
     }
 }
 

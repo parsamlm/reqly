@@ -51,6 +51,8 @@ if let logFile = options.logFile {
         StandardError.write("reqly: couldn't open the log file \(logFile)\n")
     }
 }
+// Before Reqly's threads start, each of which would take an arena of its own.
+Malloc.limitArenas()
 // Kept for as long as the program runs: GLib's callbacks hold it only weakly.
 let app = App(options: options)
 exit(app.run())

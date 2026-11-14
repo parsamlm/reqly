@@ -58,6 +58,24 @@ import Testing
         #expect(settings == AppSettings())
     }
 
+    /// The sidebar's sections show at first, and each remembers being folded away by itself.
+    @Test func remembersTheSidebarsSections() throws {
+        let folder = try scratchFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "Settings.json")
+        let first = AppSettings()
+        #expect(first.sidebarShowsApps && first.sidebarShowsDevices && first.sidebarShowsHosts)
+        var settings = first
+        settings.sidebarShowsHosts = false
+        try settings.save(to: file)
+        let saved = AppSettings.load(from: file)
+        #expect(saved.sidebarShowsApps && saved.sidebarShowsDevices && !saved.sidebarShowsHosts)
+
+        try Data(#"{"proxyPort": 9191, "sidebarShowsApps": false, "sidebarShowsDevices": "no"}"#.utf8).write(to: file)
+        let read = AppSettings.load(from: file)
+        #expect(read.proxyPort == 9191 && !read.sidebarShowsApps && read.sidebarShowsDevices && read.sidebarShowsHosts)
+    }
+
     @Test func savesAFileOnlyYouCanRead() throws {
         let folder = try scratchFolder()
         defer { try? FileManager.default.removeItem(at: folder) }

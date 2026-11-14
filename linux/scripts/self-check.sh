@@ -7,7 +7,9 @@
 # its certificate's trust and key, and the secrets. It captures only on 127.0.0.1, and lets no
 # devices on the network in. The options given here come after those, so they can choose the
 # parts, such as --smoke-parts window,events, or change any of them. Prints the report, and exits
-# with Reqly's status: 0 when every part passed.
+# with Reqly's status: 0 when every part passed. The parts find the scripts and saved sessions
+# they use in the checkout this script is in, and keep their pictures in $REQLY_PICTURES when it
+# names a folder, and otherwise in the scratch folder, which goes.
 set -euo pipefail
 
 if [[ $# -lt 1 || $1 == -h || $1 == --help ]]; then
@@ -16,6 +18,8 @@ if [[ $# -lt 1 || $1 == -h || $1 == --help ]]; then
 fi
 program=$1
 shift
+REQLY_CHECKOUT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+export REQLY_CHECKOUT
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/reqly-self-check.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT

@@ -152,4 +152,73 @@ import Testing
         #expect(try await store.exchange(F.id(1)) == imported)
         #expect(try await store.search("\"t\":14") == [F.id(1)])
     }
+
+    /// Every session merges its search index as `searchDeleteMerge` says: a new one, and one
+    /// opened from a file saved before Reqly set it. A saved file keeps the setting.
+    @Test func setsWhenTheSearchIndexMerges() async throws {
+        let setting = "SELECT v FROM search_config WHERE k = 'deletemerge'"
+        let store = try await sampleStore()
+        defer { store.discard() }
+        #expect(try await store.database.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
+
+        let mac = SessionCompatibilityTests.sessions.appending(path: "Mac 1.0.reqly")
+        var readOnly = Configuration()
+        readOnly.readonly = true
+        let file = try DatabaseQueue(path: mac.path(percentEncoded: false), configuration: readOnly)
+        #expect(try await file.read { try Int.fetchOne($0, sql: setting) } == nil)
+        try file.close()
+        let root = F.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let opened = try await TrafficStore.openSession(mac, in: root)
+        defer { opened.discard() }
+        #expect(try await opened.database.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
+
+        let url = self.file()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try await opened.saveSession(to: url, hidingSecrets: false)
+        let saved = try DatabaseQueue(path: url.path(percentEncoded: false), configuration: readOnly)
+        defer { try? saved.close() }
+        #expect(try await saved.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
+    }
+
+    /// A saved file's search index is there to be thrown away, so a file whose index is damaged
+    /// opens all the same, with a new one, wherever SQLite can build a new one.
+    @Test func opensAFileWhoseSearchIndexIsDamaged() async throws {
+        let root = F.temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var data = try Data(contentsOf: SessionCompatibilityTests.sessions.appending(path: "Mac 1.0.reqly"))
+        // The empty index's structure record, which SQLite calls corrupt as it reads it with
+        // another byte in its marker.
+        let structure = Data([0, 0, 0, 0, 0xFF, 0, 0, 1, 0, 0, 0])
+        let record = try #require(data.range(of: structure))
+        #expect(data.range(of: structure, in: record.upperBound..<data.endIndex) == nil)
+        data[record.lowerBound + 4] = 0xFE
+        let damaged = root.appending(path: "Damaged.reqly")
+        try data.write(to: damaged)
+
+        // Older SQLite, such as Ubuntu 24.04's 3.45, reads the structure as soon as it uses the
+        // index at all, so it can't build a new one in such a file, which never opened there.
+        // Newer ones read it only to change a setting.
+        let copy = root.appending(path: "Copy.reqly")
+        try data.write(to: copy)
+        let queue = try DatabaseQueue(path: copy.path(percentEncoded: false))
+        let rebuilds =
+            (try? await queue.write { try $0.execute(sql: "INSERT INTO search(search) VALUES('delete-all')") }) != nil
+        try queue.close()
+        guard rebuilds else {
+            await #expect(throws: (any Error).self) { try await TrafficStore.openSession(damaged, in: root) }
+            return
+        }
+
+        let opened = try await TrafficStore.openSession(damaged, in: root)
+        defer { opened.discard() }
+        let saved = try await SessionSample.store(in: root)
+        defer { saved.discard() }
+        #expect(try await opened.summaries() == saved.summaries())
+        #expect(try await opened.search("Lisbon").contains(SessionSample.id(1)))
+        let setting = "SELECT v FROM search_config WHERE k = 'deletemerge'"
+        #expect(try await opened.database.read { try Int.fetchOne($0, sql: setting) } == TrafficStore.searchDeleteMerge)
+    }
 }

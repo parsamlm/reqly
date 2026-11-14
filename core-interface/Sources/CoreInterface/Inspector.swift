@@ -57,9 +57,10 @@ public struct WireRule: Codable, Sendable, Equatable {
     /// Such as "Sent to https://staging.weatherly.dev/v2/forecast".
     public var detail: String
 
-    /// One line for each rule, as `joinedByRule` joins them.
-    static func joined(_ rules: [AppliedRule]) -> [WireRule] {
-        rules.joinedByRule.map { WireRule(kind: $0.kind.rawValue, name: $0.name, detail: $0.detail) }
+    init(_ rule: AppliedRule) {
+        kind = rule.kind.rawValue
+        name = rule.name
+        detail = rule.detail
     }
 }
 
@@ -130,17 +131,11 @@ public struct WireCookie: Codable, Sendable, Equatable {
     /// Its other attributes in a few words, such as "Path /" and "Secure".
     public var attributes: [String]
 
-    init(name: String, value: String) {
-        self.name = name
-        self.value = value
-        attributes = []
-    }
-
-    init(_ cookie: ResponseCookie) {
+    init(_ cookie: ExchangeDetails.Cookie) {
         name = cookie.name
         value = cookie.value
-        expires = cookie.expiryDate?.timeIntervalSince1970
-        expiresText = cookie.expiryDate == nil ? cookie.expires : nil
+        expires = Wire.seconds(cookie.expires)
+        expiresText = cookie.expiresText
         attributes = cookie.attributes
     }
 }

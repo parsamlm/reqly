@@ -173,6 +173,8 @@ extension TrafficStore {
     func rebuildSearchIndex() async throws {
         try await database.write { db in
             try db.execute(sql: "INSERT INTO search(search) VALUES('delete-all')")
+            // The new index can always take it, though a damaged one couldn't as the session opened.
+            try Self.setSearchMerging(in: db)
             let records = try ExchangeRecord.fetchAll(db, sql: ExchangeRecord.selectWithSource)
             for record in records {
                 try self.index(record.exchange, isNew: false, arrived: [:], in: db)

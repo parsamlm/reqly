@@ -1,4 +1,5 @@
 import CGtk
+import CGtkSource
 import Glibc
 
 /// The libraries' versions as they run, which can be newer than the floor's headers the app was
@@ -27,6 +28,12 @@ public struct LibraryVersion: Comparable, Sendable, CustomStringConvertible {
 
     public static var adwaita: Self {
         Self(major: adw_get_major_version(), minor: adw_get_minor_version(), micro: adw_get_micro_version())
+    }
+
+    public static var sourceView: Self {
+        Self(
+            major: gtk_source_get_major_version(), minor: gtk_source_get_minor_version(),
+            micro: gtk_source_get_micro_version())
     }
 
     /// Whether libadwaita is 1.`minor` or newer, such as 1.6 for accent colors.

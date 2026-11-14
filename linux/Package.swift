@@ -9,9 +9,10 @@ import PackageDescription
 // - ReqlyApp: the app itself, the program `reqly`: its window, its settings and its self-check.
 // - AppSetup: what the app reads before its window opens: its command line, your settings and
 //   where its files go.
-// - CGtk, CGtkShim, GtkBinding: GTK 4 and libadwaita's C API as Swift calls it: the headers, the
-//   little C that Swift can't write (GObject's macros, one signal marshaller, and the source that
-//   runs Swift's main actor from GLib's main loop), and Swift helpers over both.
+// - CGtk, CGtkSource, CGtkShim, GtkBinding: GTK 4, libadwaita and GtkSourceView's C API as Swift
+//   calls it: the headers, the little C that Swift can't write (GObject's macros, one signal
+//   marshaller, and the source that runs Swift's main actor from GLib's main loop), and Swift
+//   helpers over them.
 // - CGio, CSecret: GIO (GSettings and D-Bus) and libsecret, the system's own, through pkg-config.
 // - CSQLite: SQLite, the system's, which the core links already, for reading a copy of Chromium's
 //   own list of certificates.
@@ -51,9 +52,15 @@ let package = Package(
             pkgConfig: "libadwaita-1",
             providers: [.apt(["libadwaita-1-dev"])]
         ),
+        // GtkSourceView 5, the code view, on its own, since a target takes one pkg-config name.
+        .systemLibrary(
+            name: "CGtkSource",
+            pkgConfig: "gtksourceview-5",
+            providers: [.apt(["libgtksourceview-5-dev"])]
+        ),
         .target(name: "CLinux"),
         .target(name: "CGtkShim", dependencies: ["CGtk"]),
-        .target(name: "GtkBinding", dependencies: ["CGtk", "CGtkShim"]),
+        .target(name: "GtkBinding", dependencies: ["CGtk", "CGtkSource", "CGtkShim"]),
         .target(
             name: "LinuxDesktop",
             dependencies: ["CGio", "CLinux", .product(name: "ReqlyModel", package: "core")]
@@ -94,20 +101,25 @@ let package = Package(
         .executableTarget(
             name: "ReqlyApp",
             dependencies: [
-                "AppSetup", "CGio", "CGtk", "GtkBinding", "LinuxDesktop", "LinuxTrust", "LinuxApps", "LinuxSystem",
+                "AppSetup", "CGio", "CGtk", "CGtkSource", "GtkBinding", "LinuxDesktop", "LinuxTrust", "LinuxApps",
+                "LinuxSystem",
                 .product(name: "CoreInterface", package: "core-interface"),
+                .product(name: "BodyKit", package: "core"),
                 .product(name: "CertificateAuthority", package: "core"),
                 .product(name: "Presentation", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
             ]
         ),
         // The app's own logic that needs no window: what the status line says, the list's rows as
-        // the session's events change them, and where each app's icon comes from.
+        // the session's events change them, where each app's icon comes from, and what a body's
+        // views say and show.
         .testTarget(
             name: "ReqlyAppTests",
             dependencies: [
                 "ReqlyApp", "AppSetup", "LinuxDesktop", "LinuxApps", "LinuxTrust",
                 .product(name: "CoreInterface", package: "core-interface"),
+                .product(name: "BodyKit", package: "core"),
+                .product(name: "Presentation", package: "core"),
                 .product(name: "ReqlyModel", package: "core"),
             ]
         ),
