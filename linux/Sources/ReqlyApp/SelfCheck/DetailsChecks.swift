@@ -493,7 +493,7 @@ extension SelfCheck {
         let id = try await newest(session) { $0.target.hasSuffix(query) && $0.port == server.port }
         try await open(id)
         try await pageWords(.response)
-        let view = try present(details.bodies[.response], "the Response page has no body")
+        let view = try await liveBody(.response)
         // Out of the page, which waits while the focus is in it, so the body shows as it grows.
         try require(details.focusTab(), "the details' tab doesn't take the focus")
         do {
@@ -556,7 +556,7 @@ extension SelfCheck {
         let id = try await newest(session) { $0.target.hasSuffix(query) && $0.port == server.port }
         try await open(id)
         try await pageWords(.response)
-        let view = try present(details.bodies[.response], "the Response page has no body")
+        let view = try await liveBody(.response)
         try await until("the response's code as it comes", seconds: 5) {
             view.codeView?.isFilled == true && details.summary?.state.isFinished == false
         }
@@ -682,7 +682,7 @@ extension SelfCheck {
         let id = try await newest(session) { $0.path == "/drip" && $0.port == server.port && !$0.state.isFinished }
         try await open(id)
         try await pageWords(.response)
-        let view = try present(details.bodies[.response], "the Response page has no body")
+        let view = try await liveBody(.response)
         try await until("Show Whole Body for the response as it comes", seconds: 10) {
             gtk_widget_get_mapped(view.showWhole) != 0 && details.summary?.state.isFinished == false
         }
@@ -1109,6 +1109,15 @@ extension SelfCheck {
         details.show(page: page)
         try await until("the \(page.title) page", seconds: 5) { details.isBuilt(page) }
         return words(in: try present(details.pages[page], "\(page.title) has no box"))
+    }
+
+    /// The view of `part`'s body, once its page has one. A live request's row comes as soon as
+    /// Reqly has the request, and its page shows no body until the first of the body comes and the
+    /// details read it again, which on a slow computer can be a while.
+    private func liveBody(_ part: MessagePart) async throws -> BodyView {
+        let details = window.details
+        try await until("the live \(part.rawValue)'s body on its page", seconds: 20) { details.bodies[part] != nil }
+        return try present(details.bodies[part], "the \(part.rawValue)'s page has no body")
     }
 
     /// The newest finished request to `path` on the traffic maker.
