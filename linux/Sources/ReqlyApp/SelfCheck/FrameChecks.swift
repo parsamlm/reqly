@@ -389,14 +389,19 @@ extension SelfCheck {
             let notification = g_notification_new("Reqly's self-check")!
             g_application_send_notification(cast(app.application), "self-check", notification)
             g_object_unref(raw(notification))
-            try? await Task.sleep(for: .milliseconds(1500))
-            g_application_withdraw_notification(cast(app.application), "self-check")
-            try? await Task.sleep(for: .milliseconds(500))
+            // Long enough for the notification server's answer, or GLib's word that there's none.
+            // The notification stays, so on a desktop it can be seen in its list too.
+            try? await Task.sleep(for: .milliseconds(2000))
         }
-        let glib = lines.filter { $0.contains("GLib") }
+        // What GLib said, without its level and time, so the report's lines don't read as a
+        // warning of the self-check's own.
+        let glib = lines.filter { $0.contains("GLib") }.map { line in
+            line.range(of: #"\*\*: [0-9:.]+: "#, options: .regularExpression).map { String(line[$0.upperBound...]) }
+                ?? line
+        }
         note(
-            "a GNotification with no notification server: GLib said "
-                + (glib.isEmpty ? "nothing" : glib.joined(separator: " | ")))
+            "a GNotification with no notification server: GLib "
+                + (glib.isEmpty ? "said nothing" : "warned: " + glib.joined(separator: " | ")))
     }
 
     /// Every toplevel window GTK has, shown or not.
