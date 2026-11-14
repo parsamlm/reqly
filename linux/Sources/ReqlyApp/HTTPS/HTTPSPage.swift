@@ -238,7 +238,7 @@ final class HTTPSPage {
         case .trusted where https.isStandIn:
             status = "Decrypting. A test run's certificate, which counts as trusted. Nothing on this computer changed."
         case .trusted:
-            let made = https.state?.created.map { "Made on \($0.formatted(date: .abbreviated, time: .omitted)). " }
+            let made = https.state?.created.map { "Made on \(Format.date($0)). " }
             status = "Decrypting. \(made ?? "")It never leaves this computer."
         case .notTrusted:
             status = "Not trusted. Reqly decrypts nothing until a place below trusts its certificate."

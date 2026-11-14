@@ -9,12 +9,12 @@ import ReqlyModel
 enum DetailsFormat {
     /// When a request started, to the millisecond, as Overview has it, such as `Oct 3 at 10:42:07.123 AM`:
     /// in the locale's own clock, 12 or 24 hours, as the list's times are.
-    static func moment(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+    static func moment(_ date: Date, locale: Locale = TimeLocale.current, timeZone: TimeZone = .current) -> String {
         formatter("MMMdjmmssSSS", locale: locale, timeZone: timeZone).string(from: date)
     }
 
     /// When a cookie expires, such as `Oct 21, 2026 at 7:28 AM`, in the locale's own clock.
-    static func day(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+    static func day(_ date: Date, locale: Locale = TimeLocale.current, timeZone: TimeZone = .current) -> String {
         formatter("MMMdyyyyjmm", locale: locale, timeZone: timeZone).string(from: date)
     }
 
@@ -65,10 +65,10 @@ struct DetailsHeading: Equatable {
     var facts: [String]
 
     /// `reason` is the response's own, such as "OK", and `grpc` the call's status, from the
-    /// exchange, which the row doesn't have.
+    /// exchange, which the row doesn't have. Numbers go by `locale`, and the time by `timeLocale`.
     init(
         _ summary: ExchangeSummary, reason: String?, grpc: GRPCStatus?, locale: Locale = .current,
-        timeZone: TimeZone = .current
+        timeLocale: Locale = TimeLocale.current, timeZone: TimeZone = .current
     ) {
         let isTunnel = summary.kind == .tunnel
         let host = DetailsFormat.host(scheme: summary.scheme, host: summary.host, port: summary.port)
@@ -108,7 +108,7 @@ struct DetailsHeading: Equatable {
             facts.append(Format.duration(duration, locale: locale))
         }
         facts.append(Format.size(summary.bytesReceived))
-        facts.append(Format.time(summary.started, locale: locale, timeZone: timeZone))
+        facts.append(Format.time(summary.started, locale: timeLocale, timeZone: timeZone))
         self.facts = facts
     }
 

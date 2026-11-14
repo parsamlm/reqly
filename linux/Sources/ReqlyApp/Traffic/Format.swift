@@ -26,9 +26,15 @@ enum Format {
         return "\(whole / 3600) h \(whole % 3600 / 60) min"
     }
 
-    /// The time of day, to the second, as your locale writes it, such as `11:05:59 AM`.
-    static func time(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+    /// The time of day, to the second, as your locale writes it, such as `11:05:59 AM`. Times and
+    /// dates go by ``TimeLocale``, which follows LC_TIME.
+    static func time(_ date: Date, locale: Locale = TimeLocale.current, timeZone: TimeZone = .current) -> String {
         date.formatted(Date.FormatStyle(date: .omitted, time: .standard, locale: locale, timeZone: timeZone))
+    }
+
+    /// The day, shortened as your locale shortens it, such as `Nov 1, 2026`.
+    static func date(_ date: Date, locale: Locale = TimeLocale.current, timeZone: TimeZone = .current) -> String {
+        date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale, timeZone: timeZone))
     }
 
     /// Decimal units, as GNOME's Files uses: `713 B`, `4.1 KB`, `254 KB`, `1.2 MB`.

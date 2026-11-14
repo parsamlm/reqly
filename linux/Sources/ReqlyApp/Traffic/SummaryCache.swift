@@ -20,10 +20,12 @@ struct SummaryCache {
     private var wanted: [ExchangeID] = []
     private var isWanted: Set<ExchangeID> = []
     private let locale: Locale
+    private let timeLocale: Locale
     private let timeZone: TimeZone
 
-    init(locale: Locale = .current, timeZone: TimeZone = .current) {
+    init(locale: Locale = .current, timeLocale: Locale = TimeLocale.current, timeZone: TimeZone = .current) {
         self.locale = locale
+        self.timeLocale = timeLocale
         self.timeZone = timeZone
     }
 
@@ -82,7 +84,8 @@ struct SummaryCache {
     mutating func received(_ summaries: [ExchangeSummary], isBound: (ExchangeID) -> Bool) -> [Entry] {
         var filled: [Entry] = []
         for summary in summaries where isBound(summary.id) {
-            let entry = Entry(summary: summary, text: RowText(summary, locale: locale, timeZone: timeZone))
+            let entry = Entry(
+                summary: summary, text: RowText(summary, locale: locale, timeLocale: timeLocale, timeZone: timeZone))
             entries[summary.id] = entry
             filled.append(entry)
         }
@@ -97,7 +100,8 @@ struct SummaryCache {
     mutating func update(_ id: ExchangeID, _ change: (inout ExchangeSummary) -> Void) -> Entry? {
         guard var summary = entries[id]?.summary else { return nil }
         change(&summary)
-        let entry = Entry(summary: summary, text: RowText(summary, locale: locale, timeZone: timeZone))
+        let entry = Entry(
+            summary: summary, text: RowText(summary, locale: locale, timeLocale: timeLocale, timeZone: timeZone))
         entries[id] = entry
         return entry
     }

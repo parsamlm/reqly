@@ -27,7 +27,7 @@ import Testing
     }
 
     static func text(_ summary: ExchangeSummary) -> RowText {
-        RowText(summary, locale: english, timeZone: utc)
+        RowText(summary, locale: english, timeLocale: english, timeZone: utc)
     }
 
     @Test func showsARequestAsTheMacDoes() {

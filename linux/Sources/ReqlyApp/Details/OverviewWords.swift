@@ -41,7 +41,11 @@ struct OverviewWords: Hashable {
     var scripts: [DetailsRow]
     var sections: [DetailsSection]
 
-    init(_ details: ExchangeDetails, locale: Locale = .current, timeZone: TimeZone = .current) {
+    /// Numbers go by `locale`, and when it started by `timeLocale`.
+    init(
+        _ details: ExchangeDetails, locale: Locale = .current, timeLocale: Locale = TimeLocale.current,
+        timeZone: TimeZone = .current
+    ) {
         let exchange = details.exchange
         url = exchange.request.url?.absoluteString
         failure = details.failure
@@ -68,7 +72,7 @@ struct OverviewWords: Hashable {
         request.append(
             DetailsRow(
                 name: "Started",
-                value: DetailsFormat.moment(exchange.timing.started, locale: locale, timeZone: timeZone)
+                value: DetailsFormat.moment(exchange.timing.started, locale: timeLocale, timeZone: timeZone)
             ))
         request.append(DetailsRow(name: "Sent", value: Format.size(exchange.bytesSent)))
         sections = [DetailsSection("Request", rows: request)]

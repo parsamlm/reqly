@@ -100,7 +100,8 @@ import Testing
         var exchange = Self.forecast()
         exchange.device = Device(id: "1", kind: .simulator, name: "iPhone 17 Pro")
         let heading = DetailsHeading(
-            exchange.summary, reason: "OK", grpc: nil, locale: Self.english, timeZone: Self.utc)
+            exchange.summary, reason: "OK", grpc: nil, locale: Self.english, timeLocale: Self.english,
+            timeZone: Self.utc)
         #expect(heading.method == "GET")
         #expect(heading.title == "/v2/forecast")
         #expect(heading.subtitle == "api.weatherly.dev · Weatherly · iPhone 17 Pro")
@@ -111,27 +112,31 @@ import Testing
         #expect(heading.afterCode == "OK · 750 ms · 17 B · 4:00:00\u{202F}AM")
 
         // A reason the server left out leaves the code on its own.
-        let bare = DetailsHeading(exchange.summary, reason: "", grpc: nil, locale: Self.english, timeZone: Self.utc)
+        let bare = DetailsHeading(
+            exchange.summary, reason: "", grpc: nil, locale: Self.english, timeLocale: Self.english, timeZone: Self.utc)
         #expect(bare.line == "200 · 750 ms · 17 B · 4:00:00\u{202F}AM")
         #expect(bare.afterCode == "· 750 ms · 17 B · 4:00:00\u{202F}AM")
 
         // gRPC's status and a WebSocket's messages come before the rest.
         exchange.messageCount = 3
         let call = DetailsHeading(
-            exchange.summary, reason: "OK", grpc: GRPCStatus(code: 5), locale: Self.english, timeZone: Self.utc)
+            exchange.summary, reason: "OK", grpc: GRPCStatus(code: 5), locale: Self.english, timeLocale: Self.english,
+            timeZone: Self.utc)
         #expect(call.facts == ["gRPC NOT_FOUND", "3 messages", "750 ms", "17 B", "4:00:00\u{202F}AM"])
     }
 
     @Test func headsTunnelsFailuresAndRequestsInProgress() {
         let open = DetailsHeading(
-            Self.tunnel(state: .open).summary, reason: nil, grpc: nil, locale: Self.english, timeZone: Self.utc)
+            Self.tunnel(state: .open).summary, reason: nil, grpc: nil, locale: Self.english, timeLocale: Self.english,
+            timeZone: Self.utc)
         #expect(open.method == "CONNECT")
         #expect(open.title == "maps.weatherly.dev")
         #expect(open.subtitle == "Encrypted connection · Weatherly")
         #expect(open.mark == .lock)
         #expect(open.line == "Open · 48.1 KB · 4:00:00\u{202F}AM")
         let closed = DetailsHeading(
-            Self.tunnel().summary, reason: nil, grpc: nil, locale: Self.english, timeZone: Self.utc)
+            Self.tunnel().summary, reason: nil, grpc: nil, locale: Self.english, timeLocale: Self.english,
+            timeZone: Self.utc)
         #expect(closed.line == "Closed · 3.50 s · 48.1 KB · 4:00:00\u{202F}AM")
 
         var failed = Self.forecast()
@@ -147,7 +152,7 @@ import Testing
         waiting.timing.ended = nil
         waiting.bytesReceived = 0
         let progress = DetailsHeading(
-            waiting.summary, reason: nil, grpc: nil, locale: Self.english, timeZone: Self.utc)
+            waiting.summary, reason: nil, grpc: nil, locale: Self.english, timeLocale: Self.english, timeZone: Self.utc)
         #expect(progress.mark == .none)
         #expect(progress.line == "In progress · 0 B · 4:00:00\u{202F}AM")
     }
@@ -167,7 +172,8 @@ import Testing
     }
 
     @Test func givesOverviewTheMacsRowsLeavingOutEmptyOnes() {
-        let words = OverviewWords(ExchangeDetails(Self.forecast()), locale: Self.english, timeZone: Self.utc)
+        let words = OverviewWords(
+            ExchangeDetails(Self.forecast()), locale: Self.english, timeLocale: Self.english, timeZone: Self.utc)
         #expect(words.url == "https://api.weatherly.dev/v2/forecast?city=Lisbon&days=3")
         #expect(words.failure == nil && words.rules == nil && words.scripts.isEmpty)
         #expect(words.sections.map(\.title) == ["Request", "Response", "Connection"])
@@ -195,7 +201,8 @@ import Testing
         sent.clientCertificate = "Reqly Test Client"
         sent.response?.headers = [:]
         sent.device = Device(id: "a4", kind: .network, name: "Parsa's iPhone", address: "192.168.1.23")
-        let own = OverviewWords(ExchangeDetails(sent), locale: Self.english, timeZone: Self.utc)
+        let own = OverviewWords(
+            ExchangeDetails(sent), locale: Self.english, timeLocale: Self.english, timeZone: Self.utc)
         #expect(own.sections[0].rows[1] == DetailsRow(name: "Device", value: "Parsa's iPhone · 192.168.1.23"))
         #expect(!own.sections[1].rows.contains { $0.name == "Content type" })
         #expect(
@@ -210,7 +217,8 @@ import Testing
         blocked.response = nil
         blocked.state = .failed(.blocked(rule: "No ads"))
         blocked.appliedRules = [AppliedRule(name: "No ads", kind: .block, detail: "Closed the connection.")]
-        let words = OverviewWords(ExchangeDetails(blocked), locale: Self.english, timeZone: Self.utc)
+        let words = OverviewWords(
+            ExchangeDetails(blocked), locale: Self.english, timeLocale: Self.english, timeZone: Self.utc)
         #expect(words.failure == "The rule “No ads” blocked this request, so Reqly closed the connection.")
         #expect(
             words.rules
@@ -218,7 +226,8 @@ import Testing
                     "Rules", count: 1, rows: [DetailsRow(name: "No ads", value: "Closed the connection.")]))
         #expect(words.sections[1] == DetailsSection("Response", rows: [], note: "No response yet."))
 
-        let tunnel = OverviewWords(ExchangeDetails(Self.tunnel()), locale: Self.english, timeZone: Self.utc)
+        let tunnel = OverviewWords(
+            ExchangeDetails(Self.tunnel()), locale: Self.english, timeLocale: Self.english, timeZone: Self.utc)
         #expect(tunnel.sections.map(\.title) == ["Request", "Connection"])
         #expect(
             tunnel.sections[1].rows.map { "\($0.name): \($0.value)" } == [

@@ -47,7 +47,11 @@ struct RowText: Equatable {
     var color: MarkColor?
     var comment: String?
 
-    init(_ summary: ExchangeSummary, locale: Locale = .current, timeZone: TimeZone = .current) {
+    /// Numbers go by `locale`, and the time by `timeLocale`.
+    init(
+        _ summary: ExchangeSummary, locale: Locale = .current, timeLocale: Locale = TimeLocale.current,
+        timeZone: TimeZone = .current
+    ) {
         isEncrypted = summary.kind == .tunnel
         method = summary.method
         let isDefaultPort = summary.port == (summary.scheme == "https" ? 443 : summary.scheme == "http" ? 80 : nil)
@@ -60,7 +64,7 @@ struct RowText: Equatable {
             app = summary.source?.name ?? ""
             appHelp = summary.device.flatMap { device in summary.source.map { "\($0.name) on \(device.fullName)" } }
         }
-        time = Format.time(summary.started, locale: locale, timeZone: timeZone)
+        time = Format.time(summary.started, locale: timeLocale, timeZone: timeZone)
         duration = Format.duration(summary.duration, locale: locale)
         size = summary.bytesReceived > 0 || summary.state == .completed ? Format.size(summary.bytesReceived) : ""
         isPinned = summary.annotation.isPinned

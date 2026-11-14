@@ -38,7 +38,11 @@ struct MessageWords: Hashable {
     /// Whether ``note`` stands for the whole page, as for a response that hasn't come.
     var isWholePage = false
 
-    init(_ details: ExchangeDetails, part: MessagePart, locale: Locale = .current, timeZone: TimeZone = .current) {
+    /// `locale` and `timeZone` are for when a cookie expires.
+    init(
+        _ details: ExchangeDetails, part: MessagePart, locale: Locale = TimeLocale.current,
+        timeZone: TimeZone = .current
+    ) {
         let exchange = details.exchange
         switch part {
         case .request:
@@ -76,7 +80,7 @@ struct MessageWords: Hashable {
     /// When a cookie expires, then the rest of its attributes, such as
     /// "Expires Oct 21, 2026 at 07:28 · Path / · Secure", or `nil` when it has none.
     static func attributes(
-        of cookie: ExchangeDetails.Cookie, locale: Locale = .current, timeZone: TimeZone = .current
+        of cookie: ExchangeDetails.Cookie, locale: Locale = TimeLocale.current, timeZone: TimeZone = .current
     ) -> String? {
         var words: [String] = []
         if let date = cookie.expires {
