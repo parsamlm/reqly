@@ -54,7 +54,7 @@ Where Docker is, it runs in a container of its own, as an ordinary account, with
 
 ### On a desktop
 
-Until there's a package, a release build with Swift's runtime inside the program runs on a desktop, such as a VM's, with only the system's own libraries, GTK 4, libadwaita, GtkSourceView 5 and libsecret among them, on Ubuntu 24.04 and 26.04 and Debian 13. Docker builds it for its own architecture, arm64 on a Mac:
+Until there's a package, a release build with Swift's runtime inside the program runs on a desktop, such as a VM's, with only the system's own libraries, on Ubuntu 24.04 and 26.04 and Debian 13. Those it needs are GTK 4, libadwaita, GtkSourceView 5, libsecret, SQLite, zlib and the C and C++ libraries: on Debian and Ubuntu, the packages libgtk-4-1, libadwaita-1-0, libgtksourceview-5-0, libsecret-1-0, libsqlite3-0, zlib1g, libstdc++6 and libc6. A desktop may have all but GtkSourceView 5, which comes with apps such as GNOME's Text Editor; without it, Reqly won't start, as `libgtksourceview-5.so.0` isn't found, so install it first: `sudo apt install libgtksourceview-5-0`. Docker builds it for its own architecture, arm64 on a Mac:
 
 ```bash
 linux/scripts/app.sh build -c release --product reqly --static-swift-stdlib
