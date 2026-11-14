@@ -13,8 +13,11 @@ if ($LASTEXITCODE) { exit $LASTEXITCODE }
 $ErrorActionPreference = 'Continue'
 $bin = swift build --package-path "$root\windows\ReqlyCore" --triple x86_64-unknown-windows-msvc `
     --configuration $swift --show-bin-path 2>$null | Select-Object -Last 1
-# Nothing is sent automatically: .NET's build tools don't report back either.
+# Nothing is sent automatically: .NET's build tools don't report back either, and don't
+# fetch workload updates to tell of, which they do once a day otherwise. That setting takes
+# only 'true': the SDK reads 1 as not set.
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+$env:DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE = 'true'
 $env:DOTNET_NOLOGO = '1'
 dotnet build "$root\windows\Reqly\Reqly.csproj" -c $Configuration -p:ReqlyCoreDir="$bin" -nologo
 exit $LASTEXITCODE

@@ -1,13 +1,45 @@
 name: CI
 
+# Not for changes that touch only the docs, the design files, the website, the phone apps' notes
+# or the other workflows. Only the Markdown files at the top count as docs: the core's packages
+# list their READMEs, so a change to those still runs it.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - design/**
+      - website/**
+      - android/**
+      - ios/**
+      - .github/*.md
+      - .github/ISSUE_TEMPLATE/**
+      - .github/workflows/website.yml
+      - .github/workflows/release.yml
+      - .github/workflows/windows*.yml
   pull_request:
+    paths-ignore:
+      - '*.md'
+      - design/**
+      - website/**
+      - android/**
+      - ios/**
+      - .github/*.md
+      - .github/ISSUE_TEMPLATE/**
+      - .github/workflows/website.yml
+      - .github/workflows/release.yml
+      - .github/workflows/windows*.yml
+
+# A newer push to a pull request makes an older run's results moot. On main, a run that has
+# started always finishes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-test:
     runs-on: macos-26
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -62,6 +94,24 @@ jobs:
         run: >
           xcodebuild build -project mac/Reqly.xcodeproj -scheme Reqly -configuration Debug
           CODE_SIGNING_ALLOWED=NO
+
+  # The Mac app optimized, as release.yml builds it, with the same Xcode, for Apple silicon and
+  # Intel: the Debug build above is for the runner's own chip alone. On a job of its own, so it
+  # runs beside build-and-test, and the run takes no longer.
+  mac-release-build:
+    name: Mac app's release build
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Use the newest Xcode on the runner
+        run: sudo xcode-select --switch "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+
+      - name: Build the app for release
+        run: >
+          xcodebuild build -project mac/Reqly.xcodeproj -scheme Reqly -configuration Release
+          -destination 'generic/platform=macOS' CODE_SIGNING_ALLOWED=NO
 
   # The core: the engine, certificates, rules, scripts, storage and file formats, which the
   # Windows and Linux apps share. The Mac-only modules are in mac/ReqlyMacKit, so they stay
