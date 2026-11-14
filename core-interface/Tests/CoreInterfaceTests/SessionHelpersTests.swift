@@ -2,6 +2,7 @@ import CoreInterface
 import DeviceBridge
 import Foundation
 import Presentation
+import ProxyEngine
 import ReqlyModel
 import Testing
 
@@ -162,6 +163,47 @@ import Testing
         await #expect(throws: Problem(.failed, "The export was cancelled.")) { try await export.value }
         #expect(!FileManager.default.fileExists(atPath: cancelled.path(percentEncoded: false)))
         await host.close()
+    }
+
+    /// Map Local's "Save the Response as a File…": the body unpacked, a name with the extension
+    /// Map Local would answer with that type, and the status and type to answer with.
+    @Test func givesAResponseAsAFile() async throws {
+        let folder = SessionAPITests.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let host = try await Self.openSample("Mac 1.0.reqly", in: folder)
+        let forecast = try await host.responseFile(ExchangeID(rawValue: 1))
+        #expect(forecast.suggestedName == "forecast.json" && forecast.status == 200)
+        #expect(forecast.contentType == "application/json")
+        #expect(forecast.data == Data(#"{"city":"Lisbon","days":[{"sky":"clear"},{"sky":"rain"}]}"#.utf8))
+        // Packed with gzip as it came, and saved unpacked.
+        let greeting = try await host.responseFile(ExchangeID(rawValue: 3))
+        #expect(greeting.suggestedName == "greeting.txt" && greeting.data == Data("hello, Reqly".utf8))
+        #expect(greeting.contentType == "text/plain; charset=utf-8")
+        // A name with an extension keeps it.
+        #expect(try await host.responseFile(ExchangeID(rawValue: 4)).suggestedName == "radar.json")
+        #expect(try await host.responseFile(ExchangeID(rawValue: 5)).suggestedName == "sun.png")
+        await #expect(throws: Problem(.notAvailable, "An encrypted connection has no request to copy.")) {
+            try await host.responseFile(ExchangeID(rawValue: 6))
+        }
+        await #expect(throws: Problem(.notAvailable, "This request has no response yet.")) {
+            try await host.responseFile(ExchangeID(rawValue: 7))
+        }
+        await host.close()
+
+        // The extensions are the ones Map Local answers by, the other way round.
+        let types = [
+            "application/json", "text/html; charset=utf-8", "text/javascript", "image/jpeg", "image/svg+xml",
+            "font/woff2",
+        ]
+        for type in types {
+            let fileExtension = try #require(LocalFileTypes.fileExtension(forType: type))
+            #expect(LocalFileTypes.contentType(forFile: "answer.\(fileExtension)") == type)
+        }
+        #expect(LocalFileTypes.fileExtension(forType: "Text/HTML ; charset=UTF-8") == "html")
+        #expect(LocalFileTypes.fileExtension(forType: "image/jpeg") == "jpg")
+        #expect(LocalFileTypes.fileExtension(forType: "application/x-weather") == nil)
+        #expect(LocalFileTypes.contentType(forFile: "~/answers/Sun.JPEG") == "image/jpeg")
+        #expect(LocalFileTypes.contentType(forFile: "answer") == "application/octet-stream")
     }
 
     #if !os(Windows)

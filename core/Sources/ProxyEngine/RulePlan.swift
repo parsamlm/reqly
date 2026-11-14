@@ -91,7 +91,7 @@ extension RulePlan.LocalAnswer {
                         done(
                             .respond(
                                 status: local.status,
-                                contentType: local.contentType ?? RuleActions.contentType(forFile: path), body: file),
+                                contentType: local.contentType ?? LocalFileTypes.contentType(forFile: path), body: file),
                             AppliedRule(name: rule.name, kind: .mapLocal, detail: "Answered with \(name)."))
                     } else {
                         let note = "Reqly couldn't read \(path) for the Map Local rule “\(rule.name)”.\n"
@@ -299,19 +299,5 @@ enum RuleActions {
             pairs.removeAll(where: isNamed)
         }
         return pairs.isEmpty ? path : path + "?" + pairs.joined(separator: "&")
-    }
-
-    /// The type of a file Map Local answers with, from its extension.
-    static func contentType(forFile path: String) -> String {
-        let types = [
-            "json": "application/json", "html": "text/html; charset=utf-8", "htm": "text/html; charset=utf-8",
-            "css": "text/css", "js": "text/javascript", "mjs": "text/javascript", "txt": "text/plain; charset=utf-8",
-            "xml": "application/xml", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-            "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml", "ico": "image/x-icon",
-            "pdf": "application/pdf", "mp4": "video/mp4", "mp3": "audio/mpeg", "wasm": "application/wasm",
-            "woff": "font/woff", "woff2": "font/woff2",
-        ]
-        let ext = (path as NSString).pathExtension.lowercased()
-        return types[ext] ?? "application/octet-stream"
     }
 }

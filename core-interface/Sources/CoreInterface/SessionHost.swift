@@ -466,6 +466,23 @@ public actor SessionHost {
         return CopyableBody(exchange.responseBody, headers: response.headers)
     }
 
+    /// The response as a file for Map Local to answer with: unpacked, with a name for the file,
+    /// and the status and type to answer with.
+    public func responseFile(_ id: ExchangeID) async throws(Problem) -> ResponseFile {
+        let exchange = try await readable(id)
+        guard let response = exchange.response else {
+            throw Problem(.notAvailable, "This request has no response yet.")
+        }
+        let data =
+            response.headers["Content-Encoding"].flatMap {
+                BodyDecoder.decode(exchange.responseBody, contentEncoding: $0)
+            } ?? exchange.responseBody
+        let contentType = response.headers["Content-Type"]
+        return ResponseFile(
+            data: data, suggestedName: ResponseFile.name(for: exchange.request, contentType: contentType),
+            status: response.status, contentType: contentType)
+    }
+
     /// Sends a request you wrote, straight to its server, and records it like any other.
     public func send(_ draft: RequestDraft) async throws(Problem) -> ExchangeID {
         let request = try draft.request()

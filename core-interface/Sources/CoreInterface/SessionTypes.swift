@@ -247,6 +247,38 @@ public struct RequestDraft: Sendable, Equatable {
     }
 }
 
+/// A response saved as a file for Map Local to answer with, as "Save the Response as a File…"
+/// saves it.
+public struct ResponseFile: Sendable, Equatable {
+    /// The body, unpacked.
+    public var data: Data
+    /// Such as `forecast.json`: the last part of the request's path, or its host, with the
+    /// extension for its type when it has none.
+    public var suggestedName: String
+    public var status: Int
+    public var contentType: String?
+
+    public init(data: Data, suggestedName: String, status: Int, contentType: String?) {
+        self.data = data
+        self.suggestedName = suggestedName
+        self.status = status
+        self.contentType = contentType
+    }
+
+    /// A name for the response's file, such as `forecast.json`: the last part of the request's
+    /// path, or its host, with the extension Map Local gives the type when the name has none.
+    static func name(for request: RequestHead, contentType: String?) -> String {
+        let last = request.path.split(separator: "/").last.map(String.init) ?? ""
+        let readable = (last.removingPercentEncoding ?? last).replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\0", with: "")
+        let name = readable.isEmpty || readable == "." || readable == ".." ? request.host : readable
+        guard (name as NSString).pathExtension.isEmpty, let contentType,
+            let fileExtension = LocalFileTypes.fileExtension(forType: contentType)
+        else { return name }
+        return "\(name).\(fileExtension)"
+    }
+}
+
 /// A body as Copy Response Body copies it.
 public enum CopyableBody: Sendable, Equatable {
     case text(String)
