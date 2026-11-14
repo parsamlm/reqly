@@ -186,12 +186,16 @@ extension TrafficStore {
     #if os(Linux)
         /// Where to make the copy of the session that's saved as `url`: a hidden file beside it.
         /// A folder Reqly can't write to is refused first, with Foundation's words for it.
+        ///
+        /// The copy's name doesn't repeat the file's, so it stays short however long that is:
+        /// most of Linux's file systems take at most 255 bytes in a name, and SQLite makes the
+        /// copy's journal with "-journal" after it.
         private static func hiddenCopy(of url: URL) throws -> URL {
             let folder = url.deletingLastPathComponent()
             guard access(folder.path(percentEncoded: false), W_OK) == 0 else {
                 throw fileError(errno, url)
             }
-            return folder.appending(path: ".\(url.lastPathComponent).\(UUID().uuidString)")
+            return folder.appending(path: ".reqly-save-\(UUID().uuidString)")
         }
 
         /// Removes the copy, and its journal, if saving stopped before it took the file's place.

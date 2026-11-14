@@ -75,6 +75,32 @@ import Testing
         opened.discard()
     }
 
+    #if !os(Windows)
+        /// A name near the 255 bytes most file systems take saves as a short one does, as a new
+        /// file and over itself, and leaves nothing beside it.
+        @Test func savesUnderAVeryLongName() async throws {
+            let store = try await sampleStore()
+            defer { store.discard() }
+            // 240 bytes: 117 Persian letters of 2 bytes each, and ".reqly".
+            let name = String(repeating: "هوا", count: 39) + ".reqly"
+            #expect(name.utf8.count == 240)
+            let url = file(name)
+            let folder = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            try await store.saveSession(to: url, hidingSecrets: false)
+            try await store.saveSession(to: url, hidingSecrets: false)
+
+            let root = F.temporaryFolder()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let opened = try await TrafficStore.openSession(url, in: root)
+            defer { opened.discard() }
+            #expect(try await opened.summaries() == store.summaries())
+            let left = try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
+            #expect(left == [name])
+        }
+    #endif
+
     #if os(Linux)
         /// Whether /dev/shm and the folder Foundation makes its temporary copies in, which follows
         /// TMPDIR, are on two file systems, as `/tmp` in a tmpfs and your home are on Debian 13 and
