@@ -6,11 +6,13 @@ import ReqlyModel
 
 extension SelfCheck {
     /// A row's menu, opened as you would: Shift+F10 and the Menu key on the row with the focus,
-    /// and a click with the right button. Its entries pin a request and unpin it, mark it with
-    /// each color and none, and open its comment on the details' Overview, as they say; for an
-    /// encrypted connection, it decrypts the host and stops. Each shows on the row at once. Unpin
-    /// All takes every pin away, and Clear keeps pinned requests, and the selection with them. A
-    /// menu that's open keeps the keyboard's focus as traffic comes.
+    /// and a click with the right button, the pressed row's as the button's let go, though the
+    /// hand moved on toward the menu, which GTK 4.14 warned about while the menu opened on the
+    /// press. Its entries pin a request and unpin it, mark it with each color and none, and open
+    /// its comment on the details' Overview, as they say; for an encrypted connection, it decrypts
+    /// the host and stops. Each shows on the row at once. Unpin All takes every pin away, and
+    /// Clear keeps pinned requests, and the selection with them. A menu that's open keeps the
+    /// keyboard's focus as traffic comes.
     func checkAnnotating() async throws {
         let session = try await emptyTheList()
         let traffic = try await startTraffic()
@@ -75,10 +77,11 @@ extension SelfCheck {
         try require(pinned.hasSuffix(", pinned"), "the pinned row's label is “\(pinned)”")
         note("the Menu key: Pin Request; the row shows its pin, and screen readers hear “…, pinned”")
 
-        // A click with the right button on another row, and each color.
+        // A click with the right button on another row, let go 12 px lower, on the menu's place,
+        // and each color.
         let cell = try present(list.cell(.request, of: radar), "the second row has no cell")
         await settle()
-        try FakeInput.click(cell, button: 3)
+        try FakeInput.click(cell, button: 3, movingDown: 12)
         try await until("a click with the right button to open the row's menu", seconds: 3) { menu.isOpen }
         try require(menu.target?.id == radar, "the menu is for #\(menu.target?.id.rawValue ?? 0), not the row clicked")
         try require(list.selected != radar, "the click with the right button chose the row")
@@ -107,7 +110,9 @@ extension SelfCheck {
         }
         menu.close()
         try await until("the menu to close", seconds: 3) { !menu.isOpen }
-        note("a click with the right button: the row's menu; Color marked it \(marked.joined(separator: ", "))")
+        note(
+            "a click with the right button, let go 12 px lower: the pressed row's menu; Color marked it "
+                + marked.joined(separator: ", "))
 
         // Add Comment…, then the comment, and Edit Comment….
         try await focus(warnings)

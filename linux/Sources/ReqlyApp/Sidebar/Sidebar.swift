@@ -448,15 +448,20 @@ final class Sidebar {
             }
         } else if row.kind == .pinned, button == 3 {
             gtk_gesture_set_state(cast(click), GTK_EVENT_SEQUENCE_CLAIMED)
-            openMenu(at: gtk_list_item_get_child(cast(item)))
         }
     }
 
     /// A click on a title folds it, or shows it again. One on the row chosen already, which leaves
-    /// the list's selection as it is, says you're done choosing it.
+    /// the list's selection as it is, says you're done choosing it. The right button, pressed on
+    /// Pinned, opens its menu as it's let go, as on a request's row: not while it's down.
     private func clickReleased(_ item: UnsafeMutableRawPointer, _ click: OpaquePointer) {
-        guard let row = bound[item].flatMap(rows.row), gtk_gesture_single_get_current_button(cast(click)) == 1
-        else { return }
+        guard let row = bound[item].flatMap(rows.row) else { return }
+        let button = gtk_gesture_single_get_current_button(cast(click))
+        if row.kind == .pinned, button == 3 {
+            openMenu(at: gtk_list_item_get_child(cast(item)))
+            return
+        }
+        guard button == 1 else { return }
         if row.kind == .title {
             fold(row.section, !folded.contains(row.section))
         } else if row.isScope, row.key == chosen {

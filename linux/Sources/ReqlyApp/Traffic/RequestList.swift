@@ -162,6 +162,8 @@ final class RequestList {
     /// Each column's width in sp, as it starts or as you left it.
     private var widths: [Column: Double] = [:]
     private var isSizing = false
+    /// The row the right button was pressed on, and where, whose menu opens as it's let go.
+    private var menuPress: (id: ExchangeID, x: Double, y: Double)?
 
     init(model: AppModel) {
         self.model = model
@@ -969,14 +971,24 @@ final class RequestList {
             guard let https = self?.model.https else { return }
             Task { await https.setDecrypts(isOn, host: host) }
         }
-        // A click with the right button, on the row it's on.
+        // A click with the right button, on the row it's pressed on, which it doesn't choose. The
+        // menu opens as the button's let go, not while it's down: a menu takes the pointer as it
+        // opens, and GTK 4.14 loses count of what the press made active once the pointer moves
+        // onto the menu before the button's let go, as a hand does, and warns.
         let press = gtk_gesture_click_new()!
         gtk_gesture_single_set_button(cast(press), UInt32(GDK_BUTTON_SECONDARY))
         connect(press, "pressed") { [weak self] (arguments: Arguments) in
             let x = arguments.double(2)
             let y = arguments.double(3)
-            guard let self, let id = id(at: x, y) else { return }
-            gtk_gesture_set_state(cast(press), GTK_EVENT_SEQUENCE_CLAIMED)
+            guard let self else { return }
+            menuPress = id(at: x, y).map { ($0, x, y) }
+            if menuPress != nil {
+                gtk_gesture_set_state(cast(press), GTK_EVENT_SEQUENCE_CLAIMED)
+            }
+        }
+        connect(press, "released") { [weak self] in
+            guard let self, let (id, x, y) = menuPress else { return }
+            menuPress = nil
             openMenu(for: id, at: GdkRectangle(x: Int32(x), y: Int32(y), width: 1, height: 1))
         }
         gtk_widget_add_controller(view, cast(press))

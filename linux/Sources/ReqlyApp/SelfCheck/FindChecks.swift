@@ -166,13 +166,26 @@ extension SelfCheck {
         note("scopes: \(chosen.joined(separator: "; ")); the header bar and the status line say so")
     }
 
-    /// Shift+F10 on Pinned opens its menu, whose Unpin All Requests unpins them all; Pinned stays
-    /// while it's chosen, with the no-matches page, and goes once another row is.
+    /// The right button on Pinned opens its menu as it's let go, though the hand moved on toward
+    /// the menu, which GTK 4.14 warned about while the menu opened on the press. Shift+F10 on
+    /// Pinned opens it too, and its Unpin All Requests unpins them all; Pinned stays while it's
+    /// chosen, with the no-matches page, and goes once another row is.
     private func checkUnpinAll() async throws {
         let window = window
         let sidebar = window.sidebar
         sidebar.choose("pinned")
         try await until("Pinned to be chosen", seconds: 5) { sidebar.scope.key == "pinned" && window.list.count == 1 }
+        await settle()
+        let pinned = try present(sidebarRow("Pinned"), "Pinned doesn't show")
+        // Let go just below the row, where its menu shows.
+        let below = Int32(gtk_widget_get_height(pinned) / 2 + 6)
+        try FakeInput.click(pinned, button: 3, movingDown: below)
+        try await until("the right button to open Pinned's menu", seconds: 3) {
+            gtk_widget_get_mapped(sidebar.menu) != 0
+        }
+        await settle()
+        try FakeInput.press("Escape", in: window.window)
+        try await until("Escape to close Pinned's menu", seconds: 3) { gtk_widget_get_mapped(sidebar.menu) == 0 }
         sidebar.focus()
         try await until("Pinned to have the focus", seconds: 3) { self.sidebarHasFocus("Pinned") }
         try FakeInput.press("Shift_L", "F10", in: window.window)
@@ -195,8 +208,8 @@ extension SelfCheck {
             sidebar.scope.key == "all" && sidebar.rows.row("pinned") == nil && window.list.count == 9
         }
         note(
-            "Unpin All Requests, from Shift+F10: Pinned shows 0 while it's chosen, with “No Requests”, and goes "
-                + "with All Traffic")
+            "Pinned's menu: from the right button, let go \(below) px lower, below the row; Unpin All Requests, from "
+                + "Shift+F10: Pinned shows 0 while it's chosen, with “No Requests”, and goes with All Traffic")
     }
 
     /// At 700 pixels, with the sidebar shown over the list by F9: the arrow keys choose the next
