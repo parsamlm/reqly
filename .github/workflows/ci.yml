@@ -1,9 +1,40 @@
 name: CI
 
+# Not for changes that touch only the docs, the design files, the website, the phone apps' notes
+# or the other workflows. Only the Markdown files at the top count as docs: the core's packages
+# list their READMEs, so a change to those still runs it.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - design/**
+      - website/**
+      - android/**
+      - ios/**
+      - .github/*.md
+      - .github/ISSUE_TEMPLATE/**
+      - .github/workflows/website.yml
+      - .github/workflows/release.yml
+      - .github/workflows/windows*.yml
   pull_request:
+    paths-ignore:
+      - '*.md'
+      - design/**
+      - website/**
+      - android/**
+      - ios/**
+      - .github/*.md
+      - .github/ISSUE_TEMPLATE/**
+      - .github/workflows/website.yml
+      - .github/workflows/release.yml
+      - .github/workflows/windows*.yml
+
+# A newer push to a pull request makes an older run's results moot. On main, a run that has
+# started always finishes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-test:
