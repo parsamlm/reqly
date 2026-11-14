@@ -46,6 +46,69 @@ import Testing
         }
     #endif
 
+    #if os(Linux)
+        @Test func findsAdbWhereAndroidStudioAndDebianPutIt() throws {
+            let folder = URL.temporaryDirectory.appending(path: "ReqlyTests-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let home = folder.appending(path: "home")
+            // Stand-ins for /usr/bin, /usr/lib/android-sdk/platform-tools and /usr/local/bin.
+            let system = ["usr/bin", "usr/lib/android-sdk/platform-tools", "usr/local/bin"].map {
+                folder.appending(path: $0)
+            }
+            func find(_ environment: [String: String] = [:]) -> String? {
+                AndroidDebugBridge.find(environment: environment, home: home, systemFolders: system)?.executable
+                    .path(percentEncoded: false)
+            }
+            #expect(find() == nil)
+            #expect(
+                AndroidDebugBridge.systemFolders.map { $0.path(percentEncoded: false) } == [
+                    "/usr/bin", "/usr/lib/android-sdk/platform-tools", "/usr/local/bin",
+                ])
+            // Debian's package puts adb beside the SDK's other tools, and a link to it in /usr/bin.
+            let packaged = try Self.makeAdb(in: system[1])
+            #expect(find() == packaged)
+            let linked = try Self.makeAdb(in: system[0])
+            #expect(find() == linked)
+            // Android Studio's comes before them, and the SDK that ANDROID_HOME names before that.
+            let studio = try Self.makeAdb(in: home.appending(path: "Android/Sdk/platform-tools"))
+            #expect(find() == studio)
+            let sdk = folder.appending(path: "sdk")
+            let named = try Self.makeAdb(in: sdk.appending(path: "platform-tools"))
+            #expect(find(["ANDROID_HOME": sdk.path(percentEncoded: false)]) == named)
+        }
+
+        @Test func findsAdbInPathLast() throws {
+            let folder = URL.temporaryDirectory.appending(path: "ReqlyTests-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let home = folder.appending(path: "home")
+            let system = [folder.appending(path: "usr/bin")]
+            let first = folder.appending(path: "first")
+            let second = folder.appending(path: "second")
+            let path = "relative:\(first.path(percentEncoded: false)):\(second.path(percentEncoded: false))"
+            func find() -> String? {
+                AndroidDebugBridge.find(environment: ["PATH": path], home: home, systemFolders: system)?.executable
+                    .path(percentEncoded: false)
+            }
+            // Only a file you can run counts.
+            _ = try Self.makeAdb(in: first, canRun: false)
+            #expect(find() == nil)
+            let inPath = try Self.makeAdb(in: second)
+            #expect(find() == inPath)
+            let inSystem = try Self.makeAdb(in: system[0])
+            #expect(find() == inSystem)
+        }
+
+        /// Writes a stand-in adb in `folder`, made if it's missing, and gives its path.
+        static func makeAdb(in folder: URL, canRun: Bool = true) throws -> String {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let adb = folder.appending(path: "adb")
+            try Data("#!/bin/sh\n".utf8).write(to: adb)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: canRun ? 0o755 : 0o644], ofItemAtPath: adb.path(percentEncoded: false))
+            return adb.path(percentEncoded: false)
+        }
+    #endif
+
     #if os(Windows)
         @Test func runsATool() async throws {
             let shell = URL(filePath: "C:/Windows/System32/cmd.exe")
