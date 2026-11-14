@@ -163,7 +163,13 @@ extension SelfCheck {
         try require(!app.isQuitting, "Reqly quits with Windows.reqly's window still open")
         gtk_window_close(cast(windows.window))
         try require(app.isQuitting, "Reqly didn't quit as its last window closed")
-        note("closing the last window quits")
+        // As it quits, a launch without files and a file get no window, as it would go at once.
+        g_application_activate(cast(app.application))
+        app.open([try Self.macSession()])
+        try require(!liveWindow.isShowing, "a launch as Reqly quits showed the live window")
+        try require(app.fileWindows.isEmpty, "a file opened as Reqly quits got a window")
+        try require(app.presentLive() == nil, "the live window can still be shown as Reqly quits")
+        note("closing the last window quits; a launch and a file meanwhile get no window")
     }
 
     /// The actions of a menu's entries, in its sections.

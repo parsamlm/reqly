@@ -55,8 +55,9 @@ extension App {
     /// run the action, has closed: see ``afterMenu(_:)``.
     private func forLive(_ body: @escaping @MainActor (MainWindow) -> Void) {
         afterMenu { [weak self] in
-            guard let self else { return }
-            body(presentLive())
+            if let window = self?.presentLive() {
+                body(window)
+            }
         }
     }
 

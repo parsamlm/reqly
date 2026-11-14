@@ -180,7 +180,7 @@ extension App {
 
     /// Shows what needs you, in the live window, presented first: the request, or the question.
     func show(_ attention: Attention) {
-        let window = presentLive()
+        guard let window = presentLive() else { return }
         switch attention.subject {
         case .paused(let id, _, _): window.showPaused(id)
         case .deviceWaiting: window.reviewWaitingDevice()

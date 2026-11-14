@@ -47,8 +47,8 @@ final class App {
     private var closing: Task<Void, Never>?
     /// Whether every session has closed.
     private var isClosed = false
-    /// The sessions of file windows that closed, until their copies have gone.
-    private var closingFiles: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// The sessions of file windows that closed, and their closes, until their copies have gone.
+    private var closingFiles: [ObjectIdentifier: (session: SessionModel, close: Task<Void, Never>)] = [:]
     /// The session bus's shared connection, which GApplication uses too, kept for as long as
     /// Reqly runs, with its filter.
     private var sessionBus: OpaquePointer?
@@ -196,6 +196,8 @@ final class App {
     /// task from it, so the close would wait for the deadline.
     private func close(within seconds: Double) {
         guard !isClosed else { return }
+        // Launches and files that come meanwhile, as the main loop runs, get no window.
+        isQuitting = true
         withdrawNotifications()
         let task = startClosing()
         let done = Closing()
@@ -213,13 +215,16 @@ final class App {
     }
 
     /// Starts every session's close, or returns the one that's under way: the live one, which
-    /// stops capturing first, and each file window's, which deletes its copy, together.
+    /// stops capturing first, and each file window's, which deletes its copy, together. A file's
+    /// session that's still opening isn't waited for: its open can't be stopped, and takes a while
+    /// for a big session or HAR file. No Reqly holds its copy once this one ends, so the next
+    /// Reqly deletes it as it starts.
     private func startClosing() -> Task<Void, Never> {
         if let closing {
             return closing
         }
-        let files = fileWindows.map(\.model)
-        let closed = Array(closingFiles.values)
+        let files = fileWindows.map(\.model).filter { !$0.isOpening }
+        let closed = closingFiles.values.filter { !$0.session.isOpening }.map(\.close)
         let task = Task { [model] in
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await model.close() }
@@ -239,15 +244,21 @@ final class App {
     // MARK: - Windows
 
     /// A launch without files, the first or a later one: the live window shows, made the first
-    /// time, or brought back.
+    /// time, or brought back; not while Reqly quits, as the window would go at once.
     private func activate() {
+        guard !isQuitting else {
+            AppLog.write("a launch came as Reqly quits, so it shows nothing")
+            return
+        }
         presentLive()
     }
 
     /// Shows the live window, made the first time, brought back once it was closed, or brought to
-    /// the front, as every command for the live session does first.
+    /// the front, as every command for the live session does first, and returns it; while Reqly
+    /// quits, nothing.
     @discardableResult
-    func presentLive() -> MainWindow {
+    func presentLive() -> MainWindow? {
+        guard !isQuitting else { return nil }
         if let liveWindow {
             liveWindow.present()
             return liveWindow
@@ -264,6 +275,10 @@ final class App {
     /// running. Nothing captures, and the live window doesn't show.
     private func open(files: UnsafeMutableRawPointer?, count: Int) {
         guard let files, count > 0 else { return }
+        guard !isQuitting else {
+            AppLog.write("files came as Reqly quits, so they don't open")
+            return
+        }
         let list = files.assumingMemoryBound(to: OpaquePointer?.self)
         open((0..<count).compactMap { list[$0] })
         startSelfCheck()
@@ -280,6 +295,8 @@ final class App {
     }
 
     private func open(_ files: [OpaquePointer]) {
+        // A window made now would go at once, and its session wouldn't close.
+        guard !isQuitting else { return }
         for file in files {
             if let shown = window(showing: file) {
                 shown.present()
@@ -326,10 +343,11 @@ final class App {
             if !isQuitting {
                 let session = window.model
                 let key = ObjectIdentifier(session)
-                closingFiles[key] = Task { [weak self] in
+                let close = Task { [weak self] in
                     await session.close()
                     self?.closingFiles[key] = nil
                 }
+                closingFiles[key] = (session, close)
             }
         }
     }
