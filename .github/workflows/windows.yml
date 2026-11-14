@@ -21,7 +21,23 @@ defaults:
     shell: powershell
 
 jobs:
+  # Each package on a machine of its own, side by side: each has a .build of its own, so it
+  # builds SwiftNIO, BoringSSL, GRDB and the core all over again either way.
   tests:
+    name: Tests (${{ matrix.package }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: core
+            what: the core
+            minutes: 60
+          - package: core-interface
+            what: the core interface
+            minutes: 40
+          - package: ReqlyCore
+            what: the Windows app's C interface
+            minutes: 40
     runs-on: windows-2025
     timeout-minutes: 120
     steps:
@@ -34,17 +50,9 @@ jobs:
       - name: Install Swift and NASM
         run: windows\scripts\ci-tools.ps1
 
-      - name: Test the core
-        timeout-minutes: 60
-        run: windows\scripts\core.ps1 test
-
-      - name: Test the core interface
-        timeout-minutes: 40
-        run: windows\scripts\core.ps1 test -Package core-interface
-
-      - name: Test the Windows app's C interface
-        timeout-minutes: 40
-        run: windows\scripts\core.ps1 test -Package ReqlyCore
+      - name: Test ${{ matrix.what }}
+        timeout-minutes: ${{ matrix.minutes }}
+        run: windows\scripts\core.ps1 test -Package ${{ matrix.package }}
 
   installer:
     runs-on: windows-2025
