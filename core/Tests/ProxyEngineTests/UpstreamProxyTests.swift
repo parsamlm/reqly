@@ -51,6 +51,24 @@ import Testing
         }
     }
 
+    /// A server that speaks first, as mail and SSH servers do, whose greeting comes along with
+    /// the proxy's answer.
+    @Test func passesOnWhatTheServerSendsWithTheProxysAnswer() async throws {
+        let server = try await GreetingServer.start(greeting: "220 ready\r\n")
+        defer { Task { await server.stop() } }
+        let upstream = try await TestUpstreamProxy.start(answersWithFirstBytes: true)
+        defer { Task { await upstream.stop() } }
+        try await withHarness { harness in
+            harness.proxy.sendLoopbackUpstream(true)
+            harness.proxy.setUpstreamProxy(through(upstream))
+            let received = try await withCollectingConnection(port: harness.proxyPort) { app in
+                try await app.send("CONNECT \(server.authority) HTTP/1.1\r\n\r\n")
+                return await app.received.wait { $0.text.hasSuffix("220 ready\r\n") }
+            }
+            #expect(received.text == "HTTP/1.1 200 Connection Established\r\n\r\n220 ready\r\n")
+        }
+    }
+
     @Test func decryptsWhatGoesThroughTheProxysTunnel() async throws {
         let upstream = try await TestUpstreamProxy.start()
         defer { Task { await upstream.stop() } }
@@ -185,15 +203,21 @@ final class TestUpstreamProxy: Sendable {
         port = channel.localAddress!.port!
     }
 
-    /// - Parameter credentials: Such as `user:password`, to ask for.
-    static func start(credentials: String? = nil) async throws -> TestUpstreamProxy {
+    /// - Parameters:
+    ///   - credentials: Such as `user:password`, to ask for.
+    ///   - answersWithFirstBytes: Holds its answer to `CONNECT` back until the server sends
+    ///     something, then sends both in one write, as a busy proxy can.
+    static func start(credentials: String? = nil, answersWithFirstBytes: Bool = false) async throws
+        -> TestUpstreamProxy
+    {
         let log = Log()
         let channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(
-                        TestUpstreamHandler(credentials: credentials, log: log))
+                        TestUpstreamHandler(
+                            credentials: credentials, answersWithFirstBytes: answersWithFirstBytes, log: log))
                 }
             }
             .bind(host: "127.0.0.1", port: 0)
@@ -211,13 +235,15 @@ private final class TestUpstreamHandler: ChannelInboundHandler {
     typealias OutboundOut = ByteBuffer
 
     private let credentials: String?
+    private let answersWithFirstBytes: Bool
     private let log: TestUpstreamProxy.Log
     private var head = ""
     private var server: (any Channel)?
     private var isDone = false
 
-    init(credentials: String?, log: TestUpstreamProxy.Log) {
+    init(credentials: String?, answersWithFirstBytes: Bool, log: TestUpstreamProxy.Log) {
         self.credentials = credentials
+        self.answersWithFirstBytes = answersWithFirstBytes
         self.log = log
     }
 
@@ -255,6 +281,7 @@ private final class TestUpstreamHandler: ChannelInboundHandler {
         let host = String(parts[1][..<colon]).trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         let app = context.channel
         let handler = NIOLoopBound(self, eventLoop: context.eventLoop)
+        let answersWithFirstBytes = self.answersWithFirstBytes
         ClientBootstrap(group: context.eventLoop)
             .channelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
@@ -266,7 +293,13 @@ private final class TestUpstreamHandler: ChannelInboundHandler {
                 switch result {
                 case .success(let server):
                     handler.value.server = server
-                    app.writeAndFlush(ByteBuffer(string: "HTTP/1.1 200 Connection established\r\n\r\n"), promise: nil)
+                    let answer = ByteBuffer(string: "HTTP/1.1 200 Connection established\r\n\r\n")
+                    // Unflushed, it goes out with the first bytes the relay passes on.
+                    if answersWithFirstBytes {
+                        app.write(answer, promise: nil)
+                    } else {
+                        app.writeAndFlush(answer, promise: nil)
+                    }
                 case .failure:
                     app.writeAndFlush(ByteBuffer(string: "HTTP/1.1 502 Bad Gateway\r\n\r\n")).whenComplete { _ in
                         app.close(promise: nil)

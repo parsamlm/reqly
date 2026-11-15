@@ -124,6 +124,21 @@ import Testing
         }
     }
 
+    /// A server that speaks first, as mail and SSH servers do: its greeting gets here before the
+    /// round trip that opens the connection is over, and waits for the tunnel.
+    @Test func passesOnWhatTheServerSendsFirstThroughATunnel() async throws {
+        let server = try await GreetingServer.start(greeting: "220 ready\r\n")
+        defer { Task { await server.stop() } }
+        try await withHarness { harness in
+            harness.proxy.setRules(slow(far(300)))
+            let received = try await withCollectingConnection(port: harness.proxyPort) { app in
+                try await app.send("CONNECT \(server.authority) HTTP/1.1\r\nHost: \(server.authority)\r\n\r\n")
+                return await app.received.wait { $0.text.hasSuffix("220 ready\r\n") }
+            }
+            #expect(received.text == "HTTP/1.1 200 Connection Established\r\n\r\n220 ready\r\n")
+        }
+    }
+
     @Test func closesTunnelsThatTheChangeSlowsDown() async throws {
         try await withHarness { harness in
             let origin = "127.0.0.1:\(harness.origin.port)"

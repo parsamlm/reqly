@@ -121,3 +121,26 @@ final class GlueHandler: ChannelDuplexHandler, RemovableChannelHandler {
         }
     }
 }
+
+/// Holds what a server sends before its tunnel is ready, such as the greeting of a server that
+/// speaks first, which can arrive while a slow network holds the opening round trip back, or
+/// along with the upstream proxy's answer. It hands the bytes on to the tunnel as it's removed.
+final class EarlyBytesHandler: ChannelInboundHandler, RemovableChannelHandler {
+    typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer
+
+    private var held: [ByteBuffer] = []
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        held.append(unwrapInboundIn(data))
+    }
+
+    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
+        let held = self.held
+        self.held = []
+        for bytes in held {
+            context.fireChannelRead(wrapInboundOut(bytes))
+        }
+        context.leavePipeline(removalToken: removalToken)
+    }
+}

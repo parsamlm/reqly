@@ -1299,7 +1299,10 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
                 guard case .tunnelConnecting = client.value.state else { return }
                 client.value.engine.emit(.serverResolved(exchange, at: time))
             },
-            configure: { _ in }
+            configure: { channel in
+                // A server that speaks first may do so before the tunnel is ready.
+                try channel.pipeline.syncOperations.addHandler(EarlyBytesHandler())
+            }
         )
         .assumeIsolated()
         .whenComplete { result in
@@ -1325,7 +1328,7 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
     }
 
     /// Hands this connection over to a tunnel: from now on bytes pass between the app and the
-    /// server untouched. `reply` goes to the app once its HTTP handlers are gone.
+    /// server untouched. `reply` goes to the app first, ahead of anything the server sent.
     private func beginTunnel(
         _ exchange: ExchangeID,
         server: any Channel,
@@ -1348,6 +1351,10 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             record: TunnelRecord(exchange: exchange, engine: engine, webSocket: webSocket))
         var removals: [EventLoopFuture<Void>] = []
         do {
+            if let reply {
+                // From the encoder's place it goes out as it is.
+                try appPipeline.context(handler: encoder).write(NIOAny(reply), promise: nil)
+            }
             try serverPipeline.addHandler(serverSide)
             try appPipeline.addHandler(appSide)
             // After a protocol switch the server connection still has HTTP handlers. Its decoder
@@ -1365,6 +1372,11 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             removals.append(appPipeline.removeHandler(encoder))
             removals.append(appPipeline.removeHandler(context: context))
             removals.append(appPipeline.removeHandler(decoder))
+            // What held the bytes a tunnel's server sent before it was ready hands them on right
+            // away, so it goes once the app's encoder has.
+            if let early = try? serverPipeline.handler(type: EarlyBytesHandler.self) {
+                removals.append(serverPipeline.removeHandler(early))
+            }
         } catch {
             server.close(promise: nil)
             app.close(promise: nil)
@@ -1373,12 +1385,11 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         EventLoopFuture.andAllSucceed(removals, on: app.eventLoop).assumeIsolated().whenComplete { result in
             switch result {
             case .success:
-                if let reply {
-                    app.write(reply, promise: nil)
-                }
-                // A decoder hands the bytes it holds on to the tunnel as it leaves, with no read
-                // completing after them, so nothing flushes them but this: the first message a
-                // WebSocket server sent with its 101, or what an app sent right behind its request.
+                // The decoders, and what held a server's early bytes, hand what they hold on to the
+                // tunnel as they leave, with no read completing after it, so nothing flushes it but
+                // this: the first message a WebSocket server sent with its 101, what an app sent
+                // right behind its request, or the greeting of a server that speaks first. The
+                // reply goes out with them.
                 app.flush()
                 server.flush()
                 engine.emit(.tunnelOpened(exchange, at: Date()))
