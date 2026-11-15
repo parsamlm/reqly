@@ -139,6 +139,26 @@ import Testing
         }
     }
 
+    /// A server that greets and hangs up at once has gone by the time the tunnel is ready. The app
+    /// still gets the answer, the greeting and the close, as it would without slow network, and the
+    /// tunnel ends.
+    @Test func passesOnWhatTheServerSaidBeforeItClosedThroughATunnel() async throws {
+        let server = try await GreetingServer.start(greeting: "554 go away\r\n", closes: true)
+        defer { Task { await server.stop() } }
+        try await withHarness { harness in
+            harness.proxy.setRules(slow(far(300)))
+            let received = try await withCollectingConnection(port: harness.proxyPort) { app in
+                try await app.send("CONNECT \(server.authority) HTTP/1.1\r\nHost: \(server.authority)\r\n\r\n")
+                return await app.received.wait { $0.text.hasSuffix("554 go away\r\n") }
+            }
+            #expect(received.text == "HTTP/1.1 200 Connection Established\r\n\r\n554 go away\r\n")
+            let events = try await harness.log.wait { $0.contains { $0.tunnelBytes != nil } }
+            #expect(events.contains { $0.isTunnelOpened })
+            #expect(events.compactMap(\.tunnelBytes).first?.received == 13)
+            #expect(events.compactMap(\.failure).isEmpty)
+        }
+    }
+
     @Test func closesTunnelsThatTheChangeSlowsDown() async throws {
         try await withHarness { harness in
             let origin = "127.0.0.1:\(harness.origin.port)"

@@ -237,6 +237,24 @@ import Testing
         }
     }
 
+    /// A server that greets and hangs up at once: the app gets the answer, the greeting and the
+    /// close, and the tunnel ends.
+    @Test func passesOnWhatTheServerSaidBeforeItClosed() async throws {
+        let server = try await GreetingServer.start(greeting: "554 go away\r\n", closes: true)
+        defer { Task { await server.stop() } }
+        try await withHarness { harness in
+            let received = try await withCollectingConnection(port: harness.proxyPort) { app in
+                try await app.send("CONNECT \(server.authority) HTTP/1.1\r\nHost: \(server.authority)\r\n\r\n")
+                return await app.received.wait { $0.text.hasSuffix("554 go away\r\n") }
+            }
+            #expect(received.text == "HTTP/1.1 200 Connection Established\r\n\r\n554 go away\r\n")
+            let events = try await harness.log.wait { $0.contains { $0.tunnelBytes != nil } }
+            #expect(events.contains { $0.isTunnelOpened })
+            #expect(events.compactMap(\.tunnelBytes).first?.received == 13)
+            #expect(events.compactMap(\.failure).isEmpty)
+        }
+    }
+
     @Test func explainsWhenTheServerIsUnreachable() async throws {
         let port = refusingPort
         try await withHarness { harness in
@@ -251,7 +269,7 @@ import Testing
     }
 }
 
-/// A server that greets every connection as it opens, then sends back what it gets.
+/// A server that greets every connection as it opens, then sends back what it gets, or hangs up.
 final class GreetingServer: Sendable {
     let port: Int
     private let channel: any Channel
@@ -263,12 +281,13 @@ final class GreetingServer: Sendable {
 
     var authority: String { "127.0.0.1:\(port)" }
 
-    static func start(greeting: String) async throws -> GreetingServer {
+    /// - Parameter closes: Closes each connection right after greeting it.
+    static func start(greeting: String, closes: Bool = false) async throws -> GreetingServer {
         let channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
-                    try channel.pipeline.syncOperations.addHandler(GreetingHandler(greeting: greeting))
+                    try channel.pipeline.syncOperations.addHandler(GreetingHandler(greeting: greeting, closes: closes))
                 }
             }
             .bind(host: "127.0.0.1", port: 0)
@@ -286,13 +305,18 @@ private final class GreetingHandler: ChannelInboundHandler {
     typealias OutboundOut = ByteBuffer
 
     private let greeting: String
+    private let closes: Bool
 
-    init(greeting: String) {
+    init(greeting: String, closes: Bool) {
         self.greeting = greeting
+        self.closes = closes
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        context.writeAndFlush(wrapOutboundOut(ByteBuffer(string: greeting)), promise: nil)
+        let greeted = context.writeAndFlush(wrapOutboundOut(ByteBuffer(string: greeting)))
+        if closes {
+            greeted.assumeIsolated().whenComplete { _ in context.close(promise: nil) }
+        }
         context.fireChannelActive()
     }
 

@@ -146,6 +146,13 @@ final class EarlyBytesHandler: ChannelInboundHandler, RemovableChannelHandler {
         held.append(unwrapInboundIn(data))
     }
 
+    /// What it holds, for a tunnel whose server closed before it was ready. The connection's
+    /// pipeline is gone by then, so the bytes can't be handed on.
+    func takeHeld() -> [ByteBuffer] {
+        defer { held = [] }
+        return held
+    }
+
     func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
         let held = self.held
         self.held = []

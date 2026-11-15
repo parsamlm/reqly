@@ -1293,6 +1293,7 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         if let proxy = path.proxy {
             engine.emit(.upstreamProxy(exchange, proxy.address))
         }
+        let early = NIOLoopBound(EarlyBytesHandler(), eventLoop: context.eventLoop)
         ServerDialer.connect(
             to: authority, path: path, network: network, on: context.eventLoop,
             resolved: { time in
@@ -1301,7 +1302,7 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             },
             configure: { channel in
                 // A server that speaks first may do so before the tunnel is ready.
-                try channel.pipeline.syncOperations.addHandler(EarlyBytesHandler())
+                try channel.pipeline.syncOperations.addHandler(early.value)
             }
         )
         .assumeIsolated()
@@ -1317,7 +1318,13 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
                 self.engine.registerTunnel(
                     context.channel, host: authority.host, decrypted: false, network: network, proxy: path.proxy)
                 let reply = ByteBuffer(string: "HTTP/1.1 200 Connection Established\r\n\r\n")
-                self.beginTunnel(exchange, server: channel, reply: reply, context: context)
+                if channel.isActive {
+                    self.beginTunnel(exchange, server: channel, reply: reply, context: context)
+                } else {
+                    // Slow network can hold the round trip that opens the connection back past
+                    // the end of a server that greets and hangs up at once.
+                    self.endTunnel(exchange, reply: reply, said: early.value.takeHeld(), context: context)
+                }
             case .failure(let error):
                 // The app's own TLS goes through the tunnel; Reqly presents no certificate in it.
                 let failure = Self.connectFailure(for: error, certificate: .noCertificate)
@@ -1383,6 +1390,9 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
                 removals.append(serverPipeline.removeHandler(early))
             }
         } catch {
+            // A pipeline turns handlers away only once its connection has closed, and the app's
+            // hasn't, so the server has gone.
+            engine.emit(.failed(exchange, .serverClosed, at: Date()))
             server.close(promise: nil)
             app.close(promise: nil)
             return
@@ -1405,6 +1415,30 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
                 app.close(promise: nil)
             }
         }
+    }
+
+    /// Ends a tunnel whose server hung up before the tunnel was ready the way it would have ended
+    /// had it been ready in time: the app gets `reply`, then what the server `said`, then the close.
+    private func endTunnel(
+        _ exchange: ExchangeID, reply: ByteBuffer, said: [ByteBuffer], context: ChannelHandlerContext
+    ) {
+        state = .closed
+        guard let encoder, let out = try? context.pipeline.syncOperations.context(handler: encoder) else {
+            context.close(promise: nil)
+            return
+        }
+        let record = TunnelRecord(exchange: exchange, engine: engine)
+        engine.emit(.tunnelOpened(exchange, at: Date()))
+        var bytes = reply
+        for piece in said {
+            record.fromServer(piece)
+            bytes.writeImmutableBuffer(piece)
+        }
+        record.close()
+        // From the encoder's place they go out as they are.
+        let written = context.eventLoop.makePromise(of: Void.self)
+        out.writeAndFlush(NIOAny(bytes), promise: written)
+        written.futureResult.assumeIsolated().whenComplete { _ in context.close(promise: nil) }
     }
 
     /// Answers the app's `CONNECT` itself and takes the TLS handshake over with a certificate for
