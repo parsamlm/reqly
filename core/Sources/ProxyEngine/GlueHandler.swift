@@ -101,6 +101,17 @@ final class GlueHandler: ChannelDuplexHandler, RemovableChannelHandler {
         context.fireChannelInactive()
     }
 
+    /// Slow network lets a server connection close one way only, for the throttle's sake, so a
+    /// TLS server that closes arrives here as the end of its input. The tunnel ends then, as it
+    /// does without slow network.
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if case .inputClosed = event as? ChannelEvent {
+            context.close(promise: nil)
+        } else {
+            context.fireUserInboundEventTriggered(event)
+        }
+    }
+
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
         context.close(promise: nil)
     }
@@ -119,5 +130,70 @@ final class GlueHandler: ChannelDuplexHandler, RemovableChannelHandler {
         } else {
             context.read()
         }
+    }
+}
+
+/// Holds what a server sends before its tunnel is ready, such as the greeting of a server that
+/// speaks first, which can arrive while a slow network holds the opening round trip back, or
+/// along with the upstream proxy's answer. It hands the bytes on to the tunnel as it's removed.
+final class EarlyBytesHandler: ChannelInboundHandler, RemovableChannelHandler {
+    typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer
+
+    private var held: [ByteBuffer] = []
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        held.append(unwrapInboundIn(data))
+    }
+
+    /// What it holds, for a tunnel whose server closed before it was ready. The connection's
+    /// pipeline is gone by then, so the bytes can't be handed on.
+    func takeHeld() -> [ByteBuffer] {
+        defer { held = [] }
+        return held
+    }
+
+    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
+        let held = self.held
+        self.held = []
+        for bytes in held {
+            context.fireChannelRead(wrapInboundOut(bytes))
+        }
+        context.leavePipeline(removalToken: removalToken)
+    }
+}
+
+/// Holds a server connection's end back while its HTTP handlers leave for a tunnel. Their
+/// removal waits a turn of the event loop, and a decoder that hears the connection end first
+/// drops what it holds behind a 101 instead of handing it on. So a server that answers, sends a
+/// message and closes in one go, such as one that turns an app away with a close frame, would
+/// lose the message. Once the tunnel has flushed what the decoder handed on, this is removed
+/// and lets the end go on.
+final class EndHoldingHandler: ChannelInboundHandler, RemovableChannelHandler {
+    typealias InboundIn = ByteBuffer
+
+    private var isInactive = false
+    private var isInputClosed = false
+
+    func channelInactive(context: ChannelHandlerContext) {
+        isInactive = true
+    }
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if case .inputClosed = event as? ChannelEvent {
+            isInputClosed = true
+        } else {
+            context.fireUserInboundEventTriggered(event)
+        }
+    }
+
+    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
+        if isInputClosed {
+            context.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+        }
+        if isInactive {
+            context.fireChannelInactive()
+        }
+        context.leavePipeline(removalToken: removalToken)
     }
 }

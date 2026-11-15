@@ -189,12 +189,14 @@ import Testing
             await #expect(throws: Tool.Failure.self) {
                 try await Tool.run(URL(filePath: "/bin/sh"), ["-c", "echo nope >&2; exit 3"])
             }
-            // A tool that takes too long is stopped.
+            // A tool that takes too long is stopped, long before it would have ended. The limit
+            // leaves room for CI, where tests that keep Swift's few threads busy can hold up the
+            // deadline that stops the tool, and this test, for many seconds.
             let start = ContinuousClock.now
             await #expect(throws: Tool.Failure.self) {
-                try await Tool.run(URL(filePath: "/bin/sleep"), ["10"], timeout: .milliseconds(200))
+                try await Tool.run(URL(filePath: "/bin/sleep"), ["120"], timeout: .milliseconds(200))
             }
-            #expect(ContinuousClock.now - start < .seconds(5))
+            #expect(ContinuousClock.now - start < .seconds(60))
         }
     #endif
 

@@ -1293,13 +1293,17 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         if let proxy = path.proxy {
             engine.emit(.upstreamProxy(exchange, proxy.address))
         }
+        let early = NIOLoopBound(EarlyBytesHandler(), eventLoop: context.eventLoop)
         ServerDialer.connect(
             to: authority, path: path, network: network, on: context.eventLoop,
             resolved: { time in
                 guard case .tunnelConnecting = client.value.state else { return }
                 client.value.engine.emit(.serverResolved(exchange, at: time))
             },
-            configure: { _ in }
+            configure: { channel in
+                // A server that speaks first may do so before the tunnel is ready.
+                try channel.pipeline.syncOperations.addHandler(early.value)
+            }
         )
         .assumeIsolated()
         .whenComplete { result in
@@ -1314,7 +1318,13 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
                 self.engine.registerTunnel(
                     context.channel, host: authority.host, decrypted: false, network: network, proxy: path.proxy)
                 let reply = ByteBuffer(string: "HTTP/1.1 200 Connection Established\r\n\r\n")
-                self.beginTunnel(exchange, server: channel, reply: reply, context: context)
+                if channel.isActive {
+                    self.beginTunnel(exchange, server: channel, reply: reply, context: context)
+                } else {
+                    // Slow network can hold the round trip that opens the connection back past
+                    // the end of a server that greets and hangs up at once.
+                    self.endTunnel(exchange, reply: reply, said: early.value.takeHeld(), context: context)
+                }
             case .failure(let error):
                 // The app's own TLS goes through the tunnel; Reqly presents no certificate in it.
                 let failure = Self.connectFailure(for: error, certificate: .noCertificate)
@@ -1325,7 +1335,7 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
     }
 
     /// Hands this connection over to a tunnel: from now on bytes pass between the app and the
-    /// server untouched. `reply` goes to the app once its HTTP handlers are gone.
+    /// server untouched. `reply` goes to the app first, ahead of anything the server sent.
     private func beginTunnel(
         _ exchange: ExchangeID,
         server: any Channel,
@@ -1346,8 +1356,17 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         let serverPipeline = server.pipeline.syncOperations
         let (appSide, serverSide) = GlueHandler.matchedPair(
             record: TunnelRecord(exchange: exchange, engine: engine, webSocket: webSocket))
+        let serverEnd = EndHoldingHandler()
         var removals: [EventLoopFuture<Void>] = []
         do {
+            if let reply {
+                // From the encoder's place it goes out as it is.
+                try appPipeline.context(handler: encoder).write(NIOAny(reply), promise: nil)
+            }
+            // The server closing waits until the tunnel is ready, in front of the server's decoder
+            // if it has one, so the decoder still hands on what it holds and the tunnel sends it.
+            let serverDecoder = try? serverPipeline.handler(type: ByteToMessageHandler<HTTPResponseDecoder>.self)
+            try serverPipeline.addHandler(serverEnd, position: serverDecoder.map { .before($0) } ?? .last)
             try serverPipeline.addHandler(serverSide)
             try appPipeline.addHandler(appSide)
             // After a protocol switch the server connection still has HTTP handlers. Its decoder
@@ -1358,14 +1377,22 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             if let handler = try? serverPipeline.handler(type: ServerResponseHandler.self) {
                 removals.append(serverPipeline.removeHandler(handler))
             }
-            if let decoder = try? serverPipeline.handler(type: ByteToMessageHandler<HTTPResponseDecoder>.self) {
-                removals.append(serverPipeline.removeHandler(decoder))
+            if let serverDecoder {
+                removals.append(serverPipeline.removeHandler(serverDecoder))
             }
             // Same on the app side: the decoder goes last, so bytes the app already sent flow into the tunnel.
             removals.append(appPipeline.removeHandler(encoder))
             removals.append(appPipeline.removeHandler(context: context))
             removals.append(appPipeline.removeHandler(decoder))
+            // What held the bytes a tunnel's server sent before it was ready hands them on right
+            // away, so it goes once the app's encoder has.
+            if let early = try? serverPipeline.handler(type: EarlyBytesHandler.self) {
+                removals.append(serverPipeline.removeHandler(early))
+            }
         } catch {
+            // A pipeline turns handlers away only once its connection has closed, and the app's
+            // hasn't, so the server has gone.
+            engine.emit(.failed(exchange, .serverClosed, at: Date()))
             server.close(promise: nil)
             app.close(promise: nil)
             return
@@ -1373,15 +1400,45 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         EventLoopFuture.andAllSucceed(removals, on: app.eventLoop).assumeIsolated().whenComplete { result in
             switch result {
             case .success:
-                if let reply {
-                    app.writeAndFlush(reply, promise: nil)
-                }
+                // The decoders, and what held a server's early bytes, hand what they hold on to the
+                // tunnel as they leave, with no read completing after it, so nothing flushes it but
+                // this: the first message a WebSocket server sent with its 101, what an app sent
+                // right behind its request, or the greeting of a server that speaks first. The
+                // reply goes out with them.
+                app.flush()
+                server.flush()
                 engine.emit(.tunnelOpened(exchange, at: Date()))
+                // Now the server closing may end the tunnel.
+                serverPipeline.removeHandler(serverEnd, promise: nil)
             case .failure:
                 server.close(promise: nil)
                 app.close(promise: nil)
             }
         }
+    }
+
+    /// Ends a tunnel whose server hung up before the tunnel was ready the way it would have ended
+    /// had it been ready in time: the app gets `reply`, then what the server `said`, then the close.
+    private func endTunnel(
+        _ exchange: ExchangeID, reply: ByteBuffer, said: [ByteBuffer], context: ChannelHandlerContext
+    ) {
+        state = .closed
+        guard let encoder, let out = try? context.pipeline.syncOperations.context(handler: encoder) else {
+            context.close(promise: nil)
+            return
+        }
+        let record = TunnelRecord(exchange: exchange, engine: engine)
+        engine.emit(.tunnelOpened(exchange, at: Date()))
+        var bytes = reply
+        for piece in said {
+            record.fromServer(piece)
+            bytes.writeImmutableBuffer(piece)
+        }
+        record.close()
+        // From the encoder's place they go out as they are.
+        let written = context.eventLoop.makePromise(of: Void.self)
+        out.writeAndFlush(NIOAny(bytes), promise: written)
+        written.futureResult.assumeIsolated().whenComplete { _ in context.close(promise: nil) }
     }
 
     /// Answers the app's `CONNECT` itself and takes the TLS handshake over with a certificate for
@@ -1405,6 +1462,11 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         let tls = NIOSSLServerHandler(context: tlsContext)
         var removals: [EventLoopFuture<Void>] = []
         do {
+            // The app starts its TLS handshake when it reads this, or started it right behind its
+            // CONNECT, and then the TLS handler answers as soon as it has the handshake. So this
+            // goes first, from the encoder's place, which sends it as it is, in plain text.
+            let reply = ByteBuffer(string: "HTTP/1.1 200 Connection Established\r\n\r\n")
+            try pipeline.context(handler: encoder).writeAndFlush(NIOAny(reply), promise: nil)
             try pipeline.addHandlers([
                 tls, DecryptedTunnelHandler(engine: engine, connectionID: id, pending: pending),
             ])
@@ -1417,14 +1479,9 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             return
         }
         EventLoopFuture.andAllSucceed(removals, on: app.eventLoop).assumeIsolated().whenComplete { result in
-            guard case .success = result, let tlsHandler = try? app.pipeline.syncOperations.context(handler: tls) else {
+            if case .failure = result {
                 app.close(promise: nil)
-                return
             }
-            // Written from the TLS handler's place in the pipeline, so it goes out in plain text.
-            // The app starts its TLS handshake when it reads this.
-            let reply = ByteBuffer(string: "HTTP/1.1 200 Connection Established\r\n\r\n")
-            tlsHandler.writeAndFlush(NIOAny(reply), promise: nil)
         }
     }
 

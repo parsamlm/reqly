@@ -1,5 +1,7 @@
 import Foundation
+import NIOCore
 import NIOHTTP1
+import NIOPosix
 import ProxyEngine
 import ReqlyModel
 import Testing
@@ -205,6 +207,54 @@ import Testing
         }
     }
 
+    /// An app that speaks to the server without waiting for the proxy's answer, in the same
+    /// write as its CONNECT.
+    @Test func passesOnWhatTheAppSendsWithItsConnect() async throws {
+        try await withHarness { harness in
+            let origin = "127.0.0.1:\(harness.origin.port)"
+            let received = try await withCollectingConnection(port: harness.proxyPort) { app in
+                try await app.send(
+                    "CONNECT \(origin) HTTP/1.1\r\nHost: \(origin)\r\n\r\n"
+                        + "GET /hello HTTP/1.1\r\nHost: \(origin)\r\nConnection: close\r\n\r\n")
+                return await app.received.wait { $0.text.hasSuffix("hello") }
+            }
+            #expect(received.text.hasPrefix("HTTP/1.1 200 Connection Established\r\n\r\nHTTP/1.1 200 OK"))
+            #expect(received.text.hasSuffix("hello"))
+        }
+    }
+
+    /// A server that speaks first, as mail and SSH servers do: the app gets the proxy's answer,
+    /// then the server's greeting.
+    @Test func passesOnWhatTheServerSendsFirst() async throws {
+        let server = try await GreetingServer.start(greeting: "220 ready\r\n")
+        defer { Task { await server.stop() } }
+        try await withHarness { harness in
+            let received = try await withCollectingConnection(port: harness.proxyPort) { app in
+                try await app.send("CONNECT \(server.authority) HTTP/1.1\r\nHost: \(server.authority)\r\n\r\n")
+                return await app.received.wait { $0.text.hasSuffix("220 ready\r\n") }
+            }
+            #expect(received.text == "HTTP/1.1 200 Connection Established\r\n\r\n220 ready\r\n")
+        }
+    }
+
+    /// A server that greets and hangs up at once: the app gets the answer, the greeting and the
+    /// close, and the tunnel ends.
+    @Test func passesOnWhatTheServerSaidBeforeItClosed() async throws {
+        let server = try await GreetingServer.start(greeting: "554 go away\r\n", closes: true)
+        defer { Task { await server.stop() } }
+        try await withHarness { harness in
+            let received = try await withCollectingConnection(port: harness.proxyPort) { app in
+                try await app.send("CONNECT \(server.authority) HTTP/1.1\r\nHost: \(server.authority)\r\n\r\n")
+                return await app.received.wait { $0.text.hasSuffix("554 go away\r\n") }
+            }
+            #expect(received.text == "HTTP/1.1 200 Connection Established\r\n\r\n554 go away\r\n")
+            let events = try await harness.log.wait { $0.contains { $0.tunnelBytes != nil } }
+            #expect(events.contains { $0.isTunnelOpened })
+            #expect(events.compactMap(\.tunnelBytes).first?.received == 13)
+            #expect(events.compactMap(\.failure).isEmpty)
+        }
+    }
+
     @Test func explainsWhenTheServerIsUnreachable() async throws {
         let port = refusingPort
         try await withHarness { harness in
@@ -216,6 +266,62 @@ import Testing
             let events = try await harness.log.wait { $0.contains { $0.failure != nil } }
             #expect(events.compactMap(\.failure).first == .cannotConnect("127.0.0.1 refused the connection."))
         }
+    }
+}
+
+/// A server that greets every connection as it opens, then sends back what it gets, or hangs up.
+final class GreetingServer: Sendable {
+    let port: Int
+    private let channel: any Channel
+
+    private init(channel: any Channel) {
+        self.channel = channel
+        port = channel.localAddress!.port!
+    }
+
+    var authority: String { "127.0.0.1:\(port)" }
+
+    /// - Parameter closes: Closes each connection right after greeting it.
+    static func start(greeting: String, closes: Bool = false) async throws -> GreetingServer {
+        let channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+            .childChannelInitializer { channel in
+                channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(GreetingHandler(greeting: greeting, closes: closes))
+                }
+            }
+            .bind(host: "127.0.0.1", port: 0)
+            .get()
+        return GreetingServer(channel: channel)
+    }
+
+    func stop() async {
+        try? await channel.close()
+    }
+}
+
+private final class GreetingHandler: ChannelInboundHandler {
+    typealias InboundIn = ByteBuffer
+    typealias OutboundOut = ByteBuffer
+
+    private let greeting: String
+    private let closes: Bool
+
+    init(greeting: String, closes: Bool) {
+        self.greeting = greeting
+        self.closes = closes
+    }
+
+    func channelActive(context: ChannelHandlerContext) {
+        let greeted = context.writeAndFlush(wrapOutboundOut(ByteBuffer(string: greeting)))
+        if closes {
+            greeted.assumeIsolated().whenComplete { _ in context.close(promise: nil) }
+        }
+        context.fireChannelActive()
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        context.writeAndFlush(data, promise: nil)
     }
 }
 
