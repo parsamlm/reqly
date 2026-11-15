@@ -41,6 +41,18 @@ import Testing
         }
     }
 
+    /// An app that starts its TLS handshake without waiting for the proxy's answer, in the same
+    /// write as its CONNECT.
+    @Test func readsRequestsWhenTheHandshakeComesWithTheConnect() async throws {
+        try await withDecryptingHarness { harness in
+            let response = try await harness.withSecureConnection(inside: .http1, handshakeWithConnect: true) { app in
+                try await app.send(.GET, "/hello", headers: ["Host": harness.origin.authority])
+            }
+            #expect(response.status == 200)
+            #expect(response.body == "hello")
+        }
+    }
+
     @Test func readsHTTP2Streams() async throws {
         try await withDecryptingHarness { harness in
             let multiplexer = try await harness.openSecureConnection(inside: .http2)
@@ -236,14 +248,18 @@ struct DecryptingHarness {
 
     /// Connects through the proxy the way an app does for HTTPS: CONNECT, then TLS that trusts
     /// Reqly's root (or `root`), then HTTP inside. The tunnel goes to the website, or to `target`,
-    /// such as `localhost:8443`.
+    /// such as `localhost:8443`. With `handshakeWithConnect`, the app starts its TLS handshake
+    /// without waiting for the proxy's answer, in the same write as its CONNECT.
     func withSecureConnection<Result: Sendable>(
         inside: Inside,
         trusting root: RootIdentity? = nil,
         to target: String? = nil,
+        handshakeWithConnect: Bool = false,
         _ body: (inout HTTPConversation) async throws -> Result
     ) async throws -> Result {
-        let channel = try await openTunnel(inside: inside, trusting: root ?? reqlyRoot, to: target).channel
+        let channel = try await openTunnel(
+            inside: inside, trusting: root ?? reqlyRoot, to: target, handshakeWithConnect: handshakeWithConnect
+        ).channel
         let wrapped = try await channel.eventLoop.submit {
             try NIOAsyncChannel<HTTPClientResponsePart, HTTPClientRequestPart>(wrappingChannelSynchronously: channel)
         }.get()
@@ -280,7 +296,8 @@ struct DecryptingHarness {
     private func openTunnel(
         inside: Inside,
         trusting root: RootIdentity,
-        to target: String?
+        to target: String?,
+        handshakeWithConnect: Bool = false
     ) async throws -> (channel: any Channel, multiplexer: NIOHTTP2Handler.StreamMultiplexer?) {
         var configuration = TLSConfiguration.makeClientConfiguration()
         configuration.trustRoots = .certificates([try NIOSSLCertificate(bytes: try root.certificateDER, format: .der)])
@@ -296,7 +313,9 @@ struct DecryptingHarness {
                 .channelInitializer { channel in
                     channel.eventLoop.makeCompletedFuture {
                         try channel.pipeline.syncOperations.addHandler(
-                            TunnelRequester(target: target, tls: tls, inside: inside, ready: ready))
+                            TunnelRequester(
+                                target: target, tls: tls, inside: inside, handshakeWithConnect: handshakeWithConnect,
+                                ready: ready))
                     }
                 }
                 .connect(host: "127.0.0.1", port: proxyPort)
@@ -376,63 +395,95 @@ func sendOverStream(
 /// Asks the proxy for a tunnel, then starts TLS and HTTP inside it, the way an app does.
 final class TunnelRequester: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer
 
     private let ready: EventLoopPromise<NIOHTTP2Handler.StreamMultiplexer?>
     private let target: String
     private let tls: NIOSSLContext
     private let inside: DecryptingHarness.Inside
-    private var reply = ""
+    private let handshakeWithConnect: Bool
+    private var multiplexer: NIOHTTP2Handler.StreamMultiplexer?
+    private var reply = ByteBuffer()
     private var done = false
 
     init(
         target: String,
         tls: NIOSSLContext,
         inside: DecryptingHarness.Inside,
+        handshakeWithConnect: Bool = false,
         ready: EventLoopPromise<NIOHTTP2Handler.StreamMultiplexer?>
     ) {
         self.target = target
         self.tls = tls
         self.inside = inside
+        self.handshakeWithConnect = handshakeWithConnect
         self.ready = ready
     }
 
     func channelActive(context: ChannelHandlerContext) {
         let request = ByteBuffer(string: "CONNECT \(target) HTTP/1.1\r\nHost: \(target)\r\n\r\n")
-        context.writeAndFlush(NIOAny(request), promise: nil)
+        guard handshakeWithConnect else {
+            context.writeAndFlush(NIOAny(request), promise: nil)
+            context.fireChannelActive()
+            return
+        }
+        // Unflushed, it goes out with the handshake's first bytes, in one write.
+        context.write(NIOAny(request), promise: nil)
         context.fireChannelActive()
+        do {
+            try addInside(context: context)
+        } catch {
+            done = true
+            ready.fail(error)
+            context.close(promise: nil)
+        }
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        reply += String(buffer: unwrapInboundIn(data))
-        guard reply.contains("\r\n\r\n"), !done else { return }
+        var bytes = unwrapInboundIn(data)
+        reply.writeBuffer(&bytes)
+        guard !done, let end = reply.readableBytesView.firstRange(of: Array("\r\n\r\n".utf8)) else { return }
         done = true
-        guard reply.hasPrefix("HTTP/1.1 200") else {
+        guard reply.readableBytesView.starts(with: Array("HTTP/1.1 200".utf8)) else {
             ready.fail(TestError.connectionClosed)
             context.close(promise: nil)
             return
         }
         do {
-            let pipeline = context.pipeline.syncOperations
-            // To a name, the certificate Reqly makes has to be for it. Without one, for an
-            // address, TLS checks the certificate against the address it connected to.
-            let authority = Authority(target[...], defaultPort: 443)
-            let name = authority.flatMap { $0.isIPAddress ? nil : $0.host }
-            try pipeline.addHandler(NIOSSLClientHandler(context: tls, serverHostname: name))
-            var multiplexer: NIOHTTP2Handler.StreamMultiplexer?
-            switch inside {
-            case .http1:
-                try pipeline.addHTTPClientHandlers()
-            case .http2:
-                multiplexer = try pipeline.configureHTTP2Pipeline(
-                    mode: .client, connectionConfiguration: .init(), streamConfiguration: .init()
-                ) { $0.eventLoop.makeSucceededVoidFuture() }
-            case .bytes:
-                break
+            if handshakeWithConnect {
+                // What came after the answer is the server's side of the handshake.
+                reply.moveReaderIndex(forwardBy: end.upperBound - reply.readableBytesView.startIndex)
+                if reply.readableBytes > 0 {
+                    context.fireChannelRead(wrapInboundOut(reply))
+                }
+            } else {
+                try addInside(context: context)
             }
-            pipeline.removeHandler(context: context, promise: nil)
+            context.pipeline.syncOperations.removeHandler(context: context, promise: nil)
             ready.succeed(multiplexer)
         } catch {
             ready.fail(error)
+        }
+    }
+
+    /// Adds TLS, and what the app speaks inside it, after this handler. TLS starts its handshake
+    /// as it's added.
+    private func addInside(context: ChannelHandlerContext) throws {
+        let pipeline = context.pipeline.syncOperations
+        // To a name, the certificate Reqly makes has to be for it. Without one, for an
+        // address, TLS checks the certificate against the address it connected to.
+        let authority = Authority(target[...], defaultPort: 443)
+        let name = authority.flatMap { $0.isIPAddress ? nil : $0.host }
+        try pipeline.addHandler(NIOSSLClientHandler(context: tls, serverHostname: name))
+        switch inside {
+        case .http1:
+            try pipeline.addHTTPClientHandlers()
+        case .http2:
+            multiplexer = try pipeline.configureHTTP2Pipeline(
+                mode: .client, connectionConfiguration: .init(), streamConfiguration: .init()
+            ) { $0.eventLoop.makeSucceededVoidFuture() }
+        case .bytes:
+            break
         }
     }
 

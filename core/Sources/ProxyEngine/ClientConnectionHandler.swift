@@ -1421,6 +1421,11 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         let tls = NIOSSLServerHandler(context: tlsContext)
         var removals: [EventLoopFuture<Void>] = []
         do {
+            // The app starts its TLS handshake when it reads this, or started it right behind its
+            // CONNECT, and then the TLS handler answers as soon as it has the handshake. So this
+            // goes first, from the encoder's place, which sends it as it is, in plain text.
+            let reply = ByteBuffer(string: "HTTP/1.1 200 Connection Established\r\n\r\n")
+            try pipeline.context(handler: encoder).writeAndFlush(NIOAny(reply), promise: nil)
             try pipeline.addHandlers([
                 tls, DecryptedTunnelHandler(engine: engine, connectionID: id, pending: pending),
             ])
@@ -1433,14 +1438,9 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             return
         }
         EventLoopFuture.andAllSucceed(removals, on: app.eventLoop).assumeIsolated().whenComplete { result in
-            guard case .success = result, let tlsHandler = try? app.pipeline.syncOperations.context(handler: tls) else {
+            if case .failure = result {
                 app.close(promise: nil)
-                return
             }
-            // Written from the TLS handler's place in the pipeline, so it goes out in plain text.
-            // The app starts its TLS handshake when it reads this.
-            let reply = ByteBuffer(string: "HTTP/1.1 200 Connection Established\r\n\r\n")
-            tlsHandler.writeAndFlush(NIOAny(reply), promise: nil)
         }
     }
 
