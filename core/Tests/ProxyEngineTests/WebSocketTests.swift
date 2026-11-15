@@ -117,14 +117,18 @@ import Testing
             + frame(0x8, [0x03, 0xF0] + Array("not allowed".utf8), isMasked: false)
         try await withWebSocketServer(decrypted: decrypted, slow: slow, greeting: goodbye, closes: true) {
             server, app, log in
-            let start = ContinuousClock.now
             try await app.send(server.upgradeRequest(decrypted: decrypted))
             let received = await app.received.wait { $0.afterHead == goodbye }
             #expect(received.text.hasPrefix("HTTP/1.1 101"))
             #expect(received.afterHead == goodbye)
             let events = try await log.wait { $0.contains { $0.name == "tunnelClosed" } }
-            // NIOSSL waits 5 seconds for the other side's close.
-            #expect(ContinuousClock.now - start < .seconds(3))
+            // NIOSSL waits 5 seconds for the other side's close. The engine's own times, from the
+            // tunnel opening to its end: on CI, tests that keep all of Swift's few threads busy can
+            // hold this test up for seconds while the tunnel closes at once.
+            let opened = try #require(events.first { $0.name == "tunnelOpened" }?.time)
+            let closed = try #require(events.first { $0.name == "tunnelClosed" }?.time)
+            let closing = closed.timeIntervalSince(opened)
+            #expect(closing < 3, "The tunnel closed \(closing) seconds after it opened")
             let messages = events.compactMap(\.webSocketMessage)
             #expect(messages.map(\.direction) == [.received, .received])
             #expect(messages.map(\.kind) == [.text, .close])
