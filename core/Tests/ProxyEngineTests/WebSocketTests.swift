@@ -107,17 +107,53 @@ import Testing
         }
     }
 
+    /// A server that turns the app away: it answers, says why, and closes at once. What it said
+    /// reaches the app ahead of the close, and the Messages tab has it, slow network or not. The
+    /// tunnel ends with the server, not when a TLS server gives up waiting for Reqly to close too.
+    @Test(arguments: [false, true], [false, true])
+    func passesOnWhatTheServerSendsBeforeItCloses(decrypted: Bool, slow: Bool) async throws {
+        let goodbye =
+            frame(0x1, Array("welcome".utf8), isMasked: false)
+            + frame(0x8, [0x03, 0xF0] + Array("not allowed".utf8), isMasked: false)
+        try await withWebSocketServer(decrypted: decrypted, slow: slow, greeting: goodbye, closes: true) {
+            server, app, log in
+            let start = ContinuousClock.now
+            try await app.send(server.upgradeRequest(decrypted: decrypted))
+            let received = await app.received.wait { $0.afterHead == goodbye }
+            #expect(received.text.hasPrefix("HTTP/1.1 101"))
+            #expect(received.afterHead == goodbye)
+            let events = try await log.wait { $0.contains { $0.name == "tunnelClosed" } }
+            // NIOSSL waits 5 seconds for the other side's close.
+            #expect(ContinuousClock.now - start < .seconds(3))
+            let messages = events.compactMap(\.webSocketMessage)
+            #expect(messages.map(\.direction) == [.received, .received])
+            #expect(messages.map(\.kind) == [.text, .close])
+            #expect(messages.last?.closeCode == 1008)
+            #expect(messages.last?.text == "not allowed")
+        }
+    }
+
     /// Runs `body` with a WebSocket server, and a connection to it through the proxy: plain, or
-    /// over TLS in a tunnel the proxy decrypts.
+    /// over TLS in a tunnel the proxy decrypts, and over a slow network if `slow`.
     private func withWebSocketServer(
         decrypted: Bool,
+        slow: Bool = false,
         greeting: [UInt8]? = nil,
+        closes: Bool = false,
         _ body: (EchoingWebSocketServer, CollectingConnection, EventLog) async throws -> Void
     ) async throws {
+        let rules = RuleSet(
+            kindsOn: [.slowNetwork],
+            network: NetworkConditions(
+                profile: NetworkProfile(
+                    name: "Far", downloadBytesPerSecond: nil, uploadBytesPerSecond: nil, latency: 300)))
         guard decrypted else {
-            let server = try await EchoingWebSocketServer.start(greeting: greeting)
+            let server = try await EchoingWebSocketServer.start(greeting: greeting, closesAfterGreeting: closes)
             defer { Task { await server.stop() } }
             try await withHarness { harness in
+                if slow {
+                    harness.proxy.setRules(rules)
+                }
                 try await withCollectingConnection(port: harness.proxyPort) { app in
                     try await body(server, app, harness.log)
                 }
@@ -127,8 +163,11 @@ import Testing
         try await withDecryptingHarness { harness in
             // The proxy trusts the website's root, so the WebSocket server's certificate comes from it too.
             let server = try await EchoingWebSocketServer.start(
-                greeting: greeting, tls: try testServerTLS(from: harness.origin.root))
+                greeting: greeting, closesAfterGreeting: closes, tls: try testServerTLS(from: harness.origin.root))
             defer { Task { await server.stop() } }
+            if slow {
+                harness.proxy.setRules(rules)
+            }
             try await harness.withSecureCollectingConnection(to: server.authority) { app in
                 try await body(server, app, harness.log)
             }
@@ -203,9 +242,11 @@ final class EchoingWebSocketServer: Sendable {
     /// - Parameters:
     ///   - extensions: What it answers in Sec-WebSocket-Extensions.
     ///   - greeting: Bytes it sends in the same write as its 101, as a server that speaks first does.
+    ///   - closesAfterGreeting: Closes the connection right after its 101 and greeting.
     ///   - tls: Makes it a wss:// server.
     static func start(
-        extensions: String? = nil, greeting: [UInt8]? = nil, tls: NIOSSLContext? = nil
+        extensions: String? = nil, greeting: [UInt8]? = nil, closesAfterGreeting: Bool = false,
+        tls: NIOSSLContext? = nil
     ) async throws -> EchoingWebSocketServer {
         let received = ReceivedBytes()
         let channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
@@ -217,7 +258,9 @@ final class EchoingWebSocketServer: Sendable {
                         try pipeline.addHandler(NIOSSLServerHandler(context: tls))
                     }
                     try pipeline.addHandler(
-                        EchoingWebSocketHandler(extensions: extensions, greeting: greeting, received: received))
+                        EchoingWebSocketHandler(
+                            extensions: extensions, greeting: greeting, closesAfterGreeting: closesAfterGreeting,
+                            received: received))
                 }
             }
             .bind(host: "127.0.0.1", port: 0)
@@ -236,13 +279,15 @@ final class EchoingWebSocketHandler: ChannelInboundHandler {
 
     private let extensions: String?
     private let greeting: [UInt8]?
+    private let closesAfterGreeting: Bool
     private let received: ReceivedBytes
     private var request = ByteBuffer()
     private var hasUpgraded = false
 
-    init(extensions: String?, greeting: [UInt8]?, received: ReceivedBytes) {
+    init(extensions: String?, greeting: [UInt8]?, closesAfterGreeting: Bool, received: ReceivedBytes) {
         self.extensions = extensions
         self.greeting = greeting
+        self.closesAfterGreeting = closesAfterGreeting
         self.received = received
     }
 
@@ -266,6 +311,10 @@ final class EchoingWebSocketHandler: ChannelInboundHandler {
         var answer = ByteBuffer(string: response + "\r\n")
         answer.writeBytes(greeting ?? [])
         context.writeAndFlush(wrapOutboundOut(answer), promise: nil)
+        guard !closesAfterGreeting else {
+            context.close(promise: nil)
+            return
+        }
         // What the app sent along with its request, it gets back too.
         request.moveReaderIndex(forwardBy: end.upperBound - request.readableBytesView.startIndex)
         if request.readableBytes > 0 {

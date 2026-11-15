@@ -1349,12 +1349,17 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
         let serverPipeline = server.pipeline.syncOperations
         let (appSide, serverSide) = GlueHandler.matchedPair(
             record: TunnelRecord(exchange: exchange, engine: engine, webSocket: webSocket))
+        let serverEnd = EndHoldingHandler()
         var removals: [EventLoopFuture<Void>] = []
         do {
             if let reply {
                 // From the encoder's place it goes out as it is.
                 try appPipeline.context(handler: encoder).write(NIOAny(reply), promise: nil)
             }
+            // The server closing waits until the tunnel is ready, in front of the server's decoder
+            // if it has one, so the decoder still hands on what it holds and the tunnel sends it.
+            let serverDecoder = try? serverPipeline.handler(type: ByteToMessageHandler<HTTPResponseDecoder>.self)
+            try serverPipeline.addHandler(serverEnd, position: serverDecoder.map { .before($0) } ?? .last)
             try serverPipeline.addHandler(serverSide)
             try appPipeline.addHandler(appSide)
             // After a protocol switch the server connection still has HTTP handlers. Its decoder
@@ -1365,8 +1370,8 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             if let handler = try? serverPipeline.handler(type: ServerResponseHandler.self) {
                 removals.append(serverPipeline.removeHandler(handler))
             }
-            if let decoder = try? serverPipeline.handler(type: ByteToMessageHandler<HTTPResponseDecoder>.self) {
-                removals.append(serverPipeline.removeHandler(decoder))
+            if let serverDecoder {
+                removals.append(serverPipeline.removeHandler(serverDecoder))
             }
             // Same on the app side: the decoder goes last, so bytes the app already sent flow into the tunnel.
             removals.append(appPipeline.removeHandler(encoder))
@@ -1393,6 +1398,8 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
                 app.flush()
                 server.flush()
                 engine.emit(.tunnelOpened(exchange, at: Date()))
+                // Now the server closing may end the tunnel.
+                serverPipeline.removeHandler(serverEnd, promise: nil)
             case .failure:
                 server.close(promise: nil)
                 app.close(promise: nil)
