@@ -356,6 +356,94 @@ struct RawConversation {
     }
 }
 
+/// The bytes a connection got, kept as they come, so a test can wait for bytes that may never
+/// arrive without a read that doesn't return.
+final class ReceivedBytes: Sendable {
+    private let bytes = Mutex<[UInt8]>([])
+
+    var all: [UInt8] { bytes.withLock { $0 } }
+
+    func append(_ buffer: ByteBuffer) {
+        bytes.withLock { $0 += buffer.readableBytesView }
+    }
+
+    /// Waits until `condition` holds for the bytes so far, or the wait runs out, and returns them.
+    @discardableResult
+    func wait(timeout: Duration = waitLimit, until condition: ([UInt8]) -> Bool) async -> [UInt8] {
+        try? await waitUntil(timeout: timeout) { condition(all) }
+        return all
+    }
+}
+
+extension [UInt8] {
+    /// What follows the first blank line: on a connection that became a tunnel, what came
+    /// through it after the HTTP head that opened it.
+    var afterHead: [UInt8]? {
+        firstRange(of: Array("\r\n\r\n".utf8)).map { Array(self[$0.upperBound...]) }
+    }
+
+    var text: String { String(decoding: self, as: UTF8.self) }
+}
+
+/// Keeps every byte that reaches it.
+final class CollectingHandler: ChannelInboundHandler {
+    typealias InboundIn = ByteBuffer
+
+    private let received: ReceivedBytes
+
+    init(received: ReceivedBytes) {
+        self.received = received
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        received.append(unwrapInboundIn(data))
+    }
+}
+
+/// A connection to the proxy that keeps everything it gets, for tunnels.
+struct CollectingConnection: Sendable {
+    let channel: any Channel
+    let received: ReceivedBytes
+
+    func send(_ text: String) async throws {
+        try await channel.writeAndFlush(ByteBuffer(string: text)).get()
+    }
+
+    func send(bytes: [UInt8]) async throws {
+        try await channel.writeAndFlush(ByteBuffer(bytes: bytes)).get()
+    }
+
+    /// Runs `body`, then closes the connection.
+    func run<Result: Sendable>(_ body: (CollectingConnection) async throws -> Result) async throws -> Result {
+        let result: Result
+        do {
+            result = try await body(self)
+        } catch {
+            try? await channel.close()
+            throw error
+        }
+        try? await channel.close()
+        return result
+    }
+}
+
+/// Opens a plain TCP connection to the proxy that keeps everything it gets.
+func withCollectingConnection<Result: Sendable>(
+    port: Int,
+    _ body: (CollectingConnection) async throws -> Result
+) async throws -> Result {
+    let received = ReceivedBytes()
+    let channel = try await ClientBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+        .channelInitializer { channel in
+            channel.eventLoop.makeCompletedFuture {
+                try channel.pipeline.syncOperations.addHandler(CollectingHandler(received: received))
+            }
+        }
+        .connect(host: "127.0.0.1", port: port)
+        .get()
+    return try await CollectingConnection(channel: channel, received: received).run(body)
+}
+
 // MARK: - Events
 
 /// Collects a proxy's events so tests can wait for the ones they expect.

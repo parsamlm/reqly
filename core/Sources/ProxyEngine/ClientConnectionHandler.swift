@@ -1374,8 +1374,13 @@ final class ClientConnectionHandler: ChannelInboundHandler, RemovableChannelHand
             switch result {
             case .success:
                 if let reply {
-                    app.writeAndFlush(reply, promise: nil)
+                    app.write(reply, promise: nil)
                 }
+                // A decoder hands the bytes it holds on to the tunnel as it leaves, with no read
+                // completing after them, so nothing flushes them but this: the first message a
+                // WebSocket server sent with its 101, or what an app sent right behind its request.
+                app.flush()
+                server.flush()
                 engine.emit(.tunnelOpened(exchange, at: Date()))
             case .failure:
                 server.close(promise: nil)

@@ -231,7 +231,8 @@ struct DecryptingHarness {
     let reqlyRoot: RootIdentity
     let log: EventLog
 
-    enum Inside { case http1, http2 }
+    /// What the app speaks inside the tunnel: HTTP/1.1, HTTP/2, or bytes of its own over TLS.
+    enum Inside { case http1, http2, bytes }
 
     /// Connects through the proxy the way an app does for HTTPS: CONNECT, then TLS that trusts
     /// Reqly's root (or `root`), then HTTP inside. The tunnel goes to the website, or to `target`,
@@ -250,6 +251,20 @@ struct DecryptingHarness {
             var conversation = HTTPConversation(inbound: inbound.makeAsyncIterator(), outbound: outbound)
             return try await body(&conversation)
         }
+    }
+
+    /// Connects the same way, with nothing on top of TLS inside: what the app sends and gets
+    /// there is bytes, kept as they come.
+    func withSecureCollectingConnection<Result: Sendable>(
+        to target: String,
+        _ body: (CollectingConnection) async throws -> Result
+    ) async throws -> Result {
+        let channel = try await openTunnel(inside: .bytes, trusting: reqlyRoot, to: target).channel
+        let received = ReceivedBytes()
+        try await channel.eventLoop.submit {
+            try channel.pipeline.syncOperations.addHandler(CollectingHandler(received: received))
+        }.get()
+        return try await CollectingConnection(channel: channel, received: received).run(body)
     }
 
     func openSecureConnection(inside: Inside, to target: String? = nil) async throws
@@ -411,6 +426,8 @@ final class TunnelRequester: ChannelInboundHandler, RemovableChannelHandler {
                 multiplexer = try pipeline.configureHTTP2Pipeline(
                     mode: .client, connectionConfiguration: .init(), streamConfiguration: .init()
                 ) { $0.eventLoop.makeSucceededVoidFuture() }
+            case .bytes:
+                break
             }
             pipeline.removeHandler(context: context, promise: nil)
             ready.succeed(multiplexer)

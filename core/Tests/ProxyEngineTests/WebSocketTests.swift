@@ -1,6 +1,8 @@
+import CertificateAuthority
 import Foundation
 import NIOCore
 import NIOPosix
+import NIOSSL
 import ProxyEngine
 import ReqlyModel
 import Testing
@@ -70,6 +72,83 @@ import Testing
     }
 }
 
+/// What either side sends right behind the HTTP that switches the connection to WebSocket, in the
+/// same write, goes through as what comes later does. Over plain HTTP and inside decrypted tunnels.
+@Suite(.timeLimit(.minutes(1))) struct WebSocketFirstBytesTests {
+    /// A server that greets first, as chat and live-price servers do.
+    @Test(arguments: [false, true]) func passesOnWhatTheServerSendsWithItsAnswer(decrypted: Bool) async throws {
+        let greeting = frame(0x1, Array("welcome".utf8), isMasked: false)
+        try await withWebSocketServer(decrypted: decrypted, greeting: greeting) { server, app, log in
+            try await app.send(server.upgradeRequest(decrypted: decrypted))
+            let received = await app.received.wait { $0.afterHead == greeting }
+            #expect(received.text.hasPrefix("HTTP/1.1 101"))
+            #expect(received.afterHead == greeting)
+            let messages = try await log.wait { $0.contains { $0.webSocketMessage != nil } }
+                .compactMap(\.webSocketMessage)
+            #expect(messages.first?.direction == .received)
+            #expect(messages.first?.text == "welcome")
+        }
+    }
+
+    /// An app that sends its first message without waiting for the server's answer.
+    @Test(arguments: [false, true]) func passesOnWhatTheAppSendsWithItsRequest(decrypted: Bool) async throws {
+        let message = frame(0x1, Array("hello".utf8))
+        try await withWebSocketServer(decrypted: decrypted) { server, app, log in
+            try await app.send(bytes: Array(server.upgradeRequest(decrypted: decrypted).utf8) + message)
+            let atServer = await server.received.wait { $0 == message }
+            try #require(atServer == message)
+            // The server sends it back, so the app has its answer and the message too.
+            let atApp = await app.received.wait { $0.afterHead == message }
+            #expect(atApp.afterHead == message)
+            let messages = try await log.wait { $0.compactMap(\.webSocketMessage).count == 2 }
+                .compactMap(\.webSocketMessage)
+            #expect(messages.map(\.direction) == [.sent, .received])
+            #expect(messages.map(\.text) == ["hello", "hello"])
+        }
+    }
+
+    /// Runs `body` with a WebSocket server, and a connection to it through the proxy: plain, or
+    /// over TLS in a tunnel the proxy decrypts.
+    private func withWebSocketServer(
+        decrypted: Bool,
+        greeting: [UInt8]? = nil,
+        _ body: (EchoingWebSocketServer, CollectingConnection, EventLog) async throws -> Void
+    ) async throws {
+        guard decrypted else {
+            let server = try await EchoingWebSocketServer.start(greeting: greeting)
+            defer { Task { await server.stop() } }
+            try await withHarness { harness in
+                try await withCollectingConnection(port: harness.proxyPort) { app in
+                    try await body(server, app, harness.log)
+                }
+            }
+            return
+        }
+        try await withDecryptingHarness { harness in
+            // The proxy trusts the website's root, so the WebSocket server's certificate comes from it too.
+            let server = try await EchoingWebSocketServer.start(
+                greeting: greeting, tls: try testServerTLS(from: harness.origin.root))
+            defer { Task { await server.stop() } }
+            try await harness.withSecureCollectingConnection(to: server.authority) { app in
+                try await body(server, app, harness.log)
+            }
+        }
+    }
+}
+
+/// TLS for a test server at 127.0.0.1 that speaks HTTP/1.1, with a certificate from `root`.
+func testServerTLS(from root: RootIdentity) throws -> NIOSSLContext {
+    let identity = try CertificateAuthority(root: root).identity(for: "127.0.0.1")
+    var configuration = TLSConfiguration.makeServerConfiguration(
+        certificateChain: try identity.certificateChain.map {
+            .certificate(try NIOSSLCertificate(bytes: $0, format: .der))
+        },
+        privateKey: .privateKey(try NIOSSLPrivateKey(bytes: Array(identity.privateKeyPEM.utf8), format: .pem))
+    )
+    configuration.applicationProtocols = ["http/1.1"]
+    return try NIOSSLContext(configuration: configuration)
+}
+
 /// A WebSocket frame. Frames from apps are masked, as WebSocket asks.
 func frame(
     _ opcode: UInt8, _ payload: [UInt8], isFinal: Bool = true, isCompressed: Bool = false, isMasked: Bool = true
@@ -99,30 +178,51 @@ extension RawConversation {
 /// A WebSocket server that agrees to the upgrade, then sends back every byte it gets.
 final class EchoingWebSocketServer: Sendable {
     let port: Int
+    /// What the server got after the app's request, from every connection.
+    let received: ReceivedBytes
     private let channel: any Channel
 
-    private init(channel: any Channel) {
+    private init(channel: any Channel, received: ReceivedBytes) {
         self.channel = channel
+        self.received = received
         port = channel.localAddress!.port!
     }
 
+    var authority: String { "127.0.0.1:\(port)" }
+
     /// An app's request to switch to WebSocket, sent to the proxy.
-    var upgradeRequest: String {
-        "GET http://127.0.0.1:\(port)/live HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nUpgrade: websocket\r\n"
+    var upgradeRequest: String { upgradeRequest(decrypted: false) }
+
+    /// An app's request to switch to WebSocket: to the proxy, with the full URL, or inside a
+    /// decrypted tunnel, with only the path.
+    func upgradeRequest(decrypted: Bool) -> String {
+        "GET \(decrypted ? "" : "http://\(authority)")/live HTTP/1.1\r\nHost: \(authority)\r\nUpgrade: websocket\r\n"
             + "Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
     }
 
-    static func start(extensions: String?) async throws -> EchoingWebSocketServer {
+    /// - Parameters:
+    ///   - extensions: What it answers in Sec-WebSocket-Extensions.
+    ///   - greeting: Bytes it sends in the same write as its 101, as a server that speaks first does.
+    ///   - tls: Makes it a wss:// server.
+    static func start(
+        extensions: String? = nil, greeting: [UInt8]? = nil, tls: NIOSSLContext? = nil
+    ) async throws -> EchoingWebSocketServer {
+        let received = ReceivedBytes()
         let channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
-                    try channel.pipeline.syncOperations.addHandler(EchoingWebSocketHandler(extensions: extensions))
+                    let pipeline = channel.pipeline.syncOperations
+                    if let tls {
+                        try pipeline.addHandler(NIOSSLServerHandler(context: tls))
+                    }
+                    try pipeline.addHandler(
+                        EchoingWebSocketHandler(extensions: extensions, greeting: greeting, received: received))
                 }
             }
             .bind(host: "127.0.0.1", port: 0)
             .get()
-        return EchoingWebSocketServer(channel: channel)
+        return EchoingWebSocketServer(channel: channel, received: received)
     }
 
     func stop() async {
@@ -135,21 +235,26 @@ final class EchoingWebSocketHandler: ChannelInboundHandler {
     typealias OutboundOut = ByteBuffer
 
     private let extensions: String?
-    private var request = ""
+    private let greeting: [UInt8]?
+    private let received: ReceivedBytes
+    private var request = ByteBuffer()
     private var hasUpgraded = false
 
-    init(extensions: String?) {
+    init(extensions: String?, greeting: [UInt8]?, received: ReceivedBytes) {
         self.extensions = extensions
+        self.greeting = greeting
+        self.received = received
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
         if hasUpgraded {
+            received.append(buffer)
             context.writeAndFlush(wrapOutboundOut(buffer), promise: nil)
             return
         }
-        request += buffer.readString(length: buffer.readableBytes) ?? ""
-        guard request.contains("\r\n\r\n") else { return }
+        request.writeBuffer(&buffer)
+        guard let end = request.readableBytesView.firstRange(of: Array("\r\n\r\n".utf8)) else { return }
         hasUpgraded = true
         var response =
             "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
@@ -157,6 +262,16 @@ final class EchoingWebSocketHandler: ChannelInboundHandler {
         if let extensions {
             response += "Sec-WebSocket-Extensions: \(extensions)\r\n"
         }
-        context.writeAndFlush(wrapOutboundOut(ByteBuffer(string: response + "\r\n")), promise: nil)
+        // The greeting goes in the same write as the answer.
+        var answer = ByteBuffer(string: response + "\r\n")
+        answer.writeBytes(greeting ?? [])
+        context.writeAndFlush(wrapOutboundOut(answer), promise: nil)
+        // What the app sent along with its request, it gets back too.
+        request.moveReaderIndex(forwardBy: end.upperBound - request.readableBytesView.startIndex)
+        if request.readableBytes > 0 {
+            received.append(request)
+            context.writeAndFlush(wrapOutboundOut(request), promise: nil)
+        }
+        request = ByteBuffer()
     }
 }
