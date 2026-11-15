@@ -384,7 +384,9 @@ extension SelfCheck {
         try require(secondaries(FrameTestWindow.self).count == 1, "the live window's windows don't have it")
         try require(
             gtk_window_get_transient_for(cast(first.window)) == window.window, "the window isn't over the live window")
-        let dialog = adw_alert_dialog_new("A Question", nil)!
+        // With a body, as Reqly's own alerts have: libadwaita 1.7 and 1.9 warn that an alert with
+        // only a heading doesn't fit as it opens in a window 360 px tall or shorter, such as this one.
+        let dialog = adw_alert_dialog_new("A Question", "Ctrl+W leaves the window open until it's answered.")!
         adw_alert_dialog_add_response(cast(dialog), "close", "Close")
         adw_dialog_present(cast(dialog), first.window)
         await settle(first.window)
