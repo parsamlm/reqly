@@ -19,11 +19,11 @@ final class SearchBar {
     private(set) var query = ""
     /// Runs once the session searches for new text, and the list shows what it found so far.
     var onSearch: (() -> Void)?
-    private let model: AppModel
+    private let model: SessionModel
     /// The latest search. The next one waits for it, so the session gets them in order.
     private var searching: Task<Void, Never>?
 
-    init(model: AppModel) {
+    init(model: SessionModel) {
         self.model = model
         entry = gtk_search_entry_new()
         gtk_search_entry_set_placeholder_text(cast(entry), "Search requests")
@@ -54,6 +54,15 @@ final class SearchBar {
     /// Hides the bar, which clears its field, and the search with it.
     func close() {
         gtk_search_bar_set_search_mode(cast(widget), 0)
+    }
+
+    /// Runs `body` once the session has the latest search, as when closing the bar has cleared it.
+    func afterSearching(_ body: @escaping @MainActor () -> Void) {
+        let latest = searching
+        Task {
+            await latest?.value
+            body()
+        }
     }
 
     /// Typing in `pane`, such as the list's, opens the bar, with what you typed in its field.

@@ -32,14 +32,19 @@ final class SelfCheck {
         }
     }
 
-    /// Every part, in the order they run.
+    /// Every part, in the order they run. Step 5's parts each have a list of their own, empty until
+    /// the part is built: files, composer and resend (opening, saving and sending); breakpoints,
+    /// rules and slow-network; scripts; connections and protobuf; devices and emulators; messages
+    /// and welcome.
     static var parts: [Part] {
         windowParts + captureParts + httpsParts + findParts + toolParts + trafficParts + detailsParts + bodyParts
-            + inspectParts
+            + inspectParts + filesParts + composerParts + resendParts + breakpointsParts + rulesParts + scriptsParts
+            + slowNetworkParts + connectionsParts + protobufParts + devicesParts + emulatorsParts + messagesParts
+            + welcomeParts + frameParts + openFilesParts
     }
 
     /// Parts that run only when `--smoke-parts` names them, never in the whole self-check.
-    static var partsByName: [Part] { speedParts }
+    static var partsByName: [Part] { speedParts + notificationProbeParts + standInParts }
 
     let app: App
     let report: URL
@@ -54,6 +59,9 @@ final class SelfCheck {
     /// How many frames the window has painted, and when it painted the latest.
     private var paints = 0
     private var lastPaint = 0
+    /// Whether the report is written, and who waits for it, such as quitting.
+    private var isFinished = false
+    private var waitingForTheReport: [CheckedContinuation<Void, Never>] = []
 
     init(app: App, report: URL, names: [String]?) {
         self.app = app
@@ -61,8 +69,20 @@ final class SelfCheck {
         self.names = names
     }
 
-    var window: MainWindow { app.window! }
+    /// The live window. A run started with files has none until it shows.
+    var window: MainWindow { app.liveWindow! }
     var model: AppModel { app.model }
+    /// The files' windows, in the order they opened.
+    var fileWindows: [MainWindow] { app.fileWindows }
+
+    /// The windows of `type` that belong to the live window, such as the Rules window or the
+    /// composers, in the order they opened.
+    func secondaries<Window: SecondaryWindow>(_ type: Window.Type) -> [Window] {
+        app.secondaries.compactMap { $0 as? Window }
+    }
+    /// The window whose frames ``settle()`` and ``atFrameEnd(_:)`` count: the live window, or the
+    /// first file's in a run started with files.
+    private var paintedWindow: MainWindow? { app.liveWindow ?? app.fileWindows.first }
 
     /// Why the self-check can't run with `options`, or `nil` when it can. Its parts change what
     /// they find, such as the files in your applications folder and the clipboard, so it runs
@@ -102,11 +122,12 @@ final class SelfCheck {
         else {
             AppLog.write("couldn't write the self-check's report to \(report.path)")
             app.exitStatus = 1
+            finish()
             app.quit()
             return
         }
         self.output = output
-        if let clock = gtk_widget_get_frame_clock(window.window) {
+        if let window = paintedWindow?.window, let clock = gtk_widget_get_frame_clock(window) {
             connect(clock, "after-paint") { [weak self] in
                 self?.paints += 1
                 self?.lastPaint = monotonicMicroseconds()
@@ -140,7 +161,23 @@ final class SelfCheck {
         say("\(passed) of \(chosen.count) parts passed")
         try? output.close()
         app.exitStatus = passed == chosen.count ? 0 : 1
+        finish()
         app.quit()
+    }
+
+    /// The report is written: quitting, which a part may have started, can end Reqly.
+    private func finish() {
+        isFinished = true
+        for waiting in waitingForTheReport {
+            waiting.resume()
+        }
+        waitingForTheReport = []
+    }
+
+    /// Returns once the report is written.
+    func finished() async {
+        guard !isFinished else { return }
+        await withCheckedContinuation { waitingForTheReport.append($0) }
     }
 
     /// Runs a part, and says why it failed, or `nil` when it passed.
@@ -244,16 +281,40 @@ final class SelfCheck {
         }
     }
 
+    /// Waits for `window`, such as a composer or the Rules window, to settle, as ``settle()`` does
+    /// for the live window: for its next frame, then for 300 ms with none. At most 5 s.
+    func settle(_ window: Widget) async {
+        guard let clock = gtk_widget_get_frame_clock(window) else {
+            try? await Task.sleep(for: .milliseconds(300))
+            return
+        }
+        let frames = FrameCount()
+        let handler = connect(clock, "after-paint") {
+            frames.count += 1
+            frames.last = monotonicMicroseconds()
+        }
+        defer { g_signal_handler_disconnect(raw(clock), handler) }
+        gtk_widget_queue_draw(window)
+        let start = monotonicMicroseconds()
+        while monotonicMicroseconds() - start < 5_000_000 {
+            let now = monotonicMicroseconds()
+            if frames.count > 0 || now - start > 1_000_000, now - max(frames.last, start) >= 300_000 {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
     /// Runs `body` once, as the window's next frame ends, once it's drawn: as far as can be from the
     /// frame after, which lays out what `body` shows.
     func atFrameEnd(_ body: @escaping @MainActor () -> Void) {
-        guard let clock = gtk_widget_get_frame_clock(window.window) else { return }
+        guard let window = paintedWindow?.window, let clock = gtk_widget_get_frame_clock(window) else { return }
         let handler = SignalHandler()
         handler.id = connect(clock, "after-paint") {
             g_signal_handler_disconnect(raw(clock), handler.id)
             body()
         }
-        gtk_widget_queue_draw(window.window)
+        gtk_widget_queue_draw(window)
     }
 
     /// The live session, once it's open.
@@ -267,6 +328,13 @@ final class SelfCheck {
     func activate(_ action: String) {
         g_action_group_activate_action(cast(app.application), action, nil)
     }
+}
+
+/// How many frames a window has painted, and when it painted the latest.
+@MainActor
+private final class FrameCount {
+    var count = 0
+    var last = 0
 }
 
 /// A signal handler's ID, for a handler that disconnects itself.

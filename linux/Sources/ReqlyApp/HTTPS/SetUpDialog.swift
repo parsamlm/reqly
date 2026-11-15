@@ -402,9 +402,7 @@ final class SetUpDialog {
 
     /// Plain text, not Pango markup, since it may hold a path or a message.
     private func toast(_ text: String) {
-        let toast = adw_toast_new(text)
-        adw_toast_set_use_markup(toast, 0)
-        adw_toast_overlay_add_toast(cast(toasts), toast)
+        DetailsBlocks.toast(text, from: toasts)
     }
 
     /// Cancel stops waiting for the password dialog, which closes with it, and closes setup. What

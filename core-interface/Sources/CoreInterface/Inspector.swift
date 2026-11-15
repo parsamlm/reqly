@@ -324,7 +324,7 @@ public struct WireOutgoing: Codable, Sendable, Equatable {
         method = draft.method
         url = draft.url
         headers = draft.headers.map { Header(name: $0.name, value: $0.value, isOn: $0.isOn) }
-        if let text = String(data: draft.body, encoding: .utf8) {
+        if let text = draft.bodyText {
             body = text
         } else {
             binaryBody = draft.body.base64EncodedString()

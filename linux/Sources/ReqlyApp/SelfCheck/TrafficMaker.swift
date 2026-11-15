@@ -2,13 +2,18 @@ import Foundation
 import Synchronization
 
 // Traffic for the self-check's parts, made on this computer, since its container has no network:
-// a server on 127.0.0.1 that answers each path with a body of a kind the details show, and a
+// a server on 127.0.0.1 that answers each path with a body of a kind the details show, a
+// WebSocket's messages too, and answers a proxy's full URLs as an upstream proxy does; and a
 // client that sends requests through Reqly's proxy, as an app would, one at a time or thousands
-// at once.
+// at once, or talks to a WebSocket through it.
 
 /// A web server on 127.0.0.1, on a port the kernel picks, that answers each of its ``Path``s as
 /// an app's server would. Each connection gets a thread of its own and stays open for the requests
 /// that follow on it, as Reqly's proxy keeps its connections to servers. It answers until it stops.
+/// Asked for a full URL, as a proxy is, it answers by the URL's path, whatever the host, as an
+/// upstream proxy would pass it on, with `Via: 1.1 reqly-self-check`, and keeps the URL in
+/// ``proxied``: so it stands in for an upstream proxy. It refuses CONNECT, so HTTPS doesn't go
+/// through it.
 final class TestServer: Sendable {
     /// What the server answers. Each takes `?status=404` for another status, and `?ms=500` to
     /// wait that long before answering.
@@ -39,14 +44,31 @@ final class TestServer: Sendable {
         /// Lines of text sent a piece at a time, as a download comes: `pieces=` pieces of a
         /// kilobyte, 8 unless it says, `gap=` milliseconds apart, 250 unless it says.
         case drip = "/drip"
+        /// A Forecast in protobuf, `application/x-protobuf`, as ``TestServer/protoSource`` says.
+        case protobuf = "/protobuf"
+        /// A WebSocket, once the request asks to upgrade: the server sends a text message, then a
+        /// binary one, then answers each text with "Echo: " and it, each binary with the same
+        /// bytes and each ping with a pong, until a close, which it answers. See
+        /// ``ProxyClient/webSocket(_:sending:)``. `together` sends the first message in the same
+        /// packet as the upgrade's answer.
+        case webSocket = "/ws"
         /// "ok", as any other path answers.
         case ok = "/ok"
     }
+
+    /// The server's first WebSocket messages.
+    static let webSocketGreeting = "Hello from Tehran"
+    static let webSocketBytes: [UInt8] = [0x00, 0x01, 0xFE, 0xFF]
 
     let port: Int
     private let listener: Int32
     /// The connections open now, so stopping closes them.
     private let open = Mutex<Set<Int32>>([])
+    /// The full URLs the server was asked for, as an upstream proxy is, in order.
+    private let proxiedURLs = Mutex<[String]>([])
+
+    /// The full URLs the server was asked for, as an upstream proxy is, in order.
+    var proxied: [String] { proxiedURLs.withLock { $0 } }
 
     init() throws {
         (listener, port) = try Loopback.listen()
@@ -86,13 +108,31 @@ final class TestServer: Sendable {
         }
     }
 
-    /// Answers the requests on a connection until it closes, or one says to close it.
+    /// Answers the requests on a connection until it closes, or one says to close it, or it
+    /// becomes a WebSocket's.
     private func serve(_ wire: HTTPWire) {
         while let (start, headers) = wire.head() {
             let parts = start.split(separator: " ")
             guard parts.count == 3, let body = wire.body(of: headers) else { return }
             let target = String(parts[1])
-            guard let answer = Self.answer(target, headers: headers, body: body) else { return }
+            if parts[0] == "CONNECT" {
+                _ = wire.write(Array("HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n".utf8))
+                return
+            }
+            if target.contains("://") {
+                proxiedURLs.withLock { $0.append(target) }
+            }
+            if Self.split(target).path == Path.webSocket.rawValue,
+                HTTPWire.value("Upgrade", in: headers)?.lowercased() == "websocket",
+                let key = HTTPWire.value("Sec-WebSocket-Key", in: headers)
+            {
+                serveWebSocket(wire, key: key, together: Self.split(target).query["together"] != nil)
+                return
+            }
+            guard var answer = Self.answer(target, headers: headers, body: body) else { return }
+            if target.contains("://") {
+                answer.headers.append(("Via", "1.1 reqly-self-check"))
+            }
             if answer.wait > 0 {
                 usleep(useconds_t(answer.wait) * 1000)
             }
@@ -108,6 +148,38 @@ final class TestServer: Sendable {
                 sent = end
             }
             if HTTPWire.value("Connection", in: headers)?.lowercased() == "close" { return }
+        }
+    }
+
+    /// A WebSocket on `wire`, once its upgrade is answered: the greeting, a text message and a
+    /// binary one, then an echo of each message, until either end closes. The greeting goes a
+    /// tenth of a second after the upgrade's answer, unless `together`: Reqly's proxy loses what a
+    /// server sends right behind its 101, in the same read, so the parts' WebSockets wait, and
+    /// `?together` shows it.
+    private func serveWebSocket(_ wire: HTTPWire, key: String, together: Bool) {
+        let accept = WebSocketFrame.accept(for: key)
+        let head =
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+            + "Sec-WebSocket-Accept: \(accept)\r\n\r\n"
+        guard wire.write(Array(head.utf8)) else { return }
+        if !together {
+            usleep(100_000)
+        }
+        guard wire.write(WebSocketFrame.encode(.text, Array(Self.webSocketGreeting.utf8))),
+            wire.write(WebSocketFrame.encode(.binary, Self.webSocketBytes))
+        else { return }
+        while let frame = WebSocketFrame.read(from: wire) {
+            let reply: [UInt8]
+            switch frame.opcode {
+            case .text: reply = WebSocketFrame.encode(.text, Array("Echo: ".utf8) + frame.payload)
+            case .binary: reply = WebSocketFrame.encode(.binary, frame.payload)
+            case .ping: reply = WebSocketFrame.encode(.pong, frame.payload)
+            case .close:
+                _ = wire.write(WebSocketFrame.encode(.close, Array(frame.payload.prefix(2))))
+                return
+            default: continue
+            }
+            guard wire.write(reply) else { return }
         }
     }
 
@@ -218,7 +290,10 @@ final class TestServer: Sendable {
                 answer.headers.append(("Content-Type", "text/plain"))
                 answer.body = (0..<answer.pieces * 1000).map { line[$0 % line.count] }
             }
-        case .ok:
+        case .protobuf:
+            answer.headers.append(("Content-Type", "application/x-protobuf"))
+            answer.body = protobufBody
+        case .webSocket, .ok:
             content("text/plain", "ok")
         }
         if let status = query["status"].flatMap({ Int($0) }) {
@@ -232,7 +307,7 @@ final class TestServer: Sendable {
 
     /// A target's path, and its query's names and values. A full URL, as a proxy gets, counts
     /// from its path.
-    private static func split(_ target: String) -> (path: String, query: [String: String]) {
+    static func split(_ target: String) -> (path: String, query: [String: String]) {
         var target = Substring(target)
         if let scheme = target.range(of: "://") {
             let rest = target[scheme.upperBound...]
@@ -246,6 +321,34 @@ final class TestServer: Sendable {
         }
         return (pieces.first.map(String.init) ?? "/", query)
     }
+
+    /// The `.proto` file ``Path/protobuf``'s body is a message of: a `weatherly.v1.Forecast`.
+    static let protoSource = """
+        syntax = "proto3";
+
+        package weatherly.v1;
+
+        message Day {
+          string sky = 1;
+          int32 high = 2;
+        }
+
+        message Forecast {
+          string city = 1;
+          int32 high = 2;
+          repeated Day days = 3;
+        }
+
+        """
+
+    /// ``Path/protobuf``'s body: a Forecast for Tehran, 31, with a clear day at 31 and a rainy one
+    /// at 24.
+    static let protobufBody: [UInt8] = {
+        let city: [UInt8] = [0x0A, 0x06] + Array("Tehran".utf8) + [0x10, 0x1F]
+        let clear: [UInt8] = [0x1A, 0x09, 0x0A, 0x05] + Array("clear".utf8) + [0x10, 0x1F]
+        let rain: [UInt8] = [0x1A, 0x08, 0x0A, 0x04] + Array("rain".utf8) + [0x10, 0x18]
+        return city + clear + rain
+    }()
 
     /// The picture ``Path/image`` answers with.
     static let png = [UInt8](
@@ -362,6 +465,63 @@ struct ProxyClient: Sendable {
         }
         if let wire { close(wire.socket) }
         return burst
+    }
+
+    /// What a WebSocket's other end sent: text, or bytes.
+    enum WebSocketMessage: Equatable, Sendable {
+        case text(String)
+        case binary([UInt8])
+    }
+
+    /// Opens the WebSocket at `url`, such as the test server's ``TestServer/Path/webSocket``,
+    /// through Reqly's proxy, as an app does with a `ws://` address and a proxy: the upgrade, then
+    /// each of `texts`, masked as a client's are, each after the message before has had its
+    /// answer, then a close, which it waits for the answer to. Gives what the other end sent, in
+    /// order, the close's answer left out.
+    func webSocket(_ url: String, sending texts: [String]) async throws -> [WebSocketMessage] {
+        try await onOwnThread { () -> Result<[WebSocketMessage], any Error> in
+            Result {
+                let wire = HTTPWire(try Loopback.connect(to: proxyPort))
+                defer { close(wire.socket) }
+                let key = Data((0..<16).map { _ in UInt8.random(in: 0...255) }).base64EncodedString()
+                let headers = [
+                    ("Upgrade", "websocket"), ("Connection", "Upgrade"), ("Sec-WebSocket-Key", key),
+                    ("Sec-WebSocket-Version", "13"),
+                ]
+                guard wire.write(Self.request(url, method: "GET", headers: headers, body: [])),
+                    let (start, answer) = wire.head()
+                else { throw Loopback.Failed(step: "the upgrade of \(url)") }
+                guard start.split(separator: " ").dropFirst().first == "101",
+                    HTTPWire.value("Sec-WebSocket-Accept", in: answer) == WebSocketFrame.accept(for: key)
+                else { throw Loopback.Failed(step: "the upgrade of \(url), answered \(start)") }
+                var received: [WebSocketMessage] = []
+                func take() throws -> WebSocketFrame.Frame {
+                    guard let frame = WebSocketFrame.read(from: wire) else {
+                        throw Loopback.Failed(step: "a message from \(url)")
+                    }
+                    switch frame.opcode {
+                    case .text: received.append(.text(String(decoding: frame.payload, as: UTF8.self)))
+                    case .binary: received.append(.binary(frame.payload))
+                    default: break
+                    }
+                    return frame
+                }
+                // The server's greeting, a text and a binary.
+                _ = try take()
+                _ = try take()
+                for text in texts {
+                    guard wire.write(WebSocketFrame.encode(.text, Array(text.utf8), masked: true)) else {
+                        throw Loopback.Failed(step: "sending “\(text)” to \(url)")
+                    }
+                    _ = try take()
+                }
+                guard wire.write(WebSocketFrame.encode(.close, [0x03, 0xE8], masked: true)) else {
+                    throw Loopback.Failed(step: "closing \(url)")
+                }
+                while try take().opcode != .close {}
+                return received
+            }
+        }.get()
     }
 
     private static func request(
@@ -487,7 +647,8 @@ final class HTTPWire {
         }
     }
 
-    private func bytes(_ count: Int) -> [UInt8]? {
+    /// The next `count` bytes, or `nil` when the connection ends before them.
+    func bytes(_ count: Int) -> [UInt8]? {
         while buffer.count < count {
             guard fill() else { return nil }
         }

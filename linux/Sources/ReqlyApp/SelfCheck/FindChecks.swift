@@ -437,13 +437,28 @@ extension SelfCheck {
         try require(heardSkies == ["1 of 6 requests"], "as “skies” was found, screen readers heard \(heardSkies)")
         note("“skies”, only in the text's body: the store found it after \(after) ms, as screen readers hear")
 
+        // The request it found, selected, has the keyboard's focus once Escape closes the search,
+        // and says where it is among the 6, not where it was among the 1 found.
+        let skiesRow = try present(list.exchange(at: 0), "“skies” shows no row")
+        list.select(id: skiesRow)
+        try await until("the request “skies” found to be selected", seconds: 3) { list.selected == skiesRow }
         try FakeInput.press("Escape", in: window.window)
         try await until("Escape to close the search and clear it", seconds: 3) {
             !search.isOpen && search.query.isEmpty && list.count == 6
         }
         let text = string(gtk_editable_get_text(cast(search.entry))) ?? ""
         try require(text.isEmpty, "the closed search still has “\(text)”")
-        note("Escape: closes the search, which clears it, and the list shows its 6 again")
+        let place = try present((0..<list.count).first { list.exchange(at: $0) == skiesRow }, "its row went")
+        let expected = RowText.position(place, of: 6)
+        try await until("its row to have the focus", seconds: 2) { list.focusedExchange == skiesRow }
+        // As it had the focus, as screen readers heard it then.
+        let placeSaid = list.focusArrival.map { $0.id == skiesRow ? $0.description : "" } ?? ""
+        try require(
+            placeSaid == expected, "once the search closed, the row it found said “\(placeSaid)”, not “\(expected)”")
+        note(
+            "Escape: closes the search, which clears it, and the list shows its 6 again; the row found, with the "
+                + "focus, says “\(placeSaid)”")
+        list.select(id: nil)
 
         // Typing in the list.
         try require(list.focusSelection() || gtk_widget_grab_focus(list.view) != 0, "the list can't have the focus")

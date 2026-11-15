@@ -30,9 +30,24 @@ public struct AndroidDebugBridge: Sendable, Hashable {
         self.executable = executable
     }
 
-    /// adb where Android Studio, the Android SDK or Homebrew put it.
+    /// The folders outside your home where adb may be: Homebrew's on the Mac, and on Linux, those
+    /// of Debian's and Ubuntu's `adb` package, then the one for programs you installed yourself.
+    public static let systemFolders: [URL] = {
+        #if os(Windows)
+            []
+        #elseif os(Linux)
+            ["/usr/bin", "/usr/lib/android-sdk/platform-tools", "/usr/local/bin"].map { URL(filePath: $0) }
+        #else
+            ["/opt/homebrew/bin", "/usr/local/bin"].map { URL(filePath: $0) }
+        #endif
+    }()
+
+    /// adb where Android Studio, the Android SDK or Homebrew put it, or on Linux, Debian's `adb`
+    /// package, and then wherever `PATH` has it. A test can point `systemFolders` at folders of
+    /// its own.
     public static func find(
-        environment: [String: String] = ProcessInfo.processInfo.environment, home: URL = .homeDirectory
+        environment: [String: String] = ProcessInfo.processInfo.environment, home: URL = .homeDirectory,
+        systemFolders: [URL] = systemFolders
     ) -> AndroidDebugBridge? {
         #if os(Windows)
             let file = "adb.exe"
@@ -52,8 +67,19 @@ public struct AndroidDebugBridge: Sendable, Hashable {
             return candidates.first { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
                 .map(AndroidDebugBridge.init)
         #else
-            candidates.append(home.appending(path: "Library/Android/sdk/platform-tools/adb"))
-            candidates += ["/opt/homebrew/bin/adb", "/usr/local/bin/adb"].map { URL(filePath: $0) }
+            #if os(Linux)
+                // Where Android Studio puts the SDK for your user.
+                candidates.append(home.appending(path: "Android/Sdk/platform-tools/adb"))
+            #else
+                candidates.append(home.appending(path: "Library/Android/sdk/platform-tools/adb"))
+            #endif
+            candidates += systemFolders.map { $0.appending(path: file) }
+            #if os(Linux)
+                // An app started from a desktop's menu may get a shorter PATH than a terminal's,
+                // so PATH comes last.
+                let path = environment["PATH"]?.split(separator: ":").filter { $0.hasPrefix("/") } ?? []
+                candidates += path.map { URL(filePath: String($0)).appending(path: file) }
+            #endif
             return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path(percentEncoded: false)) }
                 .map(AndroidDebugBridge.init)
         #endif

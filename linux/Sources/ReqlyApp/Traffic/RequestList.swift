@@ -109,6 +109,8 @@ final class RequestList {
     /// Runs when you choose Add or Edit Comment… in a row's menu, with its request, which the
     /// window then shows on the details' Overview, where its comment is written.
     var onComment: ((ExchangeID) -> Void)?
+    /// One of the Request menu's commands, chosen in a row's menu, on that row's request.
+    var onCommand: ((RequestCommand, ExchangeSummary) -> Void)?
     /// How many times the list has brought its newest row into view, following new traffic.
     private(set) var reveals = 0
     /// When the newest row is to come into view, once the time between reveals has gone, in
@@ -120,7 +122,7 @@ final class RequestList {
         get { following.between }
         set { following.between = newValue }
     }
-    private let model: AppModel
+    private let model: SessionModel
     private let selection: OpaquePointer
     private let empty: Widget
     /// The rows' exchange IDs, as text, which the view shows.
@@ -164,8 +166,30 @@ final class RequestList {
     private var isSizing = false
     /// The row the right button was pressed on, and where, whose menu opens as it's let go.
     private var menuPress: (id: ExchangeID, x: Double, y: Double)?
+    /// The request to select once its row shows, the request selected as it was asked for, and
+    /// who hears whether it was selected; and the timer that gives up on it.
+    private var awaited: (id: ExchangeID, selectedBefore: ExchangeID?, then: (@MainActor (Bool) -> Void)?)?
+    private var awaitTimer: UInt32?
+    /// The row the keyboard's focus was on as the window last said it moved.
+    private var lastFocusedRow: UnsafeMutableRawPointer?
+    /// Whether the list is giving a row the keyboard's focus itself, in view, rather than Tab.
+    private var isGivingFocus = false
+    /// Whether a button or a finger is down on the list: GTK gives the row under it the keyboard's
+    /// focus as it goes down, and selects the row as it comes up.
+    private var isPressed = false
+    /// Whether every row was put in again since the rows were last described, as a search does.
+    private var rowsWereReset = false
+    /// Whether the list's window has closed, though the list may live on a moment, as a task that
+    /// waits on the session holds it: see ``windowClosed()``.
+    private(set) var isGone = false
+    /// The list's listener and observer of its session, which go as its window closes.
+    private var listener: Int?
+    private var observer: Int?
+    /// The request of the row the keyboard's focus last came to, and its description then, as
+    /// screen readers heard it, for the self-check.
+    private(set) var focusArrival: (id: ExchangeID, description: String)?
 
-    init(model: AppModel) {
+    init(model: SessionModel) {
         self.model = model
         ListStyles.install()
         items = gtk_string_list_new(nil)
@@ -173,6 +197,11 @@ final class RequestList {
         gtk_single_selection_set_autoselect(selection, 0)
         gtk_single_selection_set_can_unselect(selection, 1)
         view = gtk_column_view_new(cast(selection))
+        // The selection takes the list's reference, and the view the selection's, and both go
+        // with the window: the list keeps its own until it goes, as a task may keep it a moment
+        // after its window.
+        g_object_ref(raw(items))
+        g_object_ref(raw(selection))
         gtk_widget_add_css_class(view, "data-table")
         gtk_widget_add_css_class(view, "requests")
         gtk_column_view_set_reorderable(cast(view), 0)
@@ -193,8 +222,11 @@ final class RequestList {
         }
         setUpRows()
         size()
-        // The columns' widths are in sp, so they grow as the text does.
-        connect(gtk_settings_get_default(), "notify::gtk-xft-dpi") { [weak self] in self?.size() }
+        // The columns' widths are in sp, so they grow as the text does. GTK's settings outlive a
+        // file's window, so the handler goes with the view.
+        connect(raw(gtk_settings_get_default()), "notify::gtk-xft-dpi", whileAlive: raw(view)) { [weak self] in
+            self?.size()
+        }
         // The method's font is the desktop's monospace one from libadwaita 1.7.
         Styles.whenMonospaceFontChanges(whileAlive: raw(view)) { [weak self] in self?.size() }
         icons.onFound = { [weak self] key in self?.iconFound(key) }
@@ -213,8 +245,25 @@ final class RequestList {
         gtk_widget_add_controller(view, cast(click))
         setUpMenu()
         watchYourScrolling()
-        model.listen { [weak self] event in
-            guard let self else { return }
+        // Tab into the list, from the filter bar or the details.
+        let focus = gtk_event_controller_focus_new()!
+        connect(focus, "enter") { [weak self] in self?.focusCameIn() }
+        gtk_widget_add_controller(view, focus)
+        // Before the rows' own handlers, which give a row the focus as the button goes down.
+        let presses = gtk_event_controller_legacy_new()!
+        gtk_event_controller_set_propagation_phase(presses, GTK_PHASE_CAPTURE)
+        connect(presses, "event") { [weak self] (arguments: Arguments) in
+            guard let self, let event: OpaquePointer = cast(arguments.pointer(1)) else { return }
+            switch gdk_event_get_event_type(event) {
+            case GDK_BUTTON_PRESS, GDK_TOUCH_BEGIN: isPressed = true
+            case GDK_BUTTON_RELEASE, GDK_TOUCH_END, GDK_TOUCH_CANCEL, GDK_KEY_PRESS: isPressed = false
+            default: break
+            }
+        }
+        gtk_widget_add_controller(view, presses)
+        connect(view, "destroy") { [weak self] in self?.isGone = true }
+        listener = model.listen { [weak self] event in
+            guard let self, !isGone else { return }
             switch event {
             case .rows(let version, let total, _, let steps):
                 latestTotal = total
@@ -232,8 +281,32 @@ final class RequestList {
             default: break
             }
         }
-        model.observe { [weak self] in self?.showState() }
+        observer = model.observe { [weak self] in self?.showState() }
         showState()
+    }
+
+    isolated deinit {
+        g_object_unref(raw(selection))
+        g_object_unref(raw(items))
+    }
+
+    /// Its window has closed, and the window's widgets, the list's among them, go with it: the
+    /// list hears its session no more, drops what it waited to do, and a task that keeps it a
+    /// moment longer does nothing with them.
+    func windowClosed() {
+        guard !isGone else { return }
+        isGone = true
+        if let listener {
+            model.stopListening(listener)
+        }
+        if let observer {
+            model.stopObserving(observer)
+        }
+        finishAwaiting(selecting: false)
+        for timer in [revealTimer, describeTimer].compactMap({ $0 }) {
+            g_source_remove(timer)
+        }
+        (revealTimer, describeTimer) = (nil, nil)
     }
 
     /// How many rows the list shows.
@@ -315,10 +388,157 @@ final class RequestList {
         // row that had it before, moving it as it scrolls only while the list has the focus: so it
         // scrolls before the list takes the focus, and again after.
         guard row != UInt32.max else { return gtk_widget_grab_focus(view) != 0 }
+        // Where it is now, as screen readers hear it as it takes the focus.
+        if let id = exchange(at: Int(row)), let bound = rows[id] {
+            describe(bound)
+        }
+        isGivingFocus = true
+        defer { isGivingFocus = false }
         gtk_column_view_scroll_to(cast(view), row, nil, GTK_LIST_SCROLL_FOCUS, nil)
         let took = gtk_widget_grab_focus(view) != 0
         gtk_column_view_scroll_to(cast(view), row, nil, GTK_LIST_SCROLL_FOCUS, nil)
         return took
+    }
+
+    /// Selects `id`'s row once the list shows it, as for the request Resend sent, or one a
+    /// breakpoint holds, whose row comes a moment after: at once when it shows already, and
+    /// otherwise as it comes, for up to `seconds`. With the keyboard's focus on a row, the focus
+    /// goes to it too. If its row never shows, as when a filter hides it, it's selected with no
+    /// row once the time is up, while the session still has it. Either way, only while the
+    /// selection is still the one it was as this was asked: one you chose meanwhile stays. `then`
+    /// hears whether it was selected. A later call takes the place of one that still waits, which
+    /// hears it wasn't.
+    func selectOnceShown(_ id: ExchangeID, within seconds: Int = 10, then: (@MainActor (Bool) -> Void)? = nil) {
+        finishAwaiting(selecting: false)
+        guard !isGone else {
+            then?(false)
+            return
+        }
+        awaited = (id, selected, then)
+        if shown.contains(id) {
+            finishAwaiting(selecting: true)
+            return
+        }
+        awaitTimer = timeout(UInt32(seconds * 1000)) { [weak self] in
+            self?.awaitTimer = nil
+            self?.giveUpAwaiting()
+            return false
+        }
+    }
+
+    /// Whether a request waits to be selected once its row shows.
+    var isAwaitingARow: Bool { awaited != nil }
+
+    /// After a change to the rows: the request that waits is selected once its row shows.
+    private func selectAwaited() {
+        if let awaited, shown.contains(awaited.id) {
+            finishAwaiting(selecting: true)
+        }
+    }
+
+    /// Stops waiting, and selects the request that waited, when `selecting` and the selection is
+    /// still the one it was, then says whether it did.
+    private func finishAwaiting(selecting: Bool) {
+        guard let awaited else { return }
+        self.awaited = nil
+        if let awaitTimer {
+            g_source_remove(awaitTimer)
+            self.awaitTimer = nil
+        }
+        let selects = selecting && !isGone && selected == awaited.selectedBefore
+        if selects {
+            select(id: awaited.id, focuses: rowHasFocus)
+        }
+        awaited.then?(selects)
+    }
+
+    /// The time's up, and the request's row never showed: it's selected with no row, while the
+    /// session has it, as a request a filter hides is.
+    private func giveUpAwaiting() {
+        guard let awaited, let session = model.session else {
+            finishAwaiting(selecting: false)
+            return
+        }
+        Task {
+            let isThere = !(await session.rows([awaited.id])).isEmpty
+            guard self.awaited?.id == awaited.id else { return }
+            finishAwaiting(selecting: isThere)
+        }
+    }
+
+    /// Selects `id`'s row, as ``select(id:)`` does, and gives it the keyboard's focus too when
+    /// `focuses`, once it shows.
+    private func select(id: ExchangeID, focuses: Bool) {
+        guard focuses, let row = shown.firstIndex(of: id) else {
+            select(id: id)
+            return
+        }
+        if let bound = rows[id] {
+            describe(bound)
+        }
+        let flags = GtkListScrollFlags(rawValue: GTK_LIST_SCROLL_SELECT.rawValue | GTK_LIST_SCROLL_FOCUS.rawValue)
+        isGivingFocus = true
+        defer { isGivingFocus = false }
+        gtk_column_view_scroll_to(cast(view), UInt32(row), nil, flags, nil)
+    }
+
+    /// Whether `id`'s row shows whole in the list's scroller.
+    func rowIsInView(_ id: ExchangeID) -> Bool {
+        guard let cell = cell(.status, of: id), gtk_widget_get_mapped(cell) != 0 else { return false }
+        var bounds = graphene_rect_t()
+        guard gtk_widget_compute_bounds(cell, scroller, &bounds) != 0 else { return false }
+        let height = Float(gtk_widget_get_height(scroller))
+        return bounds.origin.y >= 0 && bounds.origin.y + bounds.size.height <= height + 0.5
+    }
+
+    /// The keyboard's focus came into the list, as Tab brings it from the filter bar or the
+    /// details: GTK gives it to the row that had it last, which may be out of view, as the list
+    /// followed new traffic meanwhile, and then screen readers say nothing of it; or it may not be
+    /// the selected row, as when Reqly selected a request itself. Once GTK is done, the selected
+    /// row has the focus, or the row GTK gave it to when none is, in view: one out of view comes
+    /// into view first, then takes the focus there. A click that brought it, or a touch, is left
+    /// alone: GTK gives the row under it the focus as the button goes down, then selects it as it
+    /// comes up, so the row clicked has both.
+    private func focusCameIn() {
+        guard !isGivingFocus, !isPressed else { return }
+        idle { [weak self] in
+            if let self, !isGone {
+                bringTheFocusIntoView()
+            }
+            return false
+        }
+    }
+
+    private func bringTheFocusIntoView() {
+        guard let focused = focusedRow, let focusedID = focusedExchange else { return }
+        let selectedRow = gtk_single_selection_get_selected(selection)
+        let target = selectedRow != UInt32.max ? Int(selectedRow) : Int(gtk_column_view_row_get_position(cast(focused)))
+        guard let targetID = exchange(at: target) else { return }
+        if targetID == focusedID, rowIsInView(targetID) {
+            return
+        }
+        if rowIsInView(targetID) {
+            select(id: targetID, focuses: true)
+            return
+        }
+        gtk_column_view_scroll_to(cast(view), UInt32(target), nil, GTK_LIST_SCROLL_NONE, nil)
+        var frames = 0
+        tick(view) { [weak self] in
+            guard let self, !isGone, focusedExchange == focusedID else { return false }
+            frames += 1
+            guard rowIsInView(targetID) || frames > 10, let place = shown.firstIndex(of: targetID) else { return true }
+            // Taken away and given back, the focus is heard on the row in view.
+            if targetID == focusedID {
+                gtk_root_set_focus(gtk_widget_get_root(view), nil)
+            }
+            if let bound = rows[targetID] {
+                describe(bound)
+            }
+            isGivingFocus = true
+            gtk_column_view_scroll_to(cast(view), UInt32(place), nil, GTK_LIST_SCROLL_FOCUS, nil)
+            isGivingFocus = false
+            return false
+        }
     }
 
     private func selectionChanged() {
@@ -356,7 +576,7 @@ final class RequestList {
         Task {
             let isThere = !(await session.rows([id])).isEmpty
             isCheckingSelected = false
-            if !isThere, selected == id, !shown.contains(id) {
+            if !isGone, !isThere, selected == id, !shown.contains(id) {
                 selected = nil
                 onSelection?(nil)
             }
@@ -414,8 +634,10 @@ final class RequestList {
     /// Takes in a change to the session's rows: the contents it makes old are forgotten, or asked
     /// for again, and its splices wait their turn to go into the view.
     private func take(_ change: RowMirror.Change) {
+        guard !isGone else { return }
         if change.isReset {
             cache.forgetAll()
+            rowsWereReset = true
         } else {
             cache.inserted(change.inserted)
         }
@@ -432,6 +654,10 @@ final class RequestList {
     /// Puts pieces of the waiting changes into the view for up to 8 ms, then lets the window
     /// draw before the next pieces. Whether the list follows them is decided before.
     private func feedSome() {
+        guard !isGone else {
+            isFeeding = false
+            return
+        }
         isFeeding = true
         // A row, not the view: a row's menu, which is the view's child, takes the focus too.
         let hadFocus = rowHasFocus
@@ -448,13 +674,18 @@ final class RequestList {
         }
         isSplicing = false
         keepSelection()
+        selectAwaited()
         let now = monotonicMicroseconds()
         respond(to: following.end(inserted: inserted, isDone: feed.isEmpty, isResetting: feed.isResetting, now: now))
         if feed.isEmpty {
             total = latestTotal
         }
         showState()
-        describeSoon()
+        if rowsWereReset, feed.isEmpty {
+            describeAll()
+        } else {
+            describeSoon()
+        }
         onRows?()
         if hadFocus, !rowHasFocus {
             onFocusLost?()
@@ -590,6 +821,7 @@ final class RequestList {
         Task {
             let rows = await session.rowIDs()
             isReadingRows = false
+            guard !isGone else { return }
             take(mirror.reset(version: rows.version, ids: rows.ids))
             if mirror.isWaitingForRows {
                 readEveryRow()
@@ -610,12 +842,16 @@ final class RequestList {
 
     private func fetch() {
         let wanted = cache.takeWanted()
-        guard !wanted.isEmpty, let session = model.session else {
+        guard !wanted.isEmpty, !isGone, let session = model.session else {
             isFetching = false
             return
         }
         Task {
             let summaries = await session.rows(wanted)
+            guard !isGone else {
+                isFetching = false
+                return
+            }
             for entry in cache.received(summaries, isBound: { itemsByID[$0] != nil }) {
                 refill(entry)
             }
@@ -629,6 +865,7 @@ final class RequestList {
     /// The status page while there's no traffic, saying how to start, and the list after, which
     /// the window's no-matches page covers while none of the session's requests show.
     private func showState() {
+        guard !isGone else { return }
         guard count == 0, total == 0 else {
             gtk_stack_set_visible_child(cast(widget), scroller)
             return
@@ -636,6 +873,14 @@ final class RequestList {
         gtk_stack_set_visible_child(cast(widget), empty)
         let title: String
         let description: String
+        if let name = model.fileName {
+            // A file's window, as on the Mac.
+            adw_status_page_set_title(cast(empty), "No Requests")
+            // Its description is markup, which a file's name may look like.
+            let words = takeString(g_markup_escape_text("“\(name)” has no requests in it.", -1))
+            adw_status_page_set_description(cast(empty), words)
+            return
+        }
         switch (model.isCapturing, model.options.setsSystemProxy) {
         case (true, true):
             title = "Waiting for Traffic"
@@ -805,6 +1050,7 @@ final class RequestList {
 
     /// Fills in the cells and the row showing an exchange again, with its new contents.
     private func refill(_ entry: SummaryCache.Entry) {
+        guard !isGone else { return }
         let id = entry.summary.id
         for item in itemsByID[id] ?? [] {
             if let column = bound[item]?.column {
@@ -818,6 +1064,7 @@ final class RequestList {
 
     /// Shows the icon of an app found since its rows were filled in.
     private func iconFound(_ key: String) {
+        guard !isGone else { return }
         for (item, cell) in bound where cell.column == .app {
             if let entry = cache[cell.id], let source = entry.summary.source, AppIcons.key(of: source) == key {
                 fill(item, .app, entry)
@@ -904,16 +1151,29 @@ final class RequestList {
 
     /// The row with the keyboard's focus, a GtkColumnViewRow, or `nil` while none has it.
     private var focusedRow: UnsafeMutableRawPointer? {
+        focusedExchange.flatMap { rows[$0] }
+    }
+
+    /// The request of the row with the keyboard's focus, or `nil` while none has it.
+    var focusedExchange: ExchangeID? {
         guard let focus = gtk_widget_get_root(view).flatMap({ gtk_root_get_focus($0) }),
             gtk_widget_is_ancestor(focus, view) != 0
         else { return nil }
-        return rows.first { hasFocus($0.key) }?.value
+        return rows.first { hasFocus($0.key) }?.key
     }
 
     /// The keyboard's focus moved, as the window hears: a row it left has the words it waited
-    /// for, and says where it is now.
+    /// for, and says where it is now, and so does a row it came to, whose words may be from before
+    /// the rows last moved, as when a search ends.
     func focusMoved() {
         let focused = focusedRow
+        if let focused, focused != lastFocusedRow {
+            describe(focused)
+            if let id = focusedExchange {
+                focusArrival = (id, descriptions[focused] ?? "")
+            }
+        }
+        lastFocusedRow = focused
         for row in rows.values where row != focused {
             if let text = held.removeValue(forKey: row) {
                 spoken[row] = text
@@ -931,6 +1191,20 @@ final class RequestList {
         if descriptions[row] != description {
             descriptions[row] = description
             gtk_column_view_row_set_accessible_description(cast(row), description)
+        }
+    }
+
+    /// Every bound row's description at once, the row with the keyboard's focus too, once every row
+    /// was put in again, as when a search starts or ends: that's not new traffic, and the row
+    /// with the focus is in another place among other rows, as screen readers hear it.
+    private func describeAll() {
+        rowsWereReset = false
+        if let describeTimer {
+            g_source_remove(describeTimer)
+            self.describeTimer = nil
+        }
+        for row in rows.values {
+            describe(row)
         }
     }
 
@@ -961,8 +1235,9 @@ final class RequestList {
             self?.annotate(summary.id, color: color.map { .set($0) } ?? .remove)
         }
         menu.onComment = { [weak self] summary in self?.onComment?(summary.id) }
+        menu.onCommand = { [weak self] command, summary in self?.onCommand?(command, summary) }
         menu.decrypts = { [weak self] host in
-            guard let self, model.options.smokeSession == nil else { return nil }
+            guard let self, !model.isSaved else { return nil }
             return model.https.decrypts(host)
         }
         menu.onDecrypt = { [weak self] host, isOn in

@@ -56,10 +56,9 @@ public struct Options: Sendable, Equatable {
     /// build's copy, in place of the installed one. pkexec runs it as root, so it's a full path.
     public var trustHelper: String?
 
-    // Taken now, so test runs have Windows' command lines, and used as the roadmap's Phase 3
-    // brings what they're for: the rules, connections, protobuf and devices files, the secrets,
-    // the network devices choice and the welcome guide in Step 5, and the crash reports and the
-    // update check in Step 6.
+    // With Windows' names: the rules, connections, protobuf and devices files, the secrets, and the
+    // network devices choice. The welcome guide's comes later in Step 5, and the crash reports and
+    // the update check in Step 6; they're taken now, so test runs have Windows' command lines.
     public var rulesFile: String?
     public var connectionsFile: String?
     public var protobufFile: String?
@@ -74,9 +73,11 @@ public struct Options: Sendable, Equatable {
     public var checksForUpdates: Bool?
     /// Whether the welcome guide counts as seen, so it stays closed.
     public var hasSeenWelcome: Bool?
-    /// Files to open, which desktops pass even to a desktop file whose `Exec` takes none, as Open
-    /// With and a drop on the dock do. Taken, so such a launch brings back Reqly's window, and
-    /// opened once Step 5 opens sessions.
+    /// A program that stands in for adb, such as the self-check's script, in place of the adb
+    /// Reqly finds, so no real adb runs. Giving one makes the run a test run already.
+    public var adbStandIn: String?
+    /// Files to open, sessions and HAR files, each in a window of its own, in the Reqly that's
+    /// running, as Files' Open With and the desktop file's `%F` pass them: paths, or URIs.
     public var files: [String] = []
 
     /// Light or dark, whatever your desktop uses, for pictures of both.
@@ -154,6 +155,13 @@ public struct Options: Sendable, Equatable {
             case "--allows-network-devices": allowsNetworkDevices = try yesOrNo()
             case "--checks-for-updates": checksForUpdates = try yesOrNo()
             case "--has-seen-welcome": hasSeenWelcome = try yesOrNo()
+            case "--adb-stand-in":
+                // A bare name would be looked up in PATH, which may have a real adb.
+                let path = try value()
+                guard path.hasPrefix("/") else {
+                    throw UsageError("--adb-stand-in takes the program's full path, starting with /, not \(path).")
+                }
+                adbStandIn = path
             case "--theme":
                 let text = try value()
                 guard let chosen = Theme(rawValue: text) else {
@@ -191,7 +199,7 @@ public struct Options: Sendable, Equatable {
     /// application ID, a session limit, `--smoke` or `--smoke-session`.
     public var isTestRun: Bool {
         proxySettingsStandIn != nil || rootStandIn != nil || secretsStandIn != nil || settingsFile != nil
-            || smokeReport != nil || appID != nil || sessionLimit != nil || smokeSession != nil
+            || smokeReport != nil || appID != nil || sessionLimit != nil || smokeSession != nil || adbStandIn != nil
     }
 
     /// Whether capturing points your desktop's proxy at Reqly, or the stand-in's: as
@@ -206,16 +214,18 @@ public struct Options: Sendable, Equatable {
     /// all, so it never changes your certificate, its key or the places that trust it.
     public var usesYourCertificates: Bool { !isTestRun }
 
-    /// Linux's parts for the session, with `--trust-helper`'s root helper if there's one.
+    /// Linux's parts for the session, with `--trust-helper`'s root helper and `--adb-stand-in`'s
+    /// program if there are.
     public var systemParts: SystemParts {
-        trustHelper.map { SystemParts.linux(trustHelper: $0) } ?? .linux
+        trustHelper == nil && adbStandIn == nil ? .linux : .linux(trustHelper: trustHelper, adb: adbStandIn)
     }
 
     /// What `--help` says.
     public static let help = """
-        Usage: reqly [options]
+        Usage: reqly [options] [<file>...]
 
-        Reqly shows what your apps send and receive.
+        Reqly shows what your apps send and receive. Each file, a session or a HAR file, opens in
+        a window of its own, in the Reqly that's running.
 
           --remove-certificate  Remove Reqly's certificate from your browsers, this computer's
                                 list and your keyring, then quit, as before uninstalling Reqly.
@@ -233,15 +243,15 @@ public struct Options: Sendable, Equatable {
           --smoke <report>                  --smoke-parts <part>,<part>...
           --smoke-session <file>            --session-limit <requests>
           --app-id <id>                     --close-delay <milliseconds>
-
-        Taken for the same command lines as Windows', and used once Reqly for Linux opens files
-        and has rules, connections, devices, the welcome guide, crash reports and updates:
-          <file>...                         as Open With passes them
           --rules-file <file>               --connections-file <file>
           --protobuf-file <file>            --devices-file <file>
-          --secrets-stand-in <file>         --crash-reports-folder <folder>
-          --allows-network-devices yes|no   --checks-for-updates yes|no
-          --has-seen-welcome yes|no
+          --secrets-stand-in <file>         --allows-network-devices yes|no
+          --adb-stand-in <full path>
+
+        Taken for the same command lines as Windows', and used once Reqly for Linux has the
+        welcome guide, crash reports and updates:
+          --has-seen-welcome yes|no         --crash-reports-folder <folder>
+          --checks-for-updates yes|no
 
         A run with a stand-in, its own settings file, --app-id, --session-limit or a --smoke
         option is a test run: it runs beside the Reqly that's open, as the only run under its

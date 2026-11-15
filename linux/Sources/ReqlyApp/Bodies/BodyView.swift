@@ -62,7 +62,7 @@ final class BodyView {
     /// The mode last chosen for each part's bodies, for the next body that has it.
     static var chosen: [MessagePart: BodyMode] = [:]
 
-    private let model: AppModel
+    private let model: SessionModel
     private let noteLabel: Widget
     private let startLabel: Widget
     /// The mode switch's buttons, by mode, and the modes it has, in its order.
@@ -73,7 +73,7 @@ final class BodyView {
     /// Counts the bodies shown, so work for one that's gone is dropped.
     private var shown = 0
 
-    init(model: AppModel, id: ExchangeID, part: MessagePart) {
+    init(model: SessionModel, id: ExchangeID, part: MessagePart) {
         self.model = model
         self.id = id
         self.part = part

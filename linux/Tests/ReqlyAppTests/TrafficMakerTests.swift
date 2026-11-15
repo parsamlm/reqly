@@ -39,6 +39,44 @@ import Testing
         #expect(try Self.ask(server, "/fail") == nil)
     }
 
+    /// A Forecast in protobuf; a proxy's full URL answered by its path, as an upstream proxy passes
+    /// it on, and kept; CONNECT refused.
+    @Test func answersAsAnUpstreamProxy() throws {
+        let server = try TestServer()
+        defer { server.stop() }
+        let forecast = try #require(try Self.ask(server, "/protobuf"))
+        #expect(HTTPWire.value("Content-Type", in: forecast.headers) == "application/x-protobuf")
+        #expect(forecast.body == TestServer.protobufBody && forecast.body.count == 31)
+        #expect(server.proxied.isEmpty)
+        let passed = try #require(try Self.ask(server, "http://weather.example/json?days=3"))
+        #expect(passed.text.hasPrefix(#"{"city":"Tehran""#))
+        #expect(HTTPWire.value("Via", in: passed.headers) == "1.1 reqly-self-check")
+        #expect(server.proxied == ["http://weather.example/json?days=3"])
+        let wire = HTTPWire(try Loopback.connect(to: server.port))
+        defer { close(wire.socket) }
+        #expect(wire.write(Array("CONNECT weather.example:443 HTTP/1.1\r\nHost: weather.example:443\r\n\r\n".utf8)))
+        #expect(wire.response()?.status == 405)
+    }
+
+    /// The WebSocket's upgrade and messages, through the server itself as the proxy: its greeting,
+    /// then an echo of each message, until the close.
+    @Test func talksOnAWebSocket() async throws {
+        #expect(
+            WebSocketFrame.sha1(Array("abc".utf8)).map { String(format: "%02x", $0) }.joined()
+                == "a9993e364706816aba3e25717850c26c9cd0d89d")
+        // RFC 6455's example.
+        #expect(WebSocketFrame.accept(for: "dGhlIHNhbXBsZSBub25jZQ==") == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+        let server = try TestServer()
+        defer { server.stop() }
+        let messages = try await ProxyClient(proxyPort: server.port).webSocket(
+            server.url(.webSocket), sending: ["Rain tomorrow?", "سلام"])
+        #expect(
+            messages == [
+                .text(TestServer.webSocketGreeting), .binary(TestServer.webSocketBytes), .text("Echo: Rain tomorrow?"),
+                .text("Echo: سلام"),
+            ])
+    }
+
     @Test func waitsWhenAsked() throws {
         let server = try TestServer()
         defer { server.stop() }

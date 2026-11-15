@@ -50,10 +50,20 @@ extension SelfCheck {
         try require(menu.target?.id == forecast, "the menu is for #\(menu.target?.id.rawValue ?? 0)")
         let entries = Self.entries(of: menu.menu)
         let colors = ["None"] + MarkColor.allCases.map(\.title)
+        // The Request menu's commands first, as on the Mac, then the marks, then Add Rule.
+        let commands = RequestCommand.rowCommands.filter {
+            RequestCommand.ruleKinds.map(RequestCommand.addRule).contains($0) == false
+        }
+        let rules = ["Add Rule"] + RequestCommand.ruleKinds.map { "Add Rule › \($0.addRuleTitle)" }
         try require(
-            entries == ["Pin Request", "Color"] + colors.map { "Color › \($0)" } + ["Add Comment…"],
+            entries == commands.map(\.title) + ["Pin Request", "Color"] + colors.map { "Color › \($0)" } + [
+                "Add Comment…"
+            ]
+                + rules,
             "the menu has \(entries)")
-        note("Shift+F10: the row's menu, with \(entries.filter { !$0.hasPrefix("Color ›") }.joined(separator: ", "))")
+        note(
+            "Shift+F10: the row's menu, with "
+                + entries.filter { !$0.hasPrefix("Color ›") && !$0.hasPrefix("Add Rule ›") }.joined(separator: ", "))
         try FakeInput.press("Escape", in: window.window)
         try await until("Escape to close the menu", seconds: 3) { !menu.isOpen }
         await settle()
@@ -110,6 +120,10 @@ extension SelfCheck {
         }
         menu.close()
         try await until("the menu to close", seconds: 3) { !menu.isOpen }
+        // The pointer goes away from the rows, as a hand that's done with the menu does: the menus
+        // the Menu key opens next would have their windows over it, and on X11 GTK 4.14 takes the
+        // first click after such a window goes for nothing.
+        try FakeInput.hover(window.statusLine)
         note(
             "a click with the right button, let go 12 px lower: the pressed row's menu; Color marked it "
                 + marked.joined(separator: ", "))
@@ -303,9 +317,16 @@ extension SelfCheck {
             details.shown == other && details.summary != nil
         }
         let cell = try present(list.cell(.request, of: id), "the commented row has no cell")
-        try FakeInput.click(cell, button: 3)
-        try await until("a click with the right button to open the commented row's menu", seconds: 3) {
-            menu.isOpen && menu.target?.id == id
+        let point = try FakeInput.click(cell, button: 3)
+        do {
+            try await until("a click with the right button to open the commented row's menu", seconds: 3) {
+                menu.isOpen && menu.target?.id == id
+            }
+        } catch {
+            throw Failure(
+                "a click with the right button at \(point) didn't open the commented row's menu: the menu is "
+                    + "\(menu.isOpen ? "open" : "closed"), for #\(menu.target?.id.rawValue ?? 0), not #\(id.rawValue); "
+                    + "the details are \(window.detailsAreOver ? "" : "not ")over the list")
         }
         try choose("Edit Comment…", in: menu)
         let field = details.commentField

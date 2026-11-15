@@ -6,10 +6,11 @@ import GtkBinding
 /// Status column and on Settings › HTTPS, and the open lock of the details' decryption note, the
 /// arrows of the list's empty page, Settings › General's gear, and the warning, pause, pin and
 /// speech bubble of the list, the sidebar, the filters and the details, which KDE's Breeze and
-/// Adwaita lack some of. Debian's Cinnamon uses the `gnome` theme, which has none of them, so GTK
-/// would draw its broken-image picture. Reqly writes its own, simple ones to a folder of its own,
-/// as hicolor's, which GTK looks in after every theme, so your theme's own still come first. And
-/// the app's own icon, for a run from the build folder.
+/// Adwaita lack some of, and the Rules button's two, which no theme has. Debian's Cinnamon uses
+/// the `gnome` theme, which has none of them, so GTK would draw its broken-image picture. Reqly
+/// writes its own, simple ones to a folder of its own, as hicolor's, which GTK looks in after every
+/// theme, so your theme's own still come first. And the app's own icon, for a run from the build
+/// folder.
 enum Icons {
     /// Each icon's name and its SVG, drawn on a 16-pixel grid in one color, which GTK paints in
     /// the text's color, as with any symbolic icon.
@@ -37,6 +38,13 @@ enum Icons {
             comment,
             svg(
                 #"<path fill-rule="evenodd" d="M2 2h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H7.5L4 15v-3H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm2 3v1.5h8V5zm0 3v1.5h5V8z"/>"#
+            )
+        ),
+        (RulesMenu.icon, svg(#"<path d="M1 3h2v2H1zm4 0h10v2H5zM1 7h2v2H1zm4 0h10v2H5zm-4 4h2v2H1zm4 0h10v2H5z"/>"#)),
+        (
+            RulesMenu.onIcon,
+            svg(
+                #"<path d="M1 3h2v2H1zm4 0h5v2H5zM1 7h2v2H1zm4 0h10v2H5zm-4 4h2v2H1zm4 0h10v2H5z"/><circle cx="13" cy="4" r="3"/>"#
             )
         ),
     ]

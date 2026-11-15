@@ -4,6 +4,8 @@ import ReqlyModel
 
 #if canImport(WinSDK)
     import WinSDK
+#elseif canImport(Glibc)
+    import Glibc
 #endif
 
 public enum SessionFileError: Error, Equatable {
@@ -24,11 +26,19 @@ extension TrafficStore {
     ///
     /// - Parameter hidingSecrets: Hides the values of authorization headers and cookies.
     public func saveSession(to url: URL, hidingSecrets: Bool) async throws {
-        let fileManager = FileManager.default
-        let scratch = try fileManager.url(
-            for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: url, create: true)
-        defer { try? fileManager.removeItem(at: scratch) }
-        let copyURL = scratch.appending(path: url.lastPathComponent)
+        #if os(Linux)
+            // A hidden copy beside the file, which takes the file's place with one rename, on the
+            // same file system whatever TMPDIR names. Foundation's item replacement folder would
+            // be in TMPDIR, or for a file on another file system, a folder it makes beside it.
+            let copyURL = try Self.hiddenCopy(of: url)
+            defer { Self.removeCopy(copyURL) }
+        #else
+            let fileManager = FileManager.default
+            let scratch = try fileManager.url(
+                for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: url, create: true)
+            defer { try? fileManager.removeItem(at: scratch) }
+            let copyURL = scratch.appending(path: url.lastPathComponent)
+        #endif
         // A snapshot of the database, while capturing goes on.
         try await database.writeWithoutTransaction { db in
             try db.execute(sql: "VACUUM INTO ?", arguments: [copyURL.path(percentEncoded: false)])
@@ -46,11 +56,15 @@ extension TrafficStore {
             try db.execute(sql: "VACUUM")
         }
         try copy.close()
-        if fileManager.fileExists(atPath: url.path(percentEncoded: false)) {
-            try Self.replace(url, with: copyURL)
-        } else {
-            try fileManager.moveItem(at: copyURL, to: url)
-        }
+        #if os(Linux)
+            try Self.putInPlace(copyURL, at: url)
+        #else
+            if fileManager.fileExists(atPath: url.path(percentEncoded: false)) {
+                try Self.replace(url, with: copyURL)
+            } else {
+                try fileManager.moveItem(at: copyURL, to: url)
+            }
+        #endif
     }
 
     /// Opens a saved session as a session of its own in `root`, which can be browsed, searched,
@@ -168,6 +182,62 @@ extension TrafficStore {
             _ = try FileManager.default.replaceItemAt(url, withItemAt: replacement)
         #endif
     }
+
+    #if os(Linux)
+        /// Where to make the copy of the session that's saved as `url`: a hidden file beside it.
+        /// A folder Reqly can't write to is refused first, with Foundation's words for it.
+        ///
+        /// The copy's name doesn't repeat the file's, so it stays short however long that is:
+        /// most of Linux's file systems take at most 255 bytes in a name, and SQLite makes the
+        /// copy's journal with "-journal" after it.
+        private static func hiddenCopy(of url: URL) throws -> URL {
+            let folder = url.deletingLastPathComponent()
+            guard access(folder.path(percentEncoded: false), W_OK) == 0 else {
+                throw fileError(errno, url)
+            }
+            return folder.appending(path: ".reqly-save-\(UUID().uuidString)")
+        }
+
+        /// Removes the copy, and its journal, if saving stopped before it took the file's place.
+        private static func removeCopy(_ copy: URL) {
+            for suffix in ["", "-journal", "-wal", "-shm"] {
+                unlink(copy.path(percentEncoded: false) + suffix)
+            }
+        }
+
+        /// Renames the copy over `url`, so the old file stays until the new one is complete. The
+        /// copy takes the old file's permissions first, so a session saved over a private file
+        /// stays private.
+        private static func putInPlace(_ copy: URL, at url: URL) throws {
+            let path = url.path(percentEncoded: false)
+            let copyPath = copy.path(percentEncoded: false)
+            var old = stat()
+            if stat(path, &old) == 0, chmod(copyPath, old.st_mode & 0o7777) != 0 {
+                throw fileError(errno, url)
+            }
+            guard rename(copyPath, path) == 0 else {
+                throw fileError(errno, url)
+            }
+        }
+
+        /// Foundation's error for saving `url`, which says what went wrong in words.
+        private static func fileError(_ number: Int32, _ url: URL) -> CocoaError {
+            let code: CocoaError.Code =
+                switch number {
+                case EACCES, EPERM: .fileWriteNoPermission
+                case ENOENT: .fileNoSuchFile
+                case ENOSPC, EDQUOT: .fileWriteOutOfSpace
+                case EROFS: .fileWriteVolumeReadOnly
+                default: .fileWriteUnknown
+                }
+            return CocoaError(
+                code,
+                userInfo: [
+                    NSFilePathErrorKey: url.path(percentEncoded: false),
+                    NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: number) ?? .EIO),
+                ])
+        }
+    #endif
 
     /// Indexes every exchange again, for a session that came without its index.
     func rebuildSearchIndex() async throws {

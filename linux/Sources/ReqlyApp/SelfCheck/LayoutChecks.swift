@@ -10,7 +10,7 @@ extension SelfCheck {
         [
             ("win.toggle-sidebar", "F9"), ("win.search", "<Control>f"), ("win.clear", "<Control>k"),
             ("win.toggle-capture", "<Control>r"),
-        ] + DetailsPane.Page.allCases.enumerated().map { ("win.page::\($1.rawValue)", "<Control>\($0 + 1)") }
+        ] + DetailsPane.Page.allCases.map { ("win.page::\($0.rawValue)", "<Control>\($0.key)") }
 
     /// The window's panes at 1280, 1000 and 700 pixels wide, and at 1280 with the text at 1.25, as
     /// the window's breakpoints have them: the details beside the list or over it, the sidebar
@@ -38,6 +38,7 @@ extension SelfCheck {
                 try await checkKeysBeside()
                 try await checkKeysFolded()
                 try await checkRows()
+                try await checkNarrowWidths()
             }.lines
         } catch {
             await restoreLayout(width: width, height: height)
@@ -100,8 +101,13 @@ extension SelfCheck {
         /// Whether the details show over the list, and whether the sidebar folds away too.
         var detailsOver = false
         var sidebarFolds = false
+        /// Scrollbars that take room of their own, as Cinnamon's, Xfce's and MATE's do, rather than
+        /// GNOME's, which show over what they scroll.
+        var classicScrollbars = false
 
-        var name: String { text == 1 ? "\(width)" : "\(width)-text-\(text)" }
+        var name: String {
+            (text == 1 ? "\(width)" : "\(width)-text-\(text)") + (classicScrollbars ? "-classic-scrollbars" : "")
+        }
     }
 
     private static let layouts = [
@@ -163,6 +169,88 @@ extension SelfCheck {
         adw_style_manager_set_color_scheme(manager, colorScheme)
     }
 
+    /// The narrowest widths, with requests in the list: at 500 pixels, and at 360, GNOME's smallest
+    /// window, with the text at 1 and at 1.25, and with classic scrollbars, the window gets that
+    /// narrow, as its content fits, which libadwaita warns of when it doesn't; search, Clear and
+    /// Rules are under the list, the list's columns that fit show, so it doesn't scroll sideways,
+    /// and the filter bar's statuses are a menu, so it fits too, and no scrollbar covers it. At
+    /// 1112, where the list's pane is its narrowest beside the details, the filter bar fits it with
+    /// its status buttons, and the header bar has its buttons.
+    private func checkNarrowWidths() async throws {
+        let window = window
+        let list = window.list
+        let session = try await session()
+        // Nothing listens on port 9, so each request fails at once, without leaving the computer.
+        for number in 1...3 {
+            _ = try await session.send(RequestDraft(url: "http://127.0.0.1:9/narrow/\(number)"))
+        }
+        try await until("the 3 requests' rows", seconds: 5) { list.count >= 3 }
+        let manager = adw_style_manager_get_default()
+        for layout in [
+            Layout(width: 1112), Layout(width: 500, detailsOver: true, sidebarFolds: true),
+            Layout(width: 360, detailsOver: true, sidebarFolds: true),
+            Layout(width: 360, text: 1.25, detailsOver: true, sidebarFolds: true),
+            Layout(width: 500, detailsOver: true, sidebarFolds: true, classicScrollbars: true),
+            Layout(width: 360, detailsOver: true, sidebarFolds: true, classicScrollbars: true),
+        ] {
+            try await resize(to: layout)
+            let content = try present(adw_application_window_get_content(cast(window.window)), "no content")
+            var minimum: Int32 = 0
+            gtk_widget_measure(content, GTK_ORIENTATION_HORIZONTAL, -1, &minimum, nil, nil, nil)
+            let width = gtk_widget_get_width(content)
+            try require(minimum <= width, "at \(layout.name), the window's content needs \(minimum) px of \(width)")
+            let isNarrow = layout.width < 1000
+            let underList = gtk_action_bar_get_revealed(cast(window.narrowBar)) != 0
+            let inHeader = [window.searchButton, window.clearButton, window.rulesButton].allSatisfy {
+                gtk_widget_get_visible($0) != 0
+            }
+            try require(
+                underList == isNarrow && inHeader == !isNarrow,
+                "at \(layout.name), search, Clear and Rules are \(underList ? "under the list" : "in the header bar")")
+            let columns = RequestList.Column.allCases.filter { list.shows($0) }.map(\.title)
+            let sideways = gtk_scrolled_window_get_hadjustment(cast(list.scroller))
+            let listNeeds = gtk_adjustment_get_upper(sideways)
+            let listHas = gtk_adjustment_get_page_size(sideways)
+            try require(
+                listNeeds <= listHas + 0.5,
+                "at \(layout.name), the list needs \(listNeeds) px of \(listHas), with \(columns)")
+            let filters = window.filters
+            let bar = gtk_scrolled_window_get_hadjustment(cast(filters.widget))
+            let barNeeds = gtk_adjustment_get_upper(bar)
+            let barHas = gtk_adjustment_get_page_size(bar)
+            try require(barNeeds <= barHas + 0.5, "at \(layout.name), the filter bar needs \(barNeeds) px of \(barHas)")
+            let barScrollbar = gtk_scrolled_window_get_hscrollbar(cast(filters.widget))
+            try require(
+                !layout.classicScrollbars || barScrollbar.map { gtk_widget_get_mapped($0) == 0 } ?? true,
+                "at \(layout.name), a scrollbar shows under the filter bar")
+            let asMenu = gtk_widget_get_visible(filters.statusMenuButton) != 0
+            try require(
+                asMenu == isNarrow && (gtk_widget_get_visible(filters.statusBox) != 0) == !isNarrow,
+                "at \(layout.name), the statuses are \(asMenu ? "a menu" : "buttons")")
+            var pictures: [String] = []
+            if isNarrow {
+                for (scheme, style) in [(ADW_COLOR_SCHEME_FORCE_LIGHT, "light"), (ADW_COLOR_SCHEME_FORCE_DARK, "dark")]
+                {
+                    adw_style_manager_set_color_scheme(manager, scheme)
+                    await settle()
+                    let file = try picture("layout-\(layout.name)-\(style).png")
+                    let size = try await ownPicture(window.window, to: file)
+                    pictures.append("\(file.lastPathComponent) (\(size))")
+                }
+                adw_style_manager_set_color_scheme(manager, colorScheme)
+            }
+            note(
+                "\(layout.name): the content needs \(minimum) of \(width) px; search, Clear and Rules "
+                    + "\(underList ? "under the list" : "in the header bar"); the list shows "
+                    + "\(columns.joined(separator: ", ")) in \(Int(listNeeds)) of \(Int(listHas)) px; the filter bar, "
+                    + "with the statuses as \(asMenu ? "a menu" : "buttons"), takes \(Int(barNeeds)) of "
+                    + "\(Int(barHas)) px\(pictures.isEmpty ? "" : "; ")"
+                    + pictures.joined(separator: ", "))
+        }
+        await session.clear()
+        try await until("the list to clear", seconds: 5) { list.total == 0 && list.count == 0 }
+    }
+
     /// The window at `layout`'s width, with the text at its size, once it has settled.
     private func resize(to layout: Layout) async throws {
         let window = window
@@ -171,6 +259,11 @@ extension SelfCheck {
             gtk_settings_reset_property(settings, "gtk-xft-dpi")
         } else {
             set(raw(settings), "gtk-xft-dpi", .int(Int32(96 * 1024 * layout.text)))
+        }
+        if layout.classicScrollbars {
+            set(raw(settings), "gtk-overlay-scrolling", .bool(false))
+        } else {
+            gtk_settings_reset_property(settings, "gtk-overlay-scrolling")
         }
         gtk_window_set_default_size(cast(window.window), layout.width, 760)
         // GTK keeps the window on the screen, inside the shadow's margin.
@@ -198,6 +291,7 @@ extension SelfCheck {
             try? await setCapture(on: false)
         }
         gtk_settings_reset_property(gtk_settings_get_default(), "gtk-xft-dpi")
+        gtk_settings_reset_property(gtk_settings_get_default(), "gtk-overlay-scrolling")
         adw_style_manager_set_color_scheme(adw_style_manager_get_default(), colorScheme)
         window.search.close()
         adw_navigation_split_view_set_show_content(window.inner, 0)

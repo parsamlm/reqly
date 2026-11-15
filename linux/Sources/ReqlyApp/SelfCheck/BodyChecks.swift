@@ -135,7 +135,7 @@ extension SelfCheck {
     private func show(_ id: ExchangeID, _ part: MessagePart, on page: BodyPage) async throws -> BodyView {
         let session = try await session()
         let presented = try await session.presentBody(id, part: part == .request ? .request : .response)
-        let view = BodyView(model: model, id: id, part: part)
+        let view = BodyView(model: model.live, id: id, part: part)
         page.show(view)
         view.show(presented)
         try await shows(view)

@@ -123,7 +123,101 @@ extension SelfCheck {
         try require(
             list.reveals - revealsBefore == 1, "the list showed its newest row \(list.reveals - revealsBefore) times")
         try await checkKeepingTheSelection(session, &follower)
+        try await checkTabIntoTheFollowedList(&follower)
+        try await checkClickingAnotherRow()
         try await checkABurstIntoAnEmptyList(&follower)
+    }
+
+    /// Tab into the list, from the Filters button, once the list has followed new traffic while
+    /// the keyboard's focus was elsewhere: the row that had the focus, out of view by then, comes
+    /// into view and has it again, so screen readers hear it, rather than a row they can't see.
+    /// Then, with a request selected once its row came, while the focus was elsewhere, Tab gives
+    /// the focus to that row, not to the one that had it.
+    private func checkTabIntoTheFollowedList(_ follower: inout Follower) async throws {
+        let list = window.list
+        let adjustment = try present(gtk_scrolled_window_get_vadjustment(cast(list.scroller)), "no adjustment")
+        let first = try present(list.exchange(at: 0), "the list has no first row")
+        list.select(id: first)
+        try await until("the first row to show, selected", seconds: 3) {
+            list.selected == first && self.rowShows(first)
+        }
+        try require(list.focusSelection(), "the first row can't have the focus")
+        try await until("the first row to have the focus", seconds: 3) { list.focusedExchange == first }
+        let filters = window.filters.filtersButton
+        try require(gtk_widget_grab_focus(filters) != 0, "the Filters button can't have the focus")
+        // At its end, the list follows a request, and the first row goes out of view.
+        gtk_adjustment_set_value(
+            adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+        await settle()
+        try await follower.send(1)
+        try require(!rowShows(first), "after the list followed, its first row still shows")
+        try FakeInput.press("Tab", in: window.window)
+        try await until("Tab to give the first row the focus, in view", seconds: 3) {
+            list.focusedExchange == first && self.rowShows(first)
+        }
+        note("Tab into the list after it followed: the first row, with the focus before, comes into view with it")
+
+        // A request selected once its row comes, with the focus elsewhere.
+        try require(gtk_widget_grab_focus(filters) != 0, "the Filters button can't have the focus")
+        gtk_adjustment_set_value(
+            adjustment, gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment))
+        await settle()
+        let next = ExchangeID(rawValue: follower.newest.rawValue + 1)
+        var wasSelected: Bool?
+        list.selectOnceShown(next) { wasSelected = $0 }
+        try await follower.send(1)
+        try await until("the new request to be selected once its row came", seconds: 3) { wasSelected != nil }
+        try require(wasSelected == true && list.selected == next, "the new request wasn't selected as its row came")
+        try FakeInput.press("Tab", in: window.window)
+        try await until("Tab to give the selected row the focus", seconds: 3) {
+            list.focusedExchange == next && self.rowShows(next)
+        }
+        note("a request selected as its row came, with the focus elsewhere: Tab gives that row the focus")
+        list.select(id: nil)
+    }
+
+    /// A click on another row, with the keyboard's focus outside the list and the details beside
+    /// it: GTK gives the row the focus as the button goes down, and selects it as the button comes
+    /// up, a moment or a while after, and the row clicked keeps the focus, so the arrow keys and
+    /// the row's menu go on from it.
+    private func checkClickingAnotherRow() async throws {
+        let window = window
+        let list = window.list
+        let filters = window.filters.filtersButton
+        var width: Int32 = 0
+        var height: Int32 = 0
+        gtk_window_get_default_size(cast(window.window), &width, &height)
+        gtk_window_set_default_size(cast(window.window), 1280, 760)
+        defer { gtk_window_set_default_size(cast(window.window), width, height) }
+        try await until("the details to show beside the list", seconds: 5) {
+            gtk_widget_get_width(window.window) > 1260 && adw_navigation_split_view_get_collapsed(window.inner) == 0
+        }
+        await settle()
+        for holding in [50, 300] as [UInt] {
+            let inView = (max(0, list.count - 80)..<list.count).compactMap { list.exchange(at: $0) }
+                .filter { list.rowIsInView($0) }
+            try require(inView.count >= 3, "only \(inView.count) rows show whole")
+            let (from, to) = (inView[0], inView[2])
+            list.select(id: from)
+            try await until("a row to be selected", seconds: 3) { list.selected == from }
+            try require(gtk_widget_grab_focus(filters) != 0, "the Filters button can't have the focus")
+            await settle()
+            try FakeInput.click(try present(list.cell(.status, of: to), "the row has no status cell"), holding: holding)
+            try await until("the click to select its row", seconds: 3) { list.selected == to }
+            await settle()
+            let focus = gtk_root_get_focus(cast(window.window))
+            let focused =
+                list.focusedExchange.map { "request \($0.rawValue)" }
+                ?? "no row, but \(focus.map { typeName(raw($0)) } ?? "nothing"),"
+            try require(
+                list.focusedExchange == to && window.details.shown == to,
+                "after a click held \(holding) ms on request \(to.rawValue), with the focus on Filters, it's selected, "
+                    + "but \(focused) has the focus, and the details show \(window.details.shown?.rawValue ?? 0)")
+        }
+        note("a click on another row, with the focus on Filters, held 50 or 300 ms: that row is selected, and focused")
+        list.select(id: nil)
+        gtk_window_set_default_size(cast(window.window), width, height)
+        await settle()
     }
 
     /// The 4xx filter on, then off, with the list at its end, where every other request of the

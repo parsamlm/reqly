@@ -78,6 +78,17 @@ import Testing
         #expect(open.rootFile == nil && open.setsSystemProxy == false)
     }
 
+    /// A file opened in a window of its own, from Files or Open…, never captures, so it gets none of
+    /// the live session's parts, even in a run that has them.
+    @Test func opensAFileWithNothingOfTheLiveSessions() throws {
+        let options = try Options(["--root-stand-in", "/t/Root.dat", "--proxy-settings-stand-in", "/t/Proxy.json"])
+        let open = AppFolders(options: options, environment: environment).openOptions(
+            file: "/home/ana/Windows.reqly", options)
+        #expect(open.file == "/home/ana/Windows.reqly" && open.sessionsFolder == "/s/reqly/Sessions")
+        #expect(open.setsSystemProxy == false && open.findsApps == false && open.proxySettingsStandIn == nil)
+        #expect(open.rootFile == nil && open.rootStandIn == nil && open.proxyRestoreFile == nil)
+    }
+
     /// A test run never reaches the files the Reqly you use keeps, which runs beside it: not its
     /// restore file, and not your certificate store.
     @Test func keepsATestRunAwayFromYourRestoreFileAndCertificate() throws {

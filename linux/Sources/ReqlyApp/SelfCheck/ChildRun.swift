@@ -104,9 +104,11 @@ extension SelfCheck {
     /// port of its own, and `options`, such as `--smoke-session` or `--session-limit`, and gives
     /// back its report's lines after the first, once it ends. A part sees it's in the copy by
     /// those options, as `tools` does. The copy shares this run's bus and screen, with
-    /// accessibility off unless `accessible`. Fails unless every part passed.
+    /// accessibility off unless `accessible`, and has `environment` too, such as a `TMPDIR` in
+    /// ``otherFileSystemFolder()``. Fails unless every part passed.
     func runInCopy(
-        _ parts: [String], options: [String], seconds: Int = 60, accessible: Bool = false
+        _ parts: [String], options: [String], seconds: Int = 60, accessible: Bool = false,
+        environment: [String: String] = [:]
     ) async throws -> [String] {
         let files = try ChildFiles("copy", in: scratch)
         try JSONEncoder().encode(Self.yourProxySettings).write(to: files.standIn)
@@ -115,7 +117,7 @@ extension SelfCheck {
         let copy = try ChildRun(
             files.arguments() + ["--smoke", report.path, "--smoke-parts", parts.joined(separator: ","), "--port", "0"]
                 + options,
-            environment: accessible ? [:] : ["GTK_A11Y": "none"])
+            environment: (accessible ? [:] : ["GTK_A11Y": "none"]).merging(environment) { $1 })
         defer { copy.stop() }
         let limit = TimeLimit()
         let source = timeout(UInt32(seconds * 1000)) {

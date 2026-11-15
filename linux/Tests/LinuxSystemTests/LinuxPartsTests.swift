@@ -146,4 +146,20 @@ import Testing
         }
         #expect(SystemParts.linux.hardwareAddress("192.0.2.1") == nil)
     }
+
+    /// Reverse proxies keep to the lowest port Linux lets an ordinary user listen on.
+    @Test func readsTheLowestPortLinuxAllows() throws {
+        let folder = try scratchFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "ip_unprivileged_port_start")
+        let path = file.path(percentEncoded: false)
+        for (written, lowest) in [("1024\n", 1024), ("80\n", 80), ("0\n", 1), ("70000", 65535), ("none", 1024)] {
+            try Data(written.utf8).write(to: file)
+            #expect(SystemParts.lowestPort(file: path) == lowest, "\(written)")
+        }
+        #expect(SystemParts.lowestPort(file: folder.appending(path: "missing").path(percentEncoded: false)) == 1024)
+        // This computer's, which Docker sets to 0.
+        #expect(SystemParts.linux.lowestPort() == SystemParts.lowestPort())
+        #expect((1...65535).contains(SystemParts.linux.lowestPort()))
+    }
 }

@@ -1,4 +1,5 @@
 import CertificateAuthority
+import DeviceBridge
 import Foundation
 import ReqlyModel
 
@@ -37,6 +38,12 @@ public struct SystemParts: Sendable {
     /// The hardware address of the device at an IP address on the local network, such as
     /// `aa:bb:cc:dd:ee:ff`, or `nil` when the system doesn't know it.
     public var hardwareAddress: @Sendable (_ ip: String) -> String?
+    /// Finds Android's adb, as each emulator call starts: where Android Studio, the Android SDK or
+    /// the system's package put it, unless a test run names a stand-in, so a real adb never runs.
+    public var findAdb: @Sendable () -> AndroidDebugBridge?
+    /// The lowest port an app may listen on without an administrator, such as 1024 on Linux, or
+    /// 1 where it may use any. Reverse proxies below it are refused.
+    public var lowestPort: @Sendable () -> Int
 
     public init(
         rootStore: (@Sendable (_ file: URL) -> any RootStore)? = nil,
@@ -46,7 +53,9 @@ public struct SystemParts: Sendable {
         appFinder: (@Sendable () -> any AppFinder)? = nil,
         secrets: @escaping @Sendable (_ file: URL, _ isProtected: Bool) -> any SecretStorage,
         networkAddresses: @escaping @Sendable () -> [Address] = { [] },
-        hardwareAddress: @escaping @Sendable (_ ip: String) -> String? = { _ in nil }
+        hardwareAddress: @escaping @Sendable (_ ip: String) -> String? = { _ in nil },
+        findAdb: @escaping @Sendable () -> AndroidDebugBridge? = { AndroidDebugBridge.find() },
+        lowestPort: @escaping @Sendable () -> Int = { 1 }
     ) {
         self.rootStore = rootStore
         self.proxySwitch = proxySwitch
@@ -54,6 +63,8 @@ public struct SystemParts: Sendable {
         self.secrets = secrets
         self.networkAddresses = networkAddresses
         self.hardwareAddress = hardwareAddress
+        self.findAdb = findAdb
+        self.lowestPort = lowestPort
     }
 }
 

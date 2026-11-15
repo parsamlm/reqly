@@ -17,6 +17,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var sidebarShowsApps = true
     public var sidebarShowsDevices = true
     public var sidebarShowsHosts = true
+    /// Whether saved sessions leave out authorization headers and cookies. They keep them at first.
+    public var hidesSecretsInSessions = false
+    /// Whether HAR files leave out authorization headers and cookies, as they do at first, since
+    /// they're often shared.
+    public var hidesSecretsInHar = true
+    /// Whether HAR files have the responses' bodies, as they do at first.
+    public var harIncludesResponseBodies = true
+    /// Whether phones and tablets on the network may connect, once you let each one in. They can't
+    /// at first.
+    public var allowsNetworkDevices = false
+    /// Whether Welcome to Reqly has opened. It opens once, the first time Reqly does.
+    public var hasSeenWelcome = false
+    /// The devices folded away in the sidebar, by their rows' keys, each once. Linux's own: Windows
+    /// keeps them only while it runs.
+    public var sidebarFoldedDevices: [String] = []
 
     public init() {}
 
@@ -39,6 +54,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
         }
         if let shows = try? container.decodeIfPresent(Bool.self, forKey: .sidebarShowsHosts) {
             sidebarShowsHosts = shows
+        }
+        let switches: [(CodingKeys, WritableKeyPath<AppSettings, Bool>)] = [
+            (.hidesSecretsInSessions, \.hidesSecretsInSessions), (.hidesSecretsInHar, \.hidesSecretsInHar),
+            (.harIncludesResponseBodies, \.harIncludesResponseBodies),
+            (.allowsNetworkDevices, \.allowsNetworkDevices), (.hasSeenWelcome, \.hasSeenWelcome),
+        ]
+        for (key, setting) in switches {
+            if let isOn = try? container.decodeIfPresent(Bool.self, forKey: key) {
+                self[keyPath: setting] = isOn
+            }
+        }
+        if let folded = try? container.decodeIfPresent([String].self, forKey: .sidebarFoldedDevices) {
+            var seen: Set<String> = []
+            sidebarFoldedDevices = folded.filter { seen.insert($0).inserted }
         }
     }
 

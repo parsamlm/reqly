@@ -141,6 +141,13 @@ import Testing
 
         #expect(await runner.check("function onRequest(request) { request.") != nil)
         #expect(await runner.check("function onRequest(request) {}") == nil)
+        // The line comes with the words, so the editor can go to it.
+        let lines = "// Checks the forecast.\n\nfunction onRequest( {"
+        let problem = await runner.problem(in: lines)
+        #expect(problem?.line == 3)
+        #expect(problem?.message == (await runner.check(lines)))
+        #expect(problem?.message.hasSuffix(", on line 3.") == true)
+        #expect(await runner.problem(in: "function onRequest(request) {}") == nil)
         let syntax = await runner.run(Script(code: "function onRequest( {"), on: request)
         #expect(syntax.error?.hasPrefix("SyntaxError") == true)
     }

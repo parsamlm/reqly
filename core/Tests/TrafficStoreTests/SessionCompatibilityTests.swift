@@ -3,8 +3,8 @@ import ReqlyModel
 import Testing
 import TrafficStore
 
-/// A session saved by Reqly for Mac 1.0, or by Reqly for Windows, opens on every system, and reads
-/// as the session that was saved: `SessionSample`.
+/// A session saved by Reqly for Mac 1.0, by Reqly for Windows or by Reqly for Linux opens on every
+/// system, and reads as the session that was saved: `SessionSample`.
 @Suite(.timeLimit(.minutes(1))) struct SessionCompatibilityTests {
     /// The saved sessions, next to this file.
     static let sessions = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Sessions")
@@ -13,7 +13,7 @@ import TrafficStore
         URL.temporaryDirectory.appending(path: "ReqlyTests-\(UUID().uuidString)", directoryHint: .isDirectory)
     }
 
-    @Test(arguments: ["Mac 1.0.reqly", "Windows.reqly"])
+    @Test(arguments: ["Mac 1.0.reqly", "Windows.reqly", "Linux.reqly"])
     func opensASessionSavedElsewhere(_ name: String) async throws {
         let root = Self.temporaryFolder()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -34,7 +34,7 @@ import TrafficStore
     }
 
     /// Saves this system's copy of the sample to the file `REQLY_SAVE_SESSION_SAMPLE` names, as
-    /// `Sessions/Windows.reqly` was saved on Windows.
+    /// `Sessions/Windows.reqly` was saved on Windows and `Sessions/Linux.reqly` on Linux.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["REQLY_SAVE_SESSION_SAMPLE"] != nil))
     func savesTheSample() async throws {
         let file = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["REQLY_SAVE_SESSION_SAMPLE"]))

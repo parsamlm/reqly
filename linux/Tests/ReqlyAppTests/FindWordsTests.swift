@@ -17,6 +17,22 @@ import Testing
             ])
     }
 
+    /// A narrow window's status menu: a short label, and every status chosen for screen readers,
+    /// in the buttons' order; each status's action has a name of its own.
+    @Test func namesTheStatusMenu() {
+        let words = { (statuses: Set<StatusFilter>) -> [String] in
+            let menu = StatusMenuWords(statuses)
+            return [menu.label, menu.name]
+        }
+        #expect(words([]) == ["All Statuses", "Statuses: all"])
+        #expect(words([.clientError]) == ["4xx", "Statuses: 4xx"])
+        #expect(words([.failed, .success, .serverError]) == ["3 Statuses", "Statuses: 2xx, 5xx and Failed"])
+        #expect(
+            StatusFilter.allCases.map(\.actionName) == [
+                "status-2xx", "status-3xx", "status-4xx", "status-5xx", "status-failed",
+            ])
+    }
+
     @Test func givesEachFilterThatsSetAToken() {
         var filter = TrafficFilter()
         #expect(FilterToken.tokens(for: filter).isEmpty)

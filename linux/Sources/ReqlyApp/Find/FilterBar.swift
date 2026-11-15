@@ -12,15 +12,22 @@ import ReqlyModel
 /// a choice whose traffic has gone. The session does the filtering, through
 /// ``SessionHost/setFilter(_:)``.
 ///
-/// The bar is hidden while the session is empty, and it scrolls while the window is narrower than
-/// its buttons. The window puts ``widget`` under the search bar.
+/// The bar is hidden while the session is empty. A narrow window shows a menu of the statuses in
+/// place of their buttons, so the bar fits: see ``statusMenuButton``. It scrolls while the window
+/// is narrower than its buttons still. The window puts ``widget`` under the search bar.
 @MainActor
 final class FilterBar {
     /// The bar, in a scroller of its own.
     let widget: Widget
-    /// All, which shows every status, then a button for each kind.
+    /// All, which shows every status, then a button for each kind, in a box of their own.
     let allButton: Widget
     private(set) var statusButtons: [StatusFilter: Widget] = [:]
+    let statusBox: Widget
+    /// The statuses as a menu, with All Statuses and a check for each kind, which a narrow window
+    /// shows in place of their buttons, and its actions, `filter.status-all` and the kinds'.
+    let statusMenuButton: Widget
+    private let allAction: OpaquePointer
+    private var statusActions: [StatusFilter: OpaquePointer] = [:]
     /// Filters, and its popover's menus, checks and Clear All, and how many requests show.
     let filtersButton: Widget
     let popover: Widget
@@ -41,7 +48,7 @@ final class FilterBar {
     private(set) var isFolded = false
     /// Runs once the session filters the list with a new filter.
     var onFilter: (() -> Void)?
-    private let model: AppModel
+    private let model: SessionModel
     /// The room the tokens have: an area that draws nothing, and says when its width changes.
     private let room: Widget
     /// What each menu offers, after its "Any": what the session has, and the choice, even when its
@@ -55,19 +62,52 @@ final class FilterBar {
     private var isFitting = false
     /// The latest change of filter. The next one waits for it, so the session gets them in order.
     private var filtering: Task<Void, Never>?
+    /// Whether the bar's window has closed, though the bar may live on a moment, as a change of
+    /// filter that waits on the session holds it.
+    private(set) var isGone = false
+    /// The bar's listener of its session, which goes as its window closes.
+    private var listener: Int?
 
-    init(model: AppModel) {
+    init(model: SessionModel) {
         self.model = model
         Self.addStyles()
-        let bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
+        // The toolbar's style puts 6 pixels between its parts.
+        let bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0)!
         gtk_widget_add_css_class(bar, "toolbar")
+        // 6 pixels apart too, as in the toolbar.
+        statusBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)
         allButton = Self.statusButton("All", tip: "Show every status", mark: nil)
-        gtk_box_append(cast(bar), allButton)
+        gtk_box_append(cast(statusBox), allButton)
         for status in StatusFilter.allCases {
             let button = Self.statusButton(status.title, tip: status.tip, mark: Self.mark(for: status))
             statusButtons[status] = button
-            gtk_box_append(cast(bar), button)
+            gtk_box_append(cast(statusBox), button)
         }
+        gtk_box_append(cast(bar), statusBox)
+        let actions = g_simple_action_group_new()!
+        allAction = g_simple_action_new_stateful("status-all", nil, g_variant_new_boolean(1))
+        g_action_map_add_action(cast(actions), cast(allAction))
+        g_object_unref(raw(allAction))
+        let entries = g_menu_new()!
+        g_menu_append(entries, "All Statuses", "filter.status-all")
+        let kinds = g_menu_new()!
+        for status in StatusFilter.allCases {
+            let action = g_simple_action_new_stateful(status.actionName, nil, g_variant_new_boolean(0))!
+            statusActions[status] = action
+            g_action_map_add_action(cast(actions), cast(action))
+            g_object_unref(raw(action))
+            g_menu_append(kinds, status.title, "filter.\(status.actionName)")
+        }
+        g_menu_append_section(entries, nil, cast(kinds))
+        g_object_unref(raw(kinds))
+        statusMenuButton = gtk_menu_button_new()
+        gtk_menu_button_set_menu_model(cast(statusMenuButton), cast(entries))
+        g_object_unref(raw(entries))
+        gtk_widget_set_tooltip_text(statusMenuButton, "Show requests by status")
+        gtk_widget_set_visible(statusMenuButton, 0)
+        gtk_box_append(cast(bar), statusMenuButton)
+        gtk_widget_insert_action_group(bar, "filter", cast(actions))
+        g_object_unref(raw(actions))
         let separator = gtk_separator_new(GTK_ORIENTATION_VERTICAL)!
         gtk_widget_set_margin_start(separator, 4)
         gtk_widget_set_margin_end(separator, 4)
@@ -155,6 +195,10 @@ final class FilterBar {
         for (status, button) in statusButtons {
             connect(button, "toggled") { [weak self] in self?.statusToggled(status) }
         }
+        connect(allAction, "activate") { [weak self] in self?.statusToggled(nil) }
+        for (status, action) in statusActions {
+            connect(action, "activate") { [weak self] in self?.statusToggled(status) }
+        }
         for (group, check) in contentChecks {
             connect(check, "toggled") { [weak self] in self?.contentToggled(group) }
         }
@@ -164,7 +208,7 @@ final class FilterBar {
         connect(clearAllButton, "clicked") { [weak self] in self?.clear() }
         connect(popover, "show") { [weak self] in self?.showChoices() }
         connect(room, "resize") { [weak self] in self?.roomChanged() }
-        model.listen { [weak self] event in
+        listener = model.listen { [weak self] event in
             switch event {
             case .rows(_, let total, let shown, _): self?.counted(total: total, shown: shown)
             case .sidebar(let sidebar): self?.received(sidebar)
@@ -174,6 +218,17 @@ final class FilterBar {
             }
         }
         showFilter()
+    }
+
+    /// Its window has closed, and the bar's widgets go with it: it hears its session no more, and
+    /// tells the window nothing more.
+    func windowClosed() {
+        isGone = true
+        onFilter = nil
+        if let listener {
+            model.stopListening(listener)
+            self.listener = nil
+        }
     }
 
     /// Whether any filter is set, the statuses too.
@@ -272,6 +327,13 @@ final class FilterBar {
         for (status, button) in statusButtons {
             gtk_toggle_button_set_active(cast(button), cBool(filter.statuses.contains(status)))
         }
+        g_simple_action_set_state(allAction, g_variant_new_boolean(cBool(filter.statuses.isEmpty)))
+        for (status, action) in statusActions {
+            g_simple_action_set_state(action, g_variant_new_boolean(cBool(filter.statuses.contains(status))))
+        }
+        let words = StatusMenuWords(filter.statuses)
+        gtk_menu_button_set_label(cast(statusMenuButton), words.label)
+        setAccessibleLabel(statusMenuButton, words.name)
         for (group, check) in contentChecks {
             gtk_check_button_set_active(cast(check), cBool(filter.contents.contains(group)))
         }
@@ -343,8 +405,9 @@ final class FilterBar {
         guard !isFitting else { return }
         isFitting = true
         idle { [weak self] in
-            self?.isFitting = false
-            self?.fitTokens()
+            guard let self, !isGone else { return false }
+            isFitting = false
+            fitTokens()
             return false
         }
     }
@@ -373,9 +436,11 @@ final class FilterBar {
     /// A status button: its dot, or a warning for Failed, and its title.
     private static func statusButton(_ title: String, tip: String, mark: Widget?) -> Widget {
         let button = gtk_toggle_button_new()!
-        // On, it has a background, and off, none, as the Mac's chips.
+        // On, it has a background, and off, none, as the Mac's chips, and its sides are narrower
+        // than a button's, so the bar fits the list's narrowest pane beside the details.
         gtk_widget_add_css_class(button, "flat")
-        let content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6)!
+        gtk_widget_add_css_class(button, "filter-chip")
+        let content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4)!
         if let mark {
             gtk_box_append(cast(content), mark)
             setAccessibleHidden(mark, true)
@@ -482,5 +547,6 @@ final class FilterBar {
     private static let css = """
         .filter-token { border-radius: 9999px; padding-left: 10px; background-color: alpha(@accent_bg_color, 0.15); }
         .filter-token button { min-width: 24px; min-height: 24px; padding: 0; }
+        .filter-chip { padding-left: 6px; padding-right: 6px; }
         """
 }

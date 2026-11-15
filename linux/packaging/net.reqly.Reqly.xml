@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reqly's file types, for shared-mime-info: its sessions, and HAR files, which other tools write
+  too. A session is an SQLite database whose application ID, at byte 68, is RQLY, as the Mac's
+  net.reqly.session type says. HAR has the name a request to shared-mime-info proposed, so the two
+  merge if it's ever added there; Reqly opens HAR files, but doesn't own them. The package installs
+  this file in /usr/share/mime/packages, beside the desktop file; for checks in a desktop VM,
+  linux/README.md installs it in ~/.local/share/mime/packages.
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-reqly-session">
+    <comment>Reqly session</comment>
+    <sub-class-of type="application/vnd.sqlite3"/>
+    <generic-icon name="text-x-generic"/>
+    <glob pattern="*.reqly"/>
+    <magic priority="60">
+      <match type="string" value="SQLite format 3\000" offset="0">
+        <match type="string" value="RQLY" offset="68"/>
+      </match>
+    </magic>
+  </mime-type>
+  <mime-type type="application/har+json">
+    <comment>HTTP archive</comment>
+    <sub-class-of type="application/json"/>
+    <generic-icon name="text-x-generic"/>
+    <glob pattern="*.har"/>
+  </mime-type>
+</mime-info>

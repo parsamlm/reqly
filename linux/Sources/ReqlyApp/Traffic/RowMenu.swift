@@ -2,11 +2,13 @@ import CGtk
 import GtkBinding
 import ReqlyModel
 
-/// The menu on a row, as the Mac's row menu has it: Pin or Unpin Request; Color, with None and
-/// the seven colors, the row's own checked; Add or Edit Comment…; and for HTTPS, Decrypt or Stop
-/// Decrypting its host, while the session can decrypt. It's for the row it opened on, which may
-/// not be the selected one: a click with the right button, or Shift+F10 or the Menu key on the
-/// row with the keyboard's focus. Its entries are the `row` actions on the list's view.
+/// The menu on a row, as the Mac's row menu has it: Copy URL, Copy as cURL, Copy Response Body and
+/// Export as HAR…; Resend and Edit and Resend…; Pin or Unpin Request; Color, with None and the
+/// seven colors, the row's own checked; Add or Edit Comment…; Add Rule, with each kind; and for
+/// HTTPS, Decrypt or Stop Decrypting its host, while the session can decrypt. An encrypted
+/// connection offers only Copy URL, the marks, Block… and Decrypt. It's for the row it opened on,
+/// which may not be the selected one: a click with the right button, or Shift+F10 or the Menu key
+/// on the row with the keyboard's focus. Its entries are the `row` actions on the list's view.
 @MainActor
 final class RowMenu {
     let popover: Widget
@@ -23,6 +25,10 @@ final class RowMenu {
     var onComment: ((ExchangeSummary) -> Void)?
     /// Decrypts a host, or stops, as its entry says.
     var onDecrypt: ((_ host: String, _ isOn: Bool) -> Void)?
+    /// One of the Request menu's commands, on the row's request.
+    var onCommand: ((RequestCommand, ExchangeSummary) -> Void)?
+    /// Each command's action, `row.<name>`, on for the requests it works on.
+    private var commands: [RequestCommand: OpaquePointer] = [:]
     /// Whether Reqly decrypts a host, or `nil` while it can't decrypt at all, as for a saved
     /// session.
     var decrypts: ((String) -> Bool?)?
@@ -33,6 +39,22 @@ final class RowMenu {
         menu = g_menu_new()
         marks = g_menu_new()
         decrypting = g_menu_new()
+        let copies = g_menu_new()!
+        let sending = g_menu_new()!
+        let rules = g_menu_new()!
+        for command in RequestCommand.rowCommands {
+            switch command {
+            case .copyURL, .copyCurl, .copyResponseBody, .exportHAR:
+                g_menu_append(copies, command.title, "row.\(command.actionName)")
+            case .resend, .editAndResend:
+                g_menu_append(sending, command.title, "row.\(command.actionName)")
+            case .addRule:
+                g_menu_append(rules, command.title, "row.\(command.actionName)")
+            }
+        }
+        let addRule = g_menu_new()!
+        g_menu_append_submenu(addRule, "Add Rule", cast(rules))
+        g_object_unref(raw(rules))
         g_menu_append(marks, "Pin Request", "row.pin")
         let colors = g_menu_new()!
         let none = g_menu_new()!
@@ -48,8 +70,12 @@ final class RowMenu {
         g_menu_append_submenu(marks, "Color", cast(colors))
         g_object_unref(raw(colors))
         g_menu_append(marks, "Add Comment…", "row.comment")
-        g_menu_append_section(menu, nil, cast(marks))
-        g_menu_append_section(menu, nil, cast(decrypting))
+        for section in [copies, sending, marks, addRule, decrypting] {
+            g_menu_append_section(menu, nil, cast(section))
+        }
+        for section in [copies, sending, addRule] {
+            g_object_unref(raw(section))
+        }
         popover = gtk_popover_menu_new_from_model(cast(menu))
         gtk_popover_set_has_arrow(cast(popover), 0)
         gtk_widget_set_halign(popover, GTK_ALIGN_START)
@@ -87,6 +113,16 @@ final class RowMenu {
             g_action_map_add_action(cast(actions), cast(action))
             g_object_unref(raw(action))
         }
+        for command in RequestCommand.rowCommands {
+            let action = g_simple_action_new(command.actionName, nil)!
+            connect(action, "activate") { [weak self] in
+                guard let self, let target else { return }
+                onCommand?(command, target)
+            }
+            g_action_map_add_action(cast(actions), cast(action))
+            g_object_unref(raw(action))
+            commands[command] = action
+        }
         gtk_widget_insert_action_group(view, "row", cast(actions))
     }
 
@@ -107,11 +143,15 @@ final class RowMenu {
         gtk_popover_popdown(cast(popover))
     }
 
-    /// The entries for `summary`, in the Mac's order: pinning, then decrypting. Only the ones
+    /// The entries for `summary`, in the Mac's order: the commands on while they work on its
+    /// request, then pinning, then decrypting. Only the ones
     /// whose words change are made again: GTK 4.14's menu keeps a submenu's page when the entry
     /// that has it goes.
     private func fill(for summary: ExchangeSummary) {
         let annotation = summary.annotation
+        for (command, action) in commands {
+            g_simple_action_set_enabled(action, cBool(command.isAvailable(for: summary)))
+        }
         g_simple_action_set_state(color, g_variant_new_string(annotation.color?.rawValue ?? "none"))
         replace(0, of: marks, with: annotation.isPinned ? "Unpin Request" : "Pin Request", "row.pin")
         replace(2, of: marks, with: annotation.comment == nil ? "Add Comment…" : "Edit Comment…", "row.comment")

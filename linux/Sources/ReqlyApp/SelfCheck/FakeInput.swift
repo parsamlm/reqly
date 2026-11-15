@@ -30,9 +30,11 @@ enum FakeInput {
     /// Clicks the left button in the middle of `widget`, which shows, or `button`, such as 3 for
     /// the right one, and gives where on the screen. With `movingDown`, the pointer moves that many
     /// pixels down while the button's down, and it's let go there, as a hand that moves on toward
-    /// a menu does.
+    /// a menu does. Otherwise it's let go `holding` milliseconds after it went down.
     @discardableResult
-    static func click(_ widget: Widget, button: UInt32 = 1, movingDown move: Int32 = 0) throws -> (x: Int32, y: Int32) {
+    static func click(
+        _ widget: Widget, button: UInt32 = 1, movingDown move: Int32 = 0, holding: UInt = 50
+    ) throws -> (x: Int32, y: Int32) {
         let x = try X.shared()
         let (rootX, rootY) = try middle(of: widget, x)
         // A moment apart, as a hand would, so GTK sees a click rather than a press and a release.
@@ -41,9 +43,17 @@ enum FakeInput {
         if move != 0 {
             _ = x.fakeMotion(x.display, -1, rootX, rootY + move, 25)
         }
-        _ = x.fakeButton(x.display, button, 0, move != 0 ? 25 : 50)
+        _ = x.fakeButton(x.display, button, 0, move != 0 ? 25 : holding)
         _ = x.flush(x.display)
         return (rootX, rootY)
+    }
+
+    /// Moves the pointer to the middle of `widget`, which shows, with no button down.
+    static func hover(_ widget: Widget) throws {
+        let x = try X.shared()
+        let (rootX, rootY) = try middle(of: widget, x)
+        _ = x.fakeMotion(x.display, -1, rootX, rootY, 0)
+        _ = x.flush(x.display)
     }
 
     /// Turns the wheel up `notches` over the middle of `widget`, which shows, at once: X's button

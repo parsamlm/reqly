@@ -97,17 +97,23 @@ public final class ScriptRunner: Sendable {
 
     /// The script's syntax error, with its line, or `nil` when it compiles.
     public func check(_ code: String) async -> String? {
+        await problem(in: code)?.message
+    }
+
+    /// The script's syntax error, as ``check(_:)`` words it, and the line it's on, counted from 1,
+    /// when QuickJS says; or `nil` when it compiles.
+    public func problem(in code: String) async -> (message: String, line: Int?)? {
         await withCheckedContinuation { continuation in
             worker.submit { runtime in
                 guard let runtime else {
-                    continuation.resume(returning: Self.noEngine)
+                    continuation.resume(returning: (Self.noEngine, nil))
                     return
                 }
                 var result: UnsafeMutablePointer<CChar>?
                 var length = 0
                 let failed = code.withCString { reqly_check(runtime, $0, strlen($0), &result, &length) }
                 let text = Self.take(result, length: length)
-                continuation.resume(returning: failed == 0 ? nil : Self.explain(text))
+                continuation.resume(returning: failed == 0 ? nil : Self.problem(text))
             }
         }
     }
@@ -246,23 +252,29 @@ public final class ScriptRunner: Sendable {
 
     /// QuickJS's error, in plain words: the message, and the line in the script where it happened.
     static func explain(_ text: String) -> String {
+        problem(text).message
+    }
+
+    /// QuickJS's error, in plain words, as ``explain(_:)`` says it, and the line in the script
+    /// where it happened, when QuickJS says.
+    static func problem(_ text: String) -> (message: String, line: Int?) {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
         let message = lines.first ?? "The script failed."
         if message.contains("interrupted") {
-            return "The script took longer than \(Int(timeLimit)) second, so Reqly stopped it."
+            return ("The script took longer than \(Int(timeLimit)) second, so Reqly stopped it.", nil)
         }
         if message.contains("out of memory") {
-            return "The script used more memory than Reqly allows, so Reqly stopped it."
+            return ("The script used more memory than Reqly allows, so Reqly stopped it.", nil)
         }
         // The first place in the script itself, such as "at onRequest (script.js:3:15)".
         let place =
             lines.dropFirst().first { $0.contains("script.js:") }
             ?? (message.contains("script.js:") ? message : nil)
         guard let place, let range = place.range(of: #"script\.js:(\d+)"#, options: .regularExpression) else {
-            return message
+            return (message, nil)
         }
         let line = place[range].split(separator: ":").last.map(String.init) ?? ""
-        return "\(message), on line \(line)."
+        return ("\(message), on line \(line).", Int(line))
     }
 }
 

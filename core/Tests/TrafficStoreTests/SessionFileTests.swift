@@ -5,6 +5,10 @@ import Testing
 
 @testable import TrafficStore
 
+#if canImport(Glibc)
+    import Glibc
+#endif
+
 @Suite(.timeLimit(.minutes(1))) struct SessionFileTests {
     typealias F = Fixtures
 
@@ -70,6 +74,88 @@ import Testing
         #expect(exchange.response?.headers["Content-Type"] == "application/json")
         opened.discard()
     }
+
+    #if !os(Windows)
+        /// A name near the 255 bytes most file systems take saves as a short one does, as a new
+        /// file and over itself, and leaves nothing beside it.
+        @Test func savesUnderAVeryLongName() async throws {
+            let store = try await sampleStore()
+            defer { store.discard() }
+            // 240 bytes: 117 Persian letters of 2 bytes each, and ".reqly".
+            let name = String(repeating: "هوا", count: 39) + ".reqly"
+            #expect(name.utf8.count == 240)
+            let url = file(name)
+            let folder = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            try await store.saveSession(to: url, hidingSecrets: false)
+            try await store.saveSession(to: url, hidingSecrets: false)
+
+            let root = F.temporaryFolder()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let opened = try await TrafficStore.openSession(url, in: root)
+            defer { opened.discard() }
+            #expect(try await opened.summaries() == store.summaries())
+            let left = try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
+            #expect(left == [name])
+        }
+    #endif
+
+    #if os(Linux)
+        /// Whether /dev/shm and the folder Foundation makes its temporary copies in, which follows
+        /// TMPDIR, are on two file systems, as `/tmp` in a tmpfs and your home are on Debian 13 and
+        /// Ubuntu 26.04. Docker gives every container a /dev/shm of its own.
+        static let shmIsAnotherFileSystem: Bool = {
+            let shm = URL(filePath: "/dev/shm/ReqlyTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            guard (try? FileManager.default.createDirectory(at: shm, withIntermediateDirectories: false)) != nil
+            else { return false }
+            defer { try? FileManager.default.removeItem(at: shm) }
+            guard
+                let scratch = try? FileManager.default.url(
+                    for: .itemReplacementDirectory, in: .userDomainMask,
+                    appropriateFor: shm.appending(path: "Weatherly.reqly"), create: true)
+            else { return false }
+            defer { try? FileManager.default.removeItem(at: scratch) }
+            var shmStatus = stat()
+            var scratchStatus = stat()
+            guard stat(shm.path(percentEncoded: false), &shmStatus) == 0,
+                stat(scratch.path(percentEncoded: false), &scratchStatus) == 0
+            else { return false }
+            return shmStatus.st_dev != scratchStatus.st_dev
+        }()
+
+        /// Saving over a file takes its place in one step, even where Foundation's temporary
+        /// folder is on another file system, as it is wherever `/tmp` is a tmpfs.
+        @Test(
+            .enabled(
+                if: shmIsAnotherFileSystem,
+                "/dev/shm and Foundation's temporary folder are on one file system here, so this can't be tested"))
+        func savesOverAFileOnAnotherFileSystem() async throws {
+            let store = try await sampleStore()
+            defer { store.discard() }
+            let folder = URL(filePath: "/dev/shm/ReqlyTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            // A file only you can read, saved before.
+            let url = folder.appending(path: "Weatherly.reqly")
+            let path = url.path(percentEncoded: false)
+            #expect(
+                FileManager.default.createFile(
+                    atPath: path, contents: Data("An older session".utf8), attributes: [.posixPermissions: 0o600]))
+            try await store.saveSession(to: url, hidingSecrets: false)
+
+            // The new session took its place whole, kept its mode, and left nothing beside it.
+            let root = F.temporaryFolder()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let opened = try await TrafficStore.openSession(url, in: root)
+            defer { opened.discard() }
+            #expect(try await opened.summaries() == store.summaries())
+            let mode = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+            #expect(mode?.intValue == 0o600)
+            let left = try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
+            #expect(left == ["Weatherly.reqly"])
+        }
+    #endif
 
     @Test func refusesFilesThatAreNotSessions() async throws {
         let folder = F.temporaryFolder()

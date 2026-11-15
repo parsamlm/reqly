@@ -52,8 +52,8 @@ import Testing
         #expect(removal.rootStandIn == "/t/Root.dat")
     }
 
-    /// Desktops pass files even though the desktop file's Exec takes none, as Open With does: the
-    /// run takes them, and opens Reqly's window, or brings back the one that's open.
+    /// The files a desktop passes, paths or URIs, which the Reqly that's running opens, each in a
+    /// window of its own.
     @Test func takesTheFilesADesktopPasses() throws {
         let options = try Options(["/home/ana/Documents/note.txt", "file:///etc/hostname"])
         #expect(options.command == .open)
@@ -83,6 +83,18 @@ import Testing
             try Options(["--trust-helper", "reqly-trust"])
         }
         #expect(throws: Options.UsageError.self) { try Options(["--trust-helper", "packaging/reqly-trust"]) }
+    }
+
+    /// The self-check's emulators part runs a stand-in for adb, by its full path, so no real adb
+    /// runs, and the stand-in makes a test run, whose sessions find it in their system's parts.
+    @Test func takesAStandInForAdb() throws {
+        let options = try Options(["--adb-stand-in", "/t/adb"])
+        #expect(options.adbStandIn == "/t/adb" && options.isTestRun)
+        #expect(options.systemParts.findAdb()?.executable.path == "/t/adb")
+        #expect(try Options([]).adbStandIn == nil)
+        #expect(throws: Options.UsageError("--adb-stand-in takes the program's full path, starting with /, not adb.")) {
+            try Options(["--adb-stand-in", "adb"])
+        }
     }
 
     /// The self-check's logout part has a copy of Reqly close slowly. The delay alone doesn't make

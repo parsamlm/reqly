@@ -514,8 +514,8 @@ extension SelfCheck {
         let heard = try await AccessibilityTree.events(["object:announcement"], seconds: 6) {
             // The reader takes a moment to start listening.
             try? await Task.sleep(for: .milliseconds(1500))
-            for (index, page) in DetailsPane.Page.allCases.enumerated() {
-                try? FakeInput.press("Control_L", "\(index + 1)", in: window.window)
+            for page in DetailsPane.Page.always {
+                try? FakeInput.press("Control_L", "\(page.key)", in: window.window)
                 for _ in 0..<50 where window.details.page != page {
                     try? await Task.sleep(for: .milliseconds(10))
                 }
@@ -523,7 +523,7 @@ extension SelfCheck {
                 try? await Task.sleep(for: .milliseconds(300))
             }
         }
-        let titles = DetailsPane.Page.allCases.map(\.title)
+        let titles = DetailsPane.Page.always.map(\.title)
         let said = titles.filter { title in heard.contains { $0.detail == title } }
         note("Ctrl+1 to Ctrl+5: \(chosen.joined(separator: ", ")); heard \(said.joined(separator: ", "))")
         try require(chosen == titles, "Ctrl+1 to Ctrl+5 chose \(chosen), not \(titles)")

@@ -212,6 +212,11 @@ public struct RequestDraft: Sendable, Equatable {
         self.body = body
     }
 
+    /// The body as text to edit, when it's UTF-8, or `nil` for a body that's sent as it is.
+    public var bodyText: String? {
+        String(data: body, encoding: .utf8)
+    }
+
     /// Reqly sets these itself when it sends the request, from the URL and the body, and leaves
     /// out the ones meant for a proxy.
     static let framingHeaders: Set<String> = [
@@ -244,6 +249,52 @@ public struct RequestDraft: Sendable, Equatable {
             return header.isOn && !name.isEmpty ? HeaderField(name: name, value: header.value) : nil
         }
         return OutgoingRequest(method: method, url: url, headers: Headers(fields), body: body)
+    }
+}
+
+/// What's wrong with a script, as the script editor shows it under the code.
+public struct ScriptProblem: Sendable, Equatable {
+    /// Such as "SyntaxError: invalid property name, on line 1."
+    public var message: String
+    /// The line it's on, counted from 1, when the script engine says.
+    public var line: Int?
+
+    public init(message: String, line: Int?) {
+        self.message = message
+        self.line = line
+    }
+}
+
+/// A response saved as a file for Map Local to answer with, as "Save the Response as a File…"
+/// saves it.
+public struct ResponseFile: Sendable, Equatable {
+    /// The body, unpacked.
+    public var data: Data
+    /// Such as `forecast.json`: the last part of the request's path, or its host, with the
+    /// extension for its type when it has none.
+    public var suggestedName: String
+    public var status: Int
+    public var contentType: String?
+
+    public init(data: Data, suggestedName: String, status: Int, contentType: String?) {
+        self.data = data
+        self.suggestedName = suggestedName
+        self.status = status
+        self.contentType = contentType
+    }
+
+    /// A name for the response's file, such as `forecast.json`: the last part of the request's
+    /// path (its target without the query), or its host, with the extension Map Local gives the
+    /// type when the name has none.
+    static func name(for request: RequestHead, contentType: String?) -> String {
+        let last = request.path.split(separator: "/").last.map(String.init) ?? ""
+        let readable = (last.removingPercentEncoding ?? last).replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\0", with: "")
+        let name = readable.isEmpty || readable == "." || readable == ".." ? request.host : readable
+        guard (name as NSString).pathExtension.isEmpty, let contentType,
+            let fileExtension = LocalFileTypes.fileExtension(forType: contentType)
+        else { return name }
+        return "\(name).\(fileExtension)"
     }
 }
 

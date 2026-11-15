@@ -71,7 +71,8 @@ final class HTTPSModel {
     private(set) var isWorking = false
     /// The certificate, once read, so reading the places again asks the keyring nothing.
     private var root: RootIdentity?
-    private var observers: [@MainActor () -> Void] = []
+    private var observers: [(id: Int, body: @MainActor () -> Void)] = []
+    private var lastObserver = 0
 
     init(app: AppModel) {
         self.app = app
@@ -214,14 +215,22 @@ final class HTTPSModel {
         return TerminalSetup.Certificates(bundle: bundleFile, root: pemFile)
     }
 
-    /// Runs `body` after each change to HTTPS: its state, the places, or the work under way.
-    func observe(_ body: @escaping @MainActor () -> Void) {
-        observers.append(body)
+    /// Runs `body` after each change to HTTPS: its state, the places, or the work under way, until
+    /// ``stopObserving(_:)`` with what it returns, as a pane that goes before Reqly does.
+    @discardableResult
+    func observe(_ body: @escaping @MainActor () -> Void) -> Int {
+        lastObserver += 1
+        observers.append((lastObserver, body))
+        return lastObserver
+    }
+
+    func stopObserving(_ observer: Int) {
+        observers.removeAll { $0.id == observer }
     }
 
     private func changed() {
         for observer in observers {
-            observer()
+            observer.body()
         }
         app.changed()
     }

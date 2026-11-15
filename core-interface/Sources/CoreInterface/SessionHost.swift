@@ -30,9 +30,9 @@ public actor SessionHost {
     private let httpsHost: HTTPSHost?
     /// Where events go, as they happen, until the session closes.
     private var events: (@Sendable (Event) -> Void)?
-    /// Finds Android's tools as each emulator call starts. Tests hide them this way, rather than
-    /// by changing the environment while other tests read it.
-    private var findAdb: @Sendable () -> AndroidDebugBridge? = { AndroidDebugBridge.find() }
+    /// Finds Android's tools as each emulator call starts, as the system's parts say. Tests hide
+    /// them this way, rather than by changing the environment while other tests read it.
+    private var findAdb: @Sendable () -> AndroidDebugBridge?
     private var list = TrafficList()
     private var version = 0
     private var storeSearch: Task<Void, Never>?
@@ -169,6 +169,7 @@ public actor SessionHost {
         self.protobuf = protobuf
         self.origins = origins
         self.system = system
+        self.findAdb = system.findAdb
         self.events = events
     }
 
@@ -465,6 +466,23 @@ public actor SessionHost {
         return CopyableBody(exchange.responseBody, headers: response.headers)
     }
 
+    /// The response as a file for Map Local to answer with: unpacked, with a name for the file,
+    /// and the status and type to answer with.
+    public func responseFile(_ id: ExchangeID) async throws(Problem) -> ResponseFile {
+        let exchange = try await readable(id)
+        guard let response = exchange.response else {
+            throw Problem(.notAvailable, "This request has no response yet.")
+        }
+        let data =
+            response.headers["Content-Encoding"].flatMap {
+                BodyDecoder.decode(exchange.responseBody, contentEncoding: $0)
+            } ?? exchange.responseBody
+        let contentType = response.headers["Content-Type"]
+        return ResponseFile(
+            data: data, suggestedName: ResponseFile.name(for: exchange.request, contentType: contentType),
+            status: response.status, contentType: contentType)
+    }
+
     /// Sends a request you wrote, straight to its server, and records it like any other.
     public func send(_ draft: RequestDraft) async throws(Problem) -> ExchangeID {
         let request = try draft.request()
@@ -546,6 +564,12 @@ public actor SessionHost {
         await capture.checkScript(code)
     }
 
+    /// What's wrong with a script, in ``checkScript(_:)``'s words, with the line it's on, or
+    /// nothing when it reads.
+    public func scriptProblem(_ code: String) async -> ScriptProblem? {
+        await capture.scriptProblem(code).map { ScriptProblem(message: $0.message, line: $0.line) }
+    }
+
     /// A script's syntax, to color it as you type: its keywords, strings, numbers, literals and
     /// comments. Past the limit, the script shows without colors, as long bodies do.
     public nonisolated func highlightScript(_ code: String) -> [SyntaxToken] {
@@ -576,9 +600,19 @@ public actor SessionHost {
         }
     }
 
+    /// The rows the list shows that a HAR file can hold, in order, and how many it shows that it
+    /// can't: encrypted connections, whose requests can't be read. Export as HAR counts them, and
+    /// passes `readable` to ``exportHAR(to:ids:includesResponseBodies:hidesSecrets:creatorVersion:)``,
+    /// so its progress counts what it writes.
+    public func exportRows() -> (readable: [ExchangeID], encrypted: Int) {
+        let readable = list.rows.filter { list.summary($0)?.kind == .http }
+        return (readable, list.rows.count - readable.count)
+    }
+
     /// Writes exchanges to a HAR file, these or with none the list as it shows, in order, and
     /// says how many it wrote. It sends `exportProgress` events as it goes. Encrypted connections
-    /// are left out, since their requests can't be read.
+    /// are left out, since their requests can't be read. Cancelling its task stops it, and the
+    /// half-written file is deleted, as it is when writing fails.
     public func exportHAR(
         to url: URL, ids: [ExchangeID]? = nil, includesResponseBodies: Bool = true, hidesSecrets: Bool = true,
         creatorVersion: String
@@ -591,6 +625,7 @@ public actor SessionHost {
         do {
             let writer = try HARWriter(url: url, options: options, creatorVersion: creatorVersion)
             for (done, id) in ids.enumerated() {
+                try Task.checkCancellation()
                 if let exchange = await capture.exchange(id), exchange.kind == .http {
                     let messages = exchange.messageCount > 0 ? await capture.messages(of: id) : []
                     try writer.append(exchange, messages: messages)
@@ -601,6 +636,9 @@ public actor SessionHost {
                 }
             }
             try writer.finish()
+        } catch is CancellationError {
+            try? FileManager.default.removeItem(at: url)
+            throw Problem(.failed, "The export was cancelled.")
         } catch {
             try? FileManager.default.removeItem(at: url)
             throw Problem(.failed, "Reqly couldn't export: \(error.localizedDescription)")
@@ -858,6 +896,18 @@ public actor SessionHost {
         return connectionsState
     }
 
+    /// Whether Reqly can capture on a port, as typed in Settings: a number from 1024 to 65535
+    /// that no reverse proxy uses. Gives the port, or what's wrong with it, as the Mac says it.
+    public func checkProxyPort(_ text: String) -> (port: Int?, problem: String?) {
+        guard let number = Int(text.trimmingCharacters(in: .whitespaces)), (1024...65535).contains(number) else {
+            return (nil, "Enter a port from 1024 to 65535.")
+        }
+        if connectionsBook.contents.reverseProxies.contains(where: { $0.localPort == number }) {
+            return (nil, "A reverse proxy listens on port \(String(number)). Choose another port.")
+        }
+        return (number, nil)
+    }
+
     /// A new reverse proxy to edit, on a port none uses yet.
     public func newReverseProxy(proxyPort: Int) -> ReverseProxyDraft {
         let proxies = connectionsBook.contents.reverseProxies
@@ -868,8 +918,8 @@ public actor SessionHost {
     /// What's wrong with a reverse proxy as you edit it, or where it sends requests.
     public func checkReverseProxy(_ draft: ReverseProxyDraft, proxyPort: Int) -> CheckResult {
         let proxy = draft.proxy(keeping: nil)
-        let problem = proxy.problem(
-            port: draft.port, proxyPort: proxyPort, among: connectionsBook.contents.reverseProxies)
+        let problem = reverseProxyProblem(
+            proxy, port: draft.port, proxyPort: proxyPort, among: connectionsBook.contents.reverseProxies)
         let note =
             problem == nil
             ? proxy.server.map { "Apps that use http://localhost:\(String(proxy.localPort)) reach \($0.url)." }
@@ -883,12 +933,25 @@ public actor SessionHost {
     {
         let proxies = connectionsBook.contents.reverseProxies
         let proxy = draft.proxy(keeping: proxies.first { $0.id == draft.id })
-        if let problem = proxy.problem(port: draft.port, proxyPort: proxyPort, among: proxies) {
+        if let problem = reverseProxyProblem(proxy, port: draft.port, proxyPort: proxyPort, among: proxies) {
             throw Problem(.badRequest, problem)
         }
         connectionsBook.saveReverseProxy(proxy)
         await applyReverseProxies()
         return connectionsState
+    }
+
+    /// What's wrong with a reverse proxy, with its port as typed: a port below the lowest one this
+    /// system lets an app listen on, or what ``ReverseProxy/problem(port:proxyPort:among:)`` says.
+    private func reverseProxyProblem(
+        _ proxy: ReverseProxy, port: String, proxyPort: Int, among proxies: [ReverseProxy]
+    ) -> String? {
+        let lowest = system.lowestPort()
+        if let number = Int(port.trimmingCharacters(in: .whitespaces)), number >= 1, number < lowest {
+            let floor = String(lowest)
+            return "Linux lets only administrators use ports below \(floor). Choose \(floor) or above."
+        }
+        return proxy.problem(port: port, proxyPort: proxyPort, among: proxies)
     }
 
     @discardableResult
